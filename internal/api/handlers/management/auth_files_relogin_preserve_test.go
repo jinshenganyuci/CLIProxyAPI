@@ -83,6 +83,8 @@ func TestSaveTokenRecord_PreservesExistingAuthFileSettings(t *testing.T) {
 		"models":        []any{"o3-mini"},
 		"thinking":      map[string]any{"enabled": true},
 		"priority":      float64(2),
+		codex.CredentialIdentityVersionMetadataKey:   float64(codex.CredentialIdentityCurrentVersion),
+		codex.CredentialIdentityNamespaceMetadataKey: "981bd5bd-1ad8-4eef-88f8-5f0ec7cb1df7",
 	}
 	raw, errMarshal := json.Marshal(initialContent)
 	if errMarshal != nil {
@@ -170,6 +172,12 @@ func TestSaveTokenRecord_PreservesExistingAuthFileSettings(t *testing.T) {
 	}
 	if saved["priority"] != float64(2) {
 		t.Errorf("priority = %v, want 2", saved["priority"])
+	}
+	if saved[codex.CredentialIdentityVersionMetadataKey] != float64(codex.CredentialIdentityCurrentVersion) {
+		t.Errorf("identity version = %v, want %d", saved[codex.CredentialIdentityVersionMetadataKey], codex.CredentialIdentityCurrentVersion)
+	}
+	if saved[codex.CredentialIdentityNamespaceMetadataKey] != "981bd5bd-1ad8-4eef-88f8-5f0ec7cb1df7" {
+		t.Errorf("identity namespace = %v, want preserved namespace", saved[codex.CredentialIdentityNamespaceMetadataKey])
 	}
 }
 
