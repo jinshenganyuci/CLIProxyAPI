@@ -13,6 +13,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executionregistry"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 type retryRoundCallExecutor struct {
@@ -150,6 +151,44 @@ func TestExecuteRetryRoundCredentialWindows(t *testing.T) {
 				t.Fatalf("credential call counts = %#v, want A=4 B=3 C=3; calls=%v", counts, executor.ids(test.kind))
 			}
 		})
+	}
+}
+
+func TestPinnedCredentialRetryNeverSwitchesAuthWithPluginScheduler(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.SetRetryConfig(3, 0, 0)
+	executor := &retryRoundCallExecutor{identifier: "codex"}
+	manager.RegisterExecutor(executor)
+	registerRetryRoundLocalAuths(t, manager, "codex", "gpt-pinned", map[string]int{
+		"codex-pinned-a": 3,
+		"codex-other-b":  3,
+	})
+
+	scheduler := &fakePluginScheduler{pick: func(_ context.Context, req pluginapi.SchedulerPickRequest) (pluginapi.SchedulerPickResponse, bool, error) {
+		if len(req.Candidates) != 1 || req.Candidates[0].ID != "codex-pinned-a" {
+			t.Fatalf("plugin candidates = %#v, want only pinned auth", req.Candidates)
+		}
+		return pluginapi.SchedulerPickResponse{Handled: true, AuthID: "codex-pinned-a"}, true, nil
+	}}
+	manager.SetPluginScheduler(scheduler)
+
+	_, errExecute := manager.Execute(context.Background(), []string{"codex"}, cliproxyexecutor.Request{Model: "gpt-pinned"}, cliproxyexecutor.Options{Metadata: map[string]any{
+		cliproxyexecutor.PinnedAuthMetadataKey: "codex-pinned-a",
+	}})
+	if errExecute == nil {
+		t.Fatal("Execute() error = nil, want terminal retry error")
+	}
+	calls := executor.ids("execute")
+	if len(calls) != 4 {
+		t.Fatalf("pinned calls = %v, want one call in each of four retry rounds", calls)
+	}
+	for _, authID := range calls {
+		if authID != "codex-pinned-a" {
+			t.Fatalf("pinned request switched to %q; calls=%v", authID, calls)
+		}
+	}
+	if scheduler.calls != 4 {
+		t.Fatalf("plugin scheduler calls = %d, want 4", scheduler.calls)
 	}
 }
 

@@ -112,6 +112,15 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	if oldCfg.Codex.IdentityConfuse != newCfg.Codex.IdentityConfuse {
 		changes = append(changes, fmt.Sprintf("codex.identity-confuse: %t -> %t", oldCfg.Codex.IdentityConfuse, newCfg.Codex.IdentityConfuse))
 	}
+	if oldCfg.Codex.CredentialIdentity.Enabled != newCfg.Codex.CredentialIdentity.Enabled {
+		changes = append(changes, fmt.Sprintf("codex.credential-identity.enabled: %t -> %t", oldCfg.Codex.CredentialIdentity.Enabled, newCfg.Codex.CredentialIdentity.Enabled))
+	}
+	if oldCfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID != newCfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID {
+		changes = append(changes, fmt.Sprintf("codex.credential-identity.synthesize-missing-installation-id: %t -> %t", oldCfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID, newCfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID))
+	}
+	if oldCfg.Codex.CredentialProxyPolicy != newCfg.Codex.CredentialProxyPolicy {
+		changes = append(changes, fmt.Sprintf("codex.credential-proxy-policy: %s -> %s", oldCfg.Codex.CredentialProxyPolicy, newCfg.Codex.CredentialProxyPolicy))
+	}
 	if oldCfg.Codex.DisableCodexCloaking != newCfg.Codex.DisableCodexCloaking {
 		changes = append(changes, fmt.Sprintf("codex.disable-codex-cloaking: %t -> %t", oldCfg.Codex.DisableCodexCloaking, newCfg.Codex.DisableCodexCloaking))
 	}

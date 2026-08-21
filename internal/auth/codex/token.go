@@ -4,13 +4,14 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
-	log "github.com/sirupsen/logrus"
 )
 
 // CodexTokenStorage stores OAuth2 token information for OpenAI Codex API authentication.
@@ -33,6 +34,10 @@ type CodexTokenStorage struct {
 	Type string `json:"type"`
 	// Expire is the timestamp when the current access token expires.
 	Expire string `json:"expired"`
+	// IdentityVersion is the persistent credential identity schema version.
+	IdentityVersion int `json:"codex_identity_version,omitempty"`
+	// IdentityNamespace is the UUID namespace owned by this OAuth credential.
+	IdentityNamespace string `json:"codex_identity_namespace,omitempty"`
 
 	// Metadata holds arbitrary key-value pairs injected via hooks.
 	// It is not exported to JSON directly to allow flattening during serialization.
@@ -67,18 +72,61 @@ func (ts *CodexTokenStorage) SaveTokenToFile(authFilePath string) error {
 		return fmt.Errorf("failed to merge metadata: %w", errMerge)
 	}
 
-	f, err := os.Create(authFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create token file: %w", err)
+	var encoded bytes.Buffer
+	if errEncode := json.NewEncoder(&encoded).Encode(data); errEncode != nil {
+		return fmt.Errorf("failed to encode token file: %w", errEncode)
 	}
-	defer func() {
-		if errClose := f.Close(); errClose != nil {
-			log.Errorf("codex token storage: close token file error: %v", errClose)
-		}
-	}()
+	if errWrite := writeTokenFileAtomic(authFilePath, encoded.Bytes()); errWrite != nil {
+		return fmt.Errorf("failed to write token file: %w", errWrite)
+	}
+	return nil
+}
 
-	if err = json.NewEncoder(f).Encode(data); err != nil {
-		return fmt.Errorf("failed to write token to file: %w", err)
+func writeTokenFileAtomic(path string, data []byte) error {
+	directoryPath := filepath.Dir(path)
+	temporary, errCreate := os.CreateTemp(directoryPath, ".codex-token-*.tmp")
+	if errCreate != nil {
+		return errCreate
+	}
+	temporaryPath := temporary.Name()
+	cleanup := func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}
+	if errChmod := temporary.Chmod(0o600); errChmod != nil {
+		cleanup()
+		return errChmod
+	}
+	if _, errWrite := temporary.Write(data); errWrite != nil {
+		cleanup()
+		return errWrite
+	}
+	if errSync := temporary.Sync(); errSync != nil {
+		cleanup()
+		return errSync
+	}
+	if errClose := temporary.Close(); errClose != nil {
+		_ = os.Remove(temporaryPath)
+		return errClose
+	}
+	if errRename := os.Rename(temporaryPath, path); errRename != nil {
+		_ = os.Remove(temporaryPath)
+		return errRename
+	}
+	if errChmod := os.Chmod(path, 0o600); errChmod != nil {
+		return errChmod
+	}
+	directory, errOpen := os.Open(directoryPath)
+	if errOpen != nil {
+		return errOpen
+	}
+	errSync := directory.Sync()
+	errClose := directory.Close()
+	if errSync != nil && !errors.Is(errSync, os.ErrInvalid) {
+		return errSync
+	}
+	if errClose != nil {
+		return errClose
 	}
 	return nil
 }
