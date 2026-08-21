@@ -146,6 +146,12 @@ type AntigravityConfig struct {
 // CodexConfig configures provider-wide Codex request behavior.
 type CodexConfig struct {
 	IdentityConfuse bool `yaml:"identity-confuse" json:"identity-confuse"`
+	// CredentialIdentity scopes Codex client and session identifiers to the selected
+	// OAuth credential while preserving stable identifiers for each downstream client.
+	CredentialIdentity CodexCredentialIdentityConfig `yaml:"credential-identity" json:"credential-identity"`
+	// CredentialProxyPolicy controls whether a Codex OAuth credential may fall back
+	// to the global proxy or a direct connection when it has no usable proxy-url.
+	CredentialProxyPolicy string `yaml:"credential-proxy-policy" json:"credential-proxy-policy"`
 	// DisableCodexCloaking disables forcing the official Codex identity headers on HTTP/SSE and WebSocket requests.
 	DisableCodexCloaking bool `yaml:"disable-codex-cloaking" json:"disable-codex-cloaking"`
 	// StreamBootstrapBuffering holds back initial handshake events (response.created,
@@ -162,6 +168,14 @@ type CodexConfig struct {
 	OrphanDelegationCompatibility bool `yaml:"orphan-delegation-compatibility" json:"orphan-delegation-compatibility"`
 	// LiveMediaRelay terminates and relays Codex Live WebRTC media in this process.
 	LiveMediaRelay CodexLiveMediaRelayConfig `yaml:"live-media-relay" json:"live-media-relay"`
+}
+
+// CodexCredentialIdentityConfig configures stable per-credential identity mapping.
+type CodexCredentialIdentityConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// SynthesizeMissingInstallationID creates a stable synthetic installation ID
+	// only when a request does not provide one. It defaults to false.
+	SynthesizeMissingInstallationID bool `yaml:"synthesize-missing-installation-id" json:"synthesize-missing-installation-id"`
 }
 
 // CodexLiveMediaRelayConfig configures the in-process Codex Live WebRTC gateway.

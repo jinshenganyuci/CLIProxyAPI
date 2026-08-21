@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -265,17 +266,106 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 			dst = abs
 		}
 	}
+	preparedData, isCodexOAuth, errPrepare := h.prepareUploadedCodexCredentialIdentity(dst, data)
+	if errPrepare != nil {
+		return errPrepare
+	}
+	data = preparedData
 	auth, err := h.buildAuthFromFileData(dst, data)
 	if err != nil {
 		return err
 	}
-	if errWrite := os.WriteFile(dst, data, 0o600); errWrite != nil {
+	writeFile := func() error { return os.WriteFile(dst, data, 0o600) }
+	if isCodexOAuth {
+		writeFile = func() error { return writeCodexCredentialFileAtomic(dst, data) }
+	}
+	if errWrite := writeFile(); errWrite != nil {
 		return fmt.Errorf("failed to write file: %w", errWrite)
 	}
 	if err := h.upsertAuthRecord(ctx, auth); err != nil {
 		return err
 	}
+	if isCodexOAuth {
+		if errWrite := writeCodexCredentialFileAtomic(dst, data); errWrite != nil {
+			return fmt.Errorf("failed to finalize Codex auth file: %w", errWrite)
+		}
+	}
 	return nil
+}
+
+func (h *Handler) prepareUploadedCodexCredentialIdentity(dst string, data []byte) ([]byte, bool, error) {
+	metadata := make(map[string]any)
+	if errUnmarshal := json.Unmarshal(data, &metadata); errUnmarshal != nil {
+		return data, false, nil
+	}
+	if !strings.EqualFold(authMetadataStringValue(metadata, "type"), "codex") || !uploadedMetadataLooksOAuth(metadata) {
+		return data, false, nil
+	}
+
+	if existingRaw, errRead := os.ReadFile(dst); errRead == nil {
+		var existing map[string]any
+		if errUnmarshal := json.Unmarshal(existingRaw, &existing); errUnmarshal == nil {
+			if existingNamespace, _, errIdentity := codex.ParseCredentialIdentity(existing); errIdentity == nil {
+				if errSet := codex.SetCredentialIdentity(metadata, existingNamespace.String()); errSet != nil {
+					return nil, true, errSet
+				}
+			}
+		}
+	}
+
+	_, hasVersion := metadata[codex.CredentialIdentityVersionMetadataKey]
+	_, hasNamespace := metadata[codex.CredentialIdentityNamespaceMetadataKey]
+	if !hasVersion && !hasNamespace {
+		if _, _, errEnsure := codex.EnsureCredentialIdentity(metadata); errEnsure != nil {
+			return nil, true, errEnsure
+		}
+	}
+	namespace, _, errIdentity := codex.ParseCredentialIdentity(metadata)
+	if errIdentity != nil {
+		return nil, true, fmt.Errorf("uploaded Codex OAuth credential identity: %w", errIdentity)
+	}
+	if conflict := h.findCodexCredentialIdentityNamespaceOwner(namespace.String(), dst); conflict != "" {
+		return nil, true, fmt.Errorf("uploaded Codex OAuth credential identity conflicts with %q", conflict)
+	}
+
+	updated, errMarshal := json.MarshalIndent(metadata, "", "  ")
+	if errMarshal != nil {
+		return nil, true, fmt.Errorf("marshal uploaded Codex OAuth credential: %w", errMarshal)
+	}
+	return append(updated, '\n'), true, nil
+}
+
+func (h *Handler) findCodexCredentialIdentityNamespaceOwner(namespace string, destinationPath string) string {
+	if h == nil || h.authManager == nil {
+		return ""
+	}
+	destinationPath = cleanAuthFilePath(destinationPath)
+	for _, auth := range h.authManager.List() {
+		if auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") || auth.AuthKind() != coreauth.AuthKindOAuth {
+			continue
+		}
+		path := cleanAuthFilePath(authAttribute(auth, coreauth.AttributePath))
+		if path != "" && sameAuthFilePath(path, destinationPath) {
+			continue
+		}
+		existing, _, errIdentity := codex.ParseCredentialIdentity(auth.Metadata)
+		if errIdentity == nil && existing.String() == namespace {
+			if strings.TrimSpace(auth.FileName) != "" {
+				return auth.FileName
+			}
+			return auth.ID
+		}
+	}
+	return ""
+}
+
+func uploadedMetadataLooksOAuth(metadata map[string]any) bool {
+	for _, key := range []string{"access_token", "refresh_token", "id_token"} {
+		if authMetadataStringValue(metadata, key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func requestedAuthFileNamesForDelete(c *gin.Context) ([]string, error) {

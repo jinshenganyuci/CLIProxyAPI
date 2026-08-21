@@ -21,6 +21,9 @@ import (
 )
 
 func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+		return nil, errProxy
+	}
 	if opts.Alt == "responses/compact" {
 		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /responses/compact"}
 	}
@@ -87,7 +90,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
-	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
+	applyCodexIdentityHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -129,7 +132,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-		err = newCodexStatusErr(httpResp.StatusCode, data)
+		err = newCodexStatusErr(httpResp.StatusCode, applyCodexIdentityExposeResponsePayload(data, identityState))
 		return nil, err
 	}
 
@@ -191,7 +194,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 						helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap overload rejection after %d buffered handshake events, failing over", len(bufferedChunks))
 						return nil, newCodexBootstrapOverloadErr(terminalBody)
 					}
-					bootstrapTerminalErr = streamErr
+					bootstrapTerminalErr = exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
 					break
 				}
 				if isCodexHandshakeMetadataEvent(eventType) {
@@ -275,12 +278,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		// stream and delivers this failure in-stream, exactly as the unbuffered path would.
 		out <- cliproxyexecutor.StreamChunk{Err: bootstrapTerminalErr}
 		close(out)
-		return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+		return &cliproxyexecutor.StreamResult{Headers: exposeCodexIdentityHeaders(httpResp.Header, identityState), Chunks: out}, nil
 	}
 	if immediateTerminal {
 		closeBootstrapBody()
 		close(out)
-		return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+		return &cliproxyexecutor.StreamResult{Headers: exposeCodexIdentityHeaders(httpResp.Header, identityState), Chunks: out}, nil
 	}
 
 	go func() {
@@ -317,7 +320,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
 					select {
-					case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+					case out <- cliproxyexecutor.StreamChunk{Err: exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)}:
 					case <-ctx.Done():
 					}
 					return
@@ -369,5 +372,5 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		case <-ctx.Done():
 		}
 	}()
-	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+	return &cliproxyexecutor.StreamResult{Headers: exposeCodexIdentityHeaders(httpResp.Header, identityState), Chunks: out}, nil
 }
