@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -105,6 +106,9 @@ func runAutoUpdater(ctx context.Context) {
 }
 
 func autoUpdateSkipReason(cfg *config.Config) (string, bool) {
+	if immutable, errParse := strconv.ParseBool(strings.TrimSpace(os.Getenv("MANAGEMENT_STATIC_IMMUTABLE"))); errParse == nil && immutable {
+		return "MANAGEMENT_STATIC_IMMUTABLE is enabled", true
+	}
 	if cfg == nil {
 		return "config not yet available", true
 	}

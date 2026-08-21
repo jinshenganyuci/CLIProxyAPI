@@ -137,6 +137,7 @@ func (w *Watcher) refreshAuthState(force bool) {
 			}
 		}
 	}
+	markCodexCredentialIdentityConflicts(auths)
 	updates := w.prepareAuthUpdatesLocked(auths, force)
 	w.clientsMutex.Unlock()
 	w.dispatchAuthUpdates(updates)

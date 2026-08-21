@@ -84,6 +84,10 @@ func (h *Handler) HandleDirectWebsocket(c *gin.Context) {
 
 	upstreamURL := h.directRealtimeURL(requestedModel)
 	dialUpstream := func(current *auth.Auth) (*websocket.Conn, *http.Response, error) {
+		helpersConfig := h.currentConfig()
+		if errProxy := validateLiveCredentialProxyPolicy(helpersConfig, current); errProxy != nil {
+			return nil, nil, errProxy
+		}
 		request, errRequest := http.NewRequestWithContext(ctx, http.MethodGet, websocketHTTPURL(upstreamURL), nil)
 		if errRequest != nil {
 			return nil, nil, errRequest
@@ -94,7 +98,6 @@ func (h *Handler) HandleDirectWebsocket(c *gin.Context) {
 			return nil, nil, errPrepare
 		}
 		authType, authValue := current.AccountInfo()
-		helpersConfig := h.currentConfig()
 		helps.RecordAPIWebsocketRequest(ctx, helpersConfig, helps.UpstreamRequestLog{
 			URL:       upstreamURL,
 			Method:    "WEBSOCKET",

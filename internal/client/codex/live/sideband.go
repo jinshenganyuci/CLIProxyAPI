@@ -399,6 +399,9 @@ func (h *Handler) HandleSideband(c *gin.Context) {
 	upstreamURL := buildSidebandURL(h.sidebandAPIBaseURL, style, callID)
 	upstreamHTTPURL := websocketHTTPURL(upstreamURL)
 	dialUpstream := func(current *auth.Auth) (*websocket.Conn, *http.Response, error) {
+		if errProxy := validateLiveCredentialProxyPolicy(runtimeConfig, current); errProxy != nil {
+			return nil, nil, errProxy
+		}
 		req, errRequest := http.NewRequestWithContext(ctx, http.MethodGet, upstreamHTTPURL, nil)
 		if errRequest != nil {
 			return nil, nil, errRequest

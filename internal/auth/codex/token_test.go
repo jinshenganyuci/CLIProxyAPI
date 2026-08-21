@@ -75,3 +75,18 @@ func TestSaveTokenToFile_PreservesCustomMetadata(t *testing.T) {
 		t.Errorf("weight = %v, want 42", saved["weight"])
 	}
 }
+
+func TestCreateTokenStorageAddsCredentialIdentity(t *testing.T) {
+	auth := &CodexAuth{}
+	storage := auth.CreateTokenStorage(&CodexAuthBundle{TokenData: CodexTokenData{Email: "user@example.com"}})
+	if storage.IdentityVersion != CredentialIdentityCurrentVersion {
+		t.Fatalf("identity version = %d, want %d", storage.IdentityVersion, CredentialIdentityCurrentVersion)
+	}
+	metadata := map[string]any{
+		CredentialIdentityVersionMetadataKey:   storage.IdentityVersion,
+		CredentialIdentityNamespaceMetadataKey: storage.IdentityNamespace,
+	}
+	if _, _, err := ParseCredentialIdentity(metadata); err != nil {
+		t.Fatalf("new token storage identity invalid: %v", err)
+	}
+}

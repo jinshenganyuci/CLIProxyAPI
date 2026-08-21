@@ -171,6 +171,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
 		mgmt.PATCH("/auth-files/status", s.mgmt.PatchAuthFileStatus)
 		mgmt.PATCH("/auth-files/fields", s.mgmt.PatchAuthFileFields)
+		mgmt.GET("/codex-credential-identity", s.mgmt.GetCodexCredentialIdentity)
+		mgmt.PUT("/codex-credential-identity", s.mgmt.PutCodexCredentialIdentity)
+		mgmt.POST("/codex-credential-identity/initialize", s.mgmt.InitializeCodexCredentialIdentity)
+		mgmt.POST("/codex-credential-identity/rotate", s.mgmt.RotateCodexCredentialIdentity)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)

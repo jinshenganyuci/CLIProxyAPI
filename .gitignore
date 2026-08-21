@@ -22,6 +22,7 @@ objectstore/*
 
 # Static assets
 static/*
+!static/management.html
 
 # Authentication data
 auths/*
@@ -30,6 +31,7 @@ auths/*
 
 # Documentation
 docs/*
+!docs/codex-credential-identity.zh-CN.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md
