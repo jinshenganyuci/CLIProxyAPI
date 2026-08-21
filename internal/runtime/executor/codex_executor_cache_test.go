@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	internalcodex "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -16,6 +17,49 @@ import (
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 )
+
+func TestCodexCredentialIdentityMapsFinalGeneratedPromptCacheKey(t *testing.T) {
+	executor := &CodexExecutor{cfg: codexCredentialIdentityTestConfig(false)}
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "421cf9f6-74d7-42fa-985a-bd83b1b4f31e")
+	req := cliproxyexecutor.Request{
+		Model:   "gpt-5-codex",
+		Payload: []byte(`{"model":"gpt-5-codex","client_metadata":{"x-codex-installation-id":"home-device"}}`),
+	}
+	rawJSON := []byte(`{"model":"gpt-5-codex","client_metadata":{"x-codex-installation-id":"home-device"}}`)
+
+	firstRequest, firstBody, firstState, firstErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-a"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
+	if firstErr != nil {
+		t.Fatal(firstErr)
+	}
+	baseCacheA := uuid.NewSHA1(uuid.NameSpaceOID, []byte("cli-proxy-api:codex:prompt-cache:downstream-key-a")).String()
+	namespace := uuid.MustParse("421cf9f6-74d7-42fa-985a-bd83b1b4f31e")
+	expectedCacheA := internalcodex.DeriveCredentialIdentity(namespace, "session", baseCacheA)
+	if got := gjson.GetBytes(firstBody, "prompt_cache_key").String(); got != expectedCacheA {
+		t.Fatalf("mapped generated prompt_cache_key = %q, want %q", got, expectedCacheA)
+	}
+	if got := firstRequest.Header.Get("Session-Id"); got != expectedCacheA {
+		t.Fatalf("mapped generated Session-Id = %q, want %q", got, expectedCacheA)
+	}
+	if firstState.originalPromptCacheKey != baseCacheA {
+		t.Fatalf("snapshot original prompt cache key = %q, want generated %q", firstState.originalPromptCacheKey, baseCacheA)
+	}
+
+	_, secondBody, secondState, secondErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-b"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
+	if secondErr != nil {
+		t.Fatal(secondErr)
+	}
+	if got := gjson.GetBytes(secondBody, "prompt_cache_key").String(); got == expectedCacheA {
+		t.Fatal("two downstream keys without a client session shared the same prompt cache partition")
+	}
+	if firstState.credentialSnapshot.Namespace != secondState.credentialSnapshot.Namespace {
+		t.Fatal("downstream key changed the OAuth credential identity namespace")
+	}
+	firstInstall := gjson.GetBytes(firstBody, "client_metadata.x-codex-installation-id").String()
+	secondInstall := gjson.GetBytes(secondBody, "client_metadata.x-codex-installation-id").String()
+	if firstInstall != secondInstall {
+		t.Fatalf("same client installation changed across downstream keys: %q vs %q", firstInstall, secondInstall)
+	}
+}
 
 func TestCodexExecutorCacheHelper_OpenAIChatCompletions_StablePromptCacheKeyFromAPIKey(t *testing.T) {
 	recorder := httptest.NewRecorder()
