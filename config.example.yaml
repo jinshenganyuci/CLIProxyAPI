@@ -237,6 +237,16 @@ codex:
   # Some superstitious users believe request tracking identifiers can be used
   # as evidence for TOS enforcement bans; this option only satisfies those odd concerns.
   identity-confuse: false
+  # Stable per-credential identity mapping for Codex OAuth credentials. This is
+  # mutually exclusive with identity-confuse and defaults to disabled. Initialize
+  # existing credential files from /management.html before enabling it.
+  credential-identity:
+    enabled: false
+    # Keep false to preserve absence when a client sends no installation ID.
+    synthesize-missing-installation-id: false
+  # prefer: a credential without proxy-url may inherit the global proxy or connect directly.
+  # require: every Codex OAuth credential must explicitly configure proxy-url or "direct".
+  credential-proxy-policy: "prefer"
   # Disable forcing the official Codex User-Agent and Originator headers on HTTP/SSE and WebSocket requests.
   disable-codex-cloaking: false
   # Hold back the initial handshake events (response.created, response.in_progress and the

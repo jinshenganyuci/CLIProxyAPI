@@ -230,6 +230,13 @@ func (h *Handler) Handle(c *gin.Context) {
 		writeLiveError(c, http.StatusServiceUnavailable, "Codex auth unavailable")
 		return
 	}
+	if errProxy := validateLiveCredentialProxyPolicy(runtimeConfig, selected); errProxy != nil {
+		if selection != nil {
+			selection.End("credential_proxy_required")
+		}
+		writeLiveError(c, http.StatusServiceUnavailable, errProxy.Error())
+		return
+	}
 
 	if selection != nil {
 		attemptCtx, releaseAttempt, errAttempt := selection.AttemptContext(ctx)

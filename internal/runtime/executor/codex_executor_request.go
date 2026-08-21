@@ -73,6 +73,9 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 	if req == nil {
 		return nil, fmt.Errorf("codex executor: request is nil")
 	}
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+		return nil, errProxy
+	}
 	if ctx == nil {
 		ctx = req.Context()
 	}
@@ -90,6 +93,10 @@ type codexIdentityConfuseState struct {
 	originalPromptCacheKey string
 	promptCacheKey         string
 	turnIDs                []codexIdentityReplacement
+	credentialIdentity     bool
+	credentialSnapshot     codexCredentialIdentitySnapshot
+	forwardIdentities      map[string]string
+	reverseIdentities      map[string]string
 }
 
 type codexIdentityReplacement struct {
@@ -142,7 +149,10 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	}
 	rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
 	var identityState codexIdentityConfuseState
-	rawJSON, identityState = applyCodexIdentityConfuseBody(e.cfg, auth, userPayload, rawJSON)
+	rawJSON, identityState, errIdentity := applyCodexIdentityBody(e.cfg, auth, userPayload, rawJSON)
+	if errIdentity != nil {
+		return nil, nil, codexIdentityConfuseState{}, errIdentity
+	}
 	if identityState.promptCacheKey != "" {
 		cache.ID = identityState.promptCacheKey
 	}
@@ -226,6 +236,9 @@ func applyCodexTurnMetadataIdentityConfuse(rawTurnMetadata string, state *codexI
 }
 
 func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
+	if state.credentialIdentity {
+		return rewriteCodexIdentityPayload(payload, state.forwardIdentities)
+	}
 	payload = replaceCodexIdentityResponsePayload(payload, state.originalPromptCacheKey, state.promptCacheKey)
 	for _, turnID := range state.turnIDs {
 		payload = replaceCodexIdentityResponsePayload(payload, turnID.original, turnID.confused)
@@ -234,6 +247,9 @@ func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentit
 }
 
 func applyCodexIdentityExposeResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
+	if state.credentialIdentity {
+		return rewriteCodexIdentityPayload(payload, state.reverseIdentities)
+	}
 	payload = replaceCodexIdentityResponsePayload(payload, state.promptCacheKey, state.originalPromptCacheKey)
 	for _, turnID := range state.turnIDs {
 		payload = replaceCodexIdentityResponsePayload(payload, turnID.confused, turnID.original)
@@ -336,6 +352,7 @@ func applyCodexHeadersFromSources(r *http.Request, auth *cliproxyauth.Auth, toke
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Codex-Window-Id", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "Thread-Id", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "Session-Id", "")
+	misc.EnsureHeader(r.Header, ginHeaders, "Conversation_id", "")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Openai-Internal-Codex-Responses-Lite", "")
 
 	cfgUserAgent, _ := codexHeaderDefaults(cfg, auth)
