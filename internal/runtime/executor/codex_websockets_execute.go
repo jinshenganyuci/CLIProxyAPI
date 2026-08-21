@@ -23,6 +23,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+		return resp, errProxy
+	}
 	if opts.Alt == "responses/compact" {
 		return e.CodexExecutor.executeCompact(ctx, auth, req, opts)
 	}
@@ -83,11 +86,14 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	}
 	clientBody := body
 	var identityState codexIdentityConfuseState
-	upstreamBody, identityState := applyCodexIdentityConfuseBody(e.cfg, auth, originalPayloadSource, body)
+	upstreamBody, identityState, errIdentity := applyCodexIdentityBody(e.cfg, auth, originalPayloadSource, body)
+	if errIdentity != nil {
+		return resp, errIdentity
+	}
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
 	applyModelHeaderOverrides(wsHeaders, baseModel)
-	applyCodexIdentityConfuseHeaders(wsHeaders, &identityState)
+	applyCodexIdentityHeaders(wsHeaders, &identityState)
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -300,6 +306,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		payload = helps.RestoreCodexMultiAgentV2Response(payload, restoreMultiAgentV2)
 
 		if wsErr, ok := parseCodexWebsocketError(payload); ok {
+			clientErr := exposeCodexIdentityWebsocketError(payload, identityState, wsErr)
 			if sess != nil {
 				e.invalidateUpstreamConn(sess, conn, "upstream_error", wsErr)
 			}
@@ -307,9 +314,10 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 				return resp, errClearReplay
 			}
 			helps.RecordAPIWebsocketError(ctx, e.cfg, "upstream_error", wsErr)
-			return resp, wsErr
+			return resp, clientErr
 		}
 		if streamErr, terminalBody, ok := codexTerminalFailureErr(payload); ok {
+			clientErr := exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
 			if sess != nil {
 				unlockSession()
 				e.invalidateUpstreamConn(sess, conn, "terminal_failure", streamErr)
@@ -317,7 +325,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			if errClearReplay := clearCodexReasoningReplayOnInvalidSignature(ctx, replayScope, streamErr.StatusCode(), terminalBody); errClearReplay != nil {
 				return resp, errClearReplay
 			}
-			return resp, streamErr
+			return resp, clientErr
 		}
 
 		payload = normalizeCodexWebsocketCompletion(payload)

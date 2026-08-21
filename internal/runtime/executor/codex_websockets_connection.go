@@ -28,6 +28,9 @@ const (
 )
 
 func (e *CodexWebsocketsExecutor) dialCodexWebsocket(ctx context.Context, auth *cliproxyauth.Auth, wsURL string, headers http.Header) (*websocket.Conn, *websocketConnectionCloser, *http.Response, error) {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+		return nil, newWebsocketConnectionCloser(nil), nil, errProxy
+	}
 	dialer := newProxyAwareWebsocketDialer(e.cfg, auth)
 	dialer.HandshakeTimeout = codexResponsesWebsocketHandshakeTO
 	dialer.EnableCompression = true

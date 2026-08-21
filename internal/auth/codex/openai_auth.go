@@ -284,13 +284,15 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken 
 // It populates the storage struct with token data, user information, and timestamps.
 func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStorage {
 	storage := &CodexTokenStorage{
-		IDToken:      bundle.TokenData.IDToken,
-		AccessToken:  bundle.TokenData.AccessToken,
-		RefreshToken: bundle.TokenData.RefreshToken,
-		AccountID:    bundle.TokenData.AccountID,
-		LastRefresh:  bundle.LastRefresh,
-		Email:        bundle.TokenData.Email,
-		Expire:       bundle.TokenData.Expire,
+		IDToken:           bundle.TokenData.IDToken,
+		AccessToken:       bundle.TokenData.AccessToken,
+		RefreshToken:      bundle.TokenData.RefreshToken,
+		AccountID:         bundle.TokenData.AccountID,
+		LastRefresh:       bundle.LastRefresh,
+		Email:             bundle.TokenData.Email,
+		Expire:            bundle.TokenData.Expire,
+		IdentityVersion:   CredentialIdentityCurrentVersion,
+		IdentityNamespace: NewCredentialIdentityNamespace(),
 	}
 
 	return storage
