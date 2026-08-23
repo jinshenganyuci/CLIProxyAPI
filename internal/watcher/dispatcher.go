@@ -95,31 +95,15 @@ func (w *Watcher) dispatchPersistedAuthUpdate(update AuthUpdate) bool {
 	if normalized == "" {
 		return false
 	}
-	clone := update.Auth.Clone()
-	w.clientsMutex.Lock()
-	if w.fileAuthsByPath == nil {
-		w.fileAuthsByPath = make(map[string]map[string]*coreauth.Auth)
-	}
-	pathAuths := w.fileAuthsByPath[normalized]
-	if pathAuths == nil {
-		pathAuths = make(map[string]*coreauth.Auth)
-		w.fileAuthsByPath[normalized] = pathAuths
-	}
-	pathAuths[clone.ID] = nil
-	if w.currentAuths == nil {
-		w.currentAuths = make(map[string]*coreauth.Auth)
-	}
-	w.currentAuths[clone.ID] = clone
-	w.clientsMutex.Unlock()
 	if w.getAuthQueue() == nil {
 		return false
 	}
-	if update.ID == "" {
-		update.ID = clone.ID
-	}
-	update.Auth = clone.Clone()
-	w.dispatchAuthUpdates([]AuthUpdate{update})
-	return true
+	// The persisted file is the canonical auth representation. Token storage may
+	// add fields that are absent from the pre-serialization Auth.Metadata, and
+	// plugins may further normalize the runtime auth. Reload through the same
+	// file synthesis path used by fsnotify so event ordering cannot overwrite the
+	// canonical auth with the incomplete pre-serialization record.
+	return w.addOrUpdateClient(path)
 }
 
 func (w *Watcher) refreshAuthState(force bool) {

@@ -308,8 +308,11 @@ func (s *Service) runtimeAuthSyncHook() coreauth.PostAuthHook {
 			ID:     auth.ID,
 			Auth:   auth,
 		}
-		if s.watcher != nil && s.watcher.DispatchPersistedAuthUpdate(update) {
-			return nil
+		if s.watcher != nil {
+			if s.watcher.DispatchPersistedAuthUpdate(update) {
+				return nil
+			}
+			return fmt.Errorf("reload persisted auth %q from canonical storage failed", auth.ID)
 		}
 		s.handleAuthUpdate(coreauth.WithSkipPersist(ctx), update)
 		return nil

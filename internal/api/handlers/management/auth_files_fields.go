@@ -858,7 +858,19 @@ func (h *Handler) saveTokenRecord(ctx context.Context, record *coreauth.Auth) (s
 		return savedPath, errSave
 	}
 	if h.postAuthPersistHook != nil {
-		if errHook := h.postAuthPersistHook(ctx, record); errHook != nil {
+		persistedRecord := record
+		if strings.TrimSpace(savedPath) != "" {
+			canonical, errCanonical := h.buildAuthFromFileData(savedPath, nil)
+			if errCanonical != nil {
+				return savedPath, fmt.Errorf("reload persisted auth file: %w", errCanonical)
+			}
+			canonical.ID = record.ID
+			if strings.TrimSpace(canonical.FileName) == "" {
+				canonical.FileName = record.FileName
+			}
+			persistedRecord = canonical
+		}
+		if errHook := h.postAuthPersistHook(ctx, persistedRecord); errHook != nil {
 			return savedPath, fmt.Errorf("post-auth persist hook failed: %w", errHook)
 		}
 	}
