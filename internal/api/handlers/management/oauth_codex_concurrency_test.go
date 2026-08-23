@@ -35,15 +35,7 @@ func (f *fakeCodexOAuthService) ExchangeCodeForTokens(ctx context.Context, code 
 }
 
 func (f *fakeCodexOAuthService) CreateTokenStorage(bundle *codex.CodexAuthBundle) *codex.CodexTokenStorage {
-	return &codex.CodexTokenStorage{
-		IDToken:      bundle.TokenData.IDToken,
-		AccessToken:  bundle.TokenData.AccessToken,
-		RefreshToken: bundle.TokenData.RefreshToken,
-		AccountID:    bundle.TokenData.AccountID,
-		LastRefresh:  bundle.LastRefresh,
-		Email:        bundle.TokenData.Email,
-		Expire:       bundle.TokenData.Expire,
-	}
+	return (&codex.CodexAuth{}).CreateTokenStorage(bundle)
 }
 
 func TestRequestCodexTokenCompletionKeepsConcurrentSessionPending(t *testing.T) {
