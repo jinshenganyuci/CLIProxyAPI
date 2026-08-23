@@ -110,6 +110,19 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 					continue
 				}
 				coreauth.NormalizeCredentialMetadata(auth.Metadata)
+				if provider == "codex" {
+					for _, key := range []string{
+						codex.CredentialIdentityVersionMetadataKey,
+						codex.CredentialIdentityNamespaceMetadataKey,
+					} {
+						if value, exists := metadata[key]; exists {
+							if auth.Metadata == nil {
+								auth.Metadata = make(map[string]any)
+							}
+							auth.Metadata[key] = value
+						}
+					}
+				}
 				if len(auths) > 1 {
 					coreauth.MarkPluginVirtualAuth(auth, fullPath, index)
 				}
