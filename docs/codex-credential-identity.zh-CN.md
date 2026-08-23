@@ -31,6 +31,12 @@
 命名空间不依赖文件名、邮箱、CPA Key 或 OAuth Token，因此重启、Token 刷新和文件
 改名不会改变身份。重新登录覆盖同一凭据文件时会保留已有命名空间。
 
+从 `v7.2.140-codex-identity.3` 起，OAuth 保存后的运行时同步只从最终落盘文件重新
+构建认证记录，并经过与文件 watcher 相同的插件解析路径。这样无论保存钩子和
+文件系统事件的先后顺序如何，运行时身份都与磁盘一致；新登录凭据不需要再手动
+初始化。若最终文件无法读取或解析，运行时保留原记录并让登录明确失败，不注册
+缺少 Token 或身份字段的半成品记录。
+
 旧凭据通过 `/management.html` 初始化。迁移过程先扫描全部凭据，再一次性规划；每个
 文件使用同目录临时文件、`0600` 权限、文件 `fsync`、原子 `rename` 和回读校验。
 批量中任一写入失败会回滚已提交文件，并保持全局功能关闭。应用不会生成长期备份副本。
@@ -181,7 +187,7 @@ POST /v0/management/codex-credential-identity/rotate
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.140.2`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.140.3`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
