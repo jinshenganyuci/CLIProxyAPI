@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -273,6 +274,43 @@ func TestSynthesizeAuthFileExpandsPluginMultiAuths(t *testing.T) {
 	}
 	if gotProject := auths[1].Metadata["project_id"]; gotProject != "project-a" {
 		t.Fatalf("project_id = %#v, want project-a", gotProject)
+	}
+}
+
+func TestSynthesizeAuthFilePreservesCodexCredentialIdentityForPluginAuths(t *testing.T) {
+	tempDir := t.TempDir()
+	fullPath := filepath.Join(tempDir, "codex.json")
+	namespace := "981bd5bd-1ad8-4eef-88f8-5f0ec7cb1df7"
+	raw := []byte(`{"type":"codex","access_token":"token","codex_identity_version":1,"codex_identity_namespace":"` + namespace + `"}`)
+
+	ctx := &SynthesisContext{
+		Config:  &config.Config{},
+		AuthDir: tempDir,
+		Now:     time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC),
+		PluginAuthParser: multiAuthParserFunc(func(context.Context, pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+			return []*coreauth.Auth{{
+				ID:       "codex.json",
+				Provider: "codex",
+				Metadata: map[string]any{"type": "codex", "access_token": "token", "plugin_owned": true},
+			}}, true, nil
+		}),
+	}
+
+	auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, raw)
+	if errSynthesize != nil {
+		t.Fatalf("SynthesizeAuthFile() error = %v", errSynthesize)
+	}
+	if len(auths) != 1 {
+		t.Fatalf("SynthesizeAuthFile() len = %d, want one", len(auths))
+	}
+	if got := auths[0].Metadata[codex.CredentialIdentityVersionMetadataKey]; got != float64(1) {
+		t.Fatalf("identity version = %#v, want 1", got)
+	}
+	if got := auths[0].Metadata[codex.CredentialIdentityNamespaceMetadataKey]; got != namespace {
+		t.Fatalf("identity namespace = %#v, want %q", got, namespace)
+	}
+	if got := auths[0].Metadata["plugin_owned"]; got != true {
+		t.Fatalf("plugin-owned metadata = %#v, want true", got)
 	}
 }
 
