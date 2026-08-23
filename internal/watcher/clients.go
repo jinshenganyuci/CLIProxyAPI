@@ -161,22 +161,22 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 	)
 }
 
-func (w *Watcher) addOrUpdateClient(path string) {
+func (w *Watcher) addOrUpdateClient(path string) bool {
 	w.authRescanMu.Lock()
 	defer w.authRescanMu.Unlock()
 
-	w.addOrUpdateClientLocked(path)
+	return w.addOrUpdateClientLocked(path)
 }
 
-func (w *Watcher) addOrUpdateClientLocked(path string) {
+func (w *Watcher) addOrUpdateClientLocked(path string) bool {
 	data, errRead := os.ReadFile(path)
 	if errRead != nil {
 		log.Errorf("failed to read auth file %s: %v", filepath.Base(path), errRead)
-		return
+		return false
 	}
 	if len(data) == 0 {
 		log.Debugf("ignoring empty auth file: %s", filepath.Base(path))
-		return
+		return false
 	}
 
 	sum := sha256.Sum256(data)
@@ -187,7 +187,7 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 	var newAuth coreauth.Auth
 	if errParse := json.Unmarshal(data, &newAuth); errParse != nil {
 		log.Errorf("failed to parse auth file %s: %v", filepath.Base(path), errParse)
-		return
+		return false
 	}
 
 	cacheAuthContents := log.IsLevelEnabled(log.DebugLevel)
@@ -195,7 +195,7 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 	if w.config == nil {
 		log.Error("config is nil, cannot add or update client")
 		w.clientsMutex.Unlock()
-		return
+		return false
 	}
 	cfg := w.config
 	authDir := w.authDir
@@ -206,7 +206,7 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 	if prev, ok := w.lastAuthHashes[normalized]; ok && prev == curHash {
 		log.Debugf("auth file unchanged (hash match), skipping reload: %s", filepath.Base(path))
 		w.clientsMutex.Unlock()
-		return
+		return true
 	}
 
 	// Get old auth for diff comparison
@@ -215,18 +215,6 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 		if cached := w.lastAuthContents[normalized]; cached != nil {
 			oldAuth = cached.Clone()
 		}
-	}
-
-	// Update caches
-	if w.lastAuthHashes == nil {
-		w.lastAuthHashes = make(map[string]string)
-	}
-	w.lastAuthHashes[normalized] = curHash
-	if cacheAuthContents {
-		if w.lastAuthContents == nil {
-			w.lastAuthContents = make(map[string]*coreauth.Auth)
-		}
-		w.lastAuthContents[normalized] = &newAuth
 	}
 
 	oldByID := make(map[string]*coreauth.Auth, len(w.fileAuthsByPath[normalized]))
@@ -256,9 +244,20 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 	generated, errSynthesize := synthesizer.SynthesizeAuthFile(sctx, path, data)
 	if errSynthesize != nil {
 		log.WithError(errSynthesize).Warnf("skipping auth file %s", filepath.Base(path))
+		return false
 	}
 	newByID := authSliceToMap(generated)
 	w.clientsMutex.Lock()
+	if w.lastAuthHashes == nil {
+		w.lastAuthHashes = make(map[string]string)
+	}
+	w.lastAuthHashes[normalized] = curHash
+	if cacheAuthContents {
+		if w.lastAuthContents == nil {
+			w.lastAuthContents = make(map[string]*coreauth.Auth)
+		}
+		w.lastAuthContents[normalized] = &newAuth
+	}
 	if len(newByID) > 0 {
 		w.fileAuthsByPath[normalized] = authIDSet(newByID)
 	} else {
@@ -267,11 +266,10 @@ func (w *Watcher) addOrUpdateClientLocked(path string) {
 	updates := w.computePerPathUpdatesLocked(oldByID, newByID)
 	w.clientsMutex.Unlock()
 
-	if errSynthesize == nil {
-		w.persistAuthAsync(fmt.Sprintf("Sync auth %s", filepath.Base(path)), path)
-	}
+	w.persistAuthAsync(fmt.Sprintf("Sync auth %s", filepath.Base(path)), path)
 	w.dispatchAuthUpdates(updates)
 	redisqueue.NotifyUsageRefresh()
+	return true
 }
 
 func (w *Watcher) removeClient(path string) {
