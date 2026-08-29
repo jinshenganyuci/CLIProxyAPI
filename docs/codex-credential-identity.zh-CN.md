@@ -1,7 +1,7 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.142`（上游提交
-`1f53b2eb03b9e963bac647e5566ca2b304239116`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.145`（上游提交
+`d9cea8904b14fbbebb77ef26e98ef08f6b48a724`），目标是让每个 Codex OAuth
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
@@ -31,7 +31,7 @@
 命名空间不依赖文件名、邮箱、CPA Key 或 OAuth Token，因此重启、Token 刷新和文件
 改名不会改变身份。重新登录覆盖同一凭据文件时会保留已有命名空间。
 
-从 `v7.2.140-codex-identity.3` 起，OAuth 保存后的运行时同步只从最终落盘文件重新
+在 `v7.2.145-codex-identity.1` 中，OAuth 保存后的运行时同步从最终落盘文件重新
 构建认证记录，并经过与文件 watcher 相同的插件解析路径。这样无论保存钩子和
 文件系统事件的先后顺序如何，运行时身份都与磁盘一致；新登录凭据不需要再手动
 初始化。若最终文件无法读取或解析，运行时保留原记录并让登录明确失败，不注册
@@ -187,7 +187,7 @@ POST /v0/management/codex-credential-identity/rotate
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.142.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.145.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
