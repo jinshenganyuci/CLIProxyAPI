@@ -146,7 +146,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			if errClearReplay := clearCodexReasoningReplayOnInvalidSignature(ctx, replayScope, streamErr.StatusCode(), terminalBody); errClearReplay != nil {
 				return resp, errClearReplay
 			}
-			err = streamErr
+			err = exposeCodexIdentityStatusError(streamErr, identityState)
 			return resp, err
 		}
 

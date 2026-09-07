@@ -65,6 +65,8 @@ type Watcher struct {
 	pluginAuthParser  synthesizer.PluginAuthParser
 	mirroredAuthDir   string
 	oldConfigYaml     []byte
+
+	authSourceRevisions map[string]uint64 // Excludes derived conflict changes to other owners; guarded by clientsMutex.
 }
 
 // AuthUpdateAction represents the type of change detected in auth sources.
@@ -82,6 +84,8 @@ type AuthUpdate struct {
 	ID       string
 	Auth     *coreauth.Auth
 	revision uint64 // Watcher-local ordering, independent of runtime auth generations.
+
+	identityConflictOnly bool // Does not replace the credential's source contents.
 }
 
 const (

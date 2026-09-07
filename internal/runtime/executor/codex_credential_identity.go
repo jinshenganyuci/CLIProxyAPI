@@ -137,16 +137,21 @@ func (state *codexIdentityConfuseState) mapCredentialIdentity(kind string, value
 	if state == nil || !state.credentialIdentity || !state.enabled || value == "" {
 		return value
 	}
-	if mapped, ok := state.forwardIdentities[value]; ok {
+	key := codexIdentityMapKey(kind, value)
+	if mapped, ok := state.forwardIdentities[key]; ok {
 		return mapped
 	}
-	if _, alreadyMapped := state.reverseIdentities[value]; alreadyMapped {
+	if original, alreadyMapped := state.reverseIdentities[value]; alreadyMapped && state.forwardIdentities[codexIdentityMapKey(kind, original)] == value {
 		return value
 	}
 	mapped := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, value)
-	state.forwardIdentities[value] = mapped
+	state.forwardIdentities[key] = mapped
 	state.reverseIdentities[mapped] = value
 	return mapped
+}
+
+func codexIdentityMapKey(kind string, value string) string {
+	return kind + "\x00" + value
 }
 
 func rewriteCodexTurnMetadata(raw string, state *codexIdentityConfuseState, forward bool) string {
@@ -186,15 +191,19 @@ func rewriteCodexTurnMetadata(raw string, state *codexIdentityConfuseState, forw
 	return string(updated)
 }
 
-func rewriteCodexIdentityPayload(payload []byte, replacements map[string]string) []byte {
+func rewriteCodexIdentityPayload(payload []byte, replacements map[string]string, forward bool) []byte {
 	if len(payload) == 0 || len(replacements) == 0 {
 		return payload
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(trimmed) {
+		return rewriteCodexIdentityPayloadLine(payload, replacements, forward)
 	}
 	if bytes.Contains(payload, []byte("\n")) {
 		lines := bytes.SplitAfter(payload, []byte("\n"))
 		changed := false
 		for index, line := range lines {
-			updated := rewriteCodexIdentityPayloadLine(line, replacements)
+			updated := rewriteCodexIdentityPayloadLine(line, replacements, forward)
 			if !bytes.Equal(updated, line) {
 				lines[index] = updated
 				changed = true
@@ -205,10 +214,10 @@ func rewriteCodexIdentityPayload(payload []byte, replacements map[string]string)
 		}
 		return payload
 	}
-	return rewriteCodexIdentityPayloadLine(payload, replacements)
+	return rewriteCodexIdentityPayloadLine(payload, replacements, forward)
 }
 
-func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string) []byte {
+func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string, forward bool) []byte {
 	lineEnding := []byte(nil)
 	content := line
 	if bytes.HasSuffix(content, []byte("\n")) {
@@ -240,7 +249,7 @@ func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string
 	if errDecode := decoder.Decode(&value); errDecode != nil {
 		return line
 	}
-	if !rewriteCodexIdentityJSONValue(value, "", replacements) {
+	if !rewriteCodexIdentityJSONValue(value, replacements, forward) {
 		return line
 	}
 	updated, errMarshal := json.Marshal(value)
@@ -254,32 +263,37 @@ func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string
 	return out
 }
 
-func rewriteCodexIdentityJSONValue(value any, parentKey string, replacements map[string]string) bool {
+func rewriteCodexIdentityJSONValue(value any, replacements map[string]string, forward bool) bool {
 	changed := false
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
-			if stringValue, ok := child.(string); ok && codexIdentityJSONKey(key) {
+			kind := codexIdentityJSONKind(key)
+			if stringValue, ok := child.(string); ok && kind != "" {
 				if normalizeCodexIdentityKey(key) == "x_codex_turn_metadata" {
-					if updated, didChange := rewriteCodexIdentityJSONString(stringValue, replacements); didChange {
+					if updated, didChange := rewriteCodexIdentityJSONString(stringValue, replacements, forward); didChange {
 						typed[key] = updated
 						changed = true
 					}
 					continue
 				}
-				if replacement, exists := replacements[strings.TrimSpace(stringValue)]; exists {
+				replacementKey := strings.TrimSpace(stringValue)
+				if forward {
+					replacementKey = codexIdentityMapKey(kind, replacementKey)
+				}
+				if replacement, exists := replacements[replacementKey]; exists {
 					typed[key] = replacement
 					changed = true
 				}
 				continue
 			}
-			if rewriteCodexIdentityJSONValue(child, key, replacements) {
+			if rewriteCodexIdentityJSONValue(child, replacements, forward) {
 				changed = true
 			}
 		}
 	case []any:
 		for _, child := range typed {
-			if rewriteCodexIdentityJSONValue(child, parentKey, replacements) {
+			if rewriteCodexIdentityJSONValue(child, replacements, forward) {
 				changed = true
 			}
 		}
@@ -287,14 +301,14 @@ func rewriteCodexIdentityJSONValue(value any, parentKey string, replacements map
 	return changed
 }
 
-func rewriteCodexIdentityJSONString(raw string, replacements map[string]string) (string, bool) {
+func rewriteCodexIdentityJSONString(raw string, replacements map[string]string, forward bool) (string, bool) {
 	var value any
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	decoder.UseNumber()
 	if errDecode := decoder.Decode(&value); errDecode != nil {
 		return raw, false
 	}
-	if !rewriteCodexIdentityJSONValue(value, "x_codex_turn_metadata", replacements) {
+	if !rewriteCodexIdentityJSONValue(value, replacements, forward) {
 		return raw, false
 	}
 	updated, errMarshal := json.Marshal(value)
@@ -304,14 +318,22 @@ func rewriteCodexIdentityJSONString(raw string, replacements map[string]string) 
 	return string(updated), true
 }
 
-func codexIdentityJSONKey(key string) bool {
+func codexIdentityJSONKind(key string) string {
 	switch normalizeCodexIdentityKey(key) {
-	case "prompt_cache_key", "session_id", "conversation_id", "thread_id",
-		"x_client_request_id", "x_codex_window_id", "window_id", "turn_id",
-		"x_codex_installation_id", "installation_id", "x_codex_turn_metadata":
-		return true
+	case "prompt_cache_key", "session_id", "conversation_id", "thread_id":
+		return "session"
+	case "x_client_request_id":
+		return "request"
+	case "x_codex_window_id", "window_id":
+		return "window"
+	case "turn_id":
+		return "turn"
+	case "x_codex_installation_id", "installation_id":
+		return "installation"
+	case "x_codex_turn_metadata":
+		return "turn_metadata"
 	default:
-		return false
+		return ""
 	}
 }
 
@@ -337,14 +359,15 @@ func exposeCodexIdentityHeaders(headers http.Header, state codexIdentityConfuseS
 		}
 	}
 	if raw := strings.TrimSpace(headerValueCaseInsensitive(exposed, "X-Codex-Turn-Metadata")); raw != "" {
-		if updated, changed := rewriteCodexIdentityJSONString(raw, state.reverseIdentities); changed {
+		if updated, changed := rewriteCodexIdentityJSONString(raw, state.reverseIdentities, false); changed {
 			setHeaderCasePreserved(exposed, "X-Codex-Turn-Metadata", updated)
 		}
 	}
 	return exposed
 }
 
-func exposeCodexIdentityStatusError(upstream statusErr, body []byte, state codexIdentityConfuseState) statusErr {
+func exposeCodexIdentityStatusError(upstream statusErr, state codexIdentityConfuseState) statusErr {
+	body := []byte(upstream.msg)
 	exposed := applyCodexIdentityExposeResponsePayload(body, state)
 	if len(exposed) == 0 || bytes.Equal(exposed, body) {
 		return upstream

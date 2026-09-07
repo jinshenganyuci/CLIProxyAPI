@@ -158,13 +158,13 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			if cliproxyexecutor.UpstreamAttempted(dialCtx) {
 				cliproxyexecutor.MarkUpstreamAttempt(ctx)
 			}
-			return resp, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
+			return resp, statusErr{code: respHS.StatusCode, msg: string(applyCodexIdentityExposeResponsePayload(bodyErr, identityState))}
 		}
 		if cliproxyexecutor.UpstreamAttempted(dialCtx) {
 			cliproxyexecutor.MarkUpstreamAttempt(ctx)
 		}
 		if respHS != nil && respHS.StatusCode > 0 {
-			return resp, newCodexStatusErr(respHS.StatusCode, bodyErr)
+			return resp, newCodexStatusErr(respHS.StatusCode, applyCodexIdentityExposeResponsePayload(bodyErr, identityState))
 		}
 		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
 		return resp, errDial
@@ -317,7 +317,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			return resp, clientErr
 		}
 		if streamErr, terminalBody, ok := codexTerminalFailureErr(payload); ok {
-			clientErr := exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
+			clientErr := exposeCodexIdentityStatusError(streamErr, identityState)
 			if sess != nil {
 				unlockSession()
 				e.invalidateUpstreamConn(sess, conn, "terminal_failure", streamErr)

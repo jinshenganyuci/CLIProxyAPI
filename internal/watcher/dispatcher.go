@@ -71,6 +71,7 @@ func (w *Watcher) dispatchRuntimeAuthUpdate(update AuthUpdate) bool {
 		}
 	}
 	updates := []AuthUpdate{update}
+	updates = w.reconcileCodexCredentialIdentityConflictsLocked(updates)
 	w.stampAuthUpdatesLocked(updates)
 	w.clientsMutex.Unlock()
 	if w.getAuthQueue() == nil {
@@ -115,7 +116,7 @@ func (w *Watcher) refreshAuthState(force bool) {
 	cfg := w.config
 	authDir := w.authDir
 	parser := w.pluginAuthParser
-	previous := maps.Clone(w.authRevisions)
+	previous := maps.Clone(w.authSourceRevisions)
 	previousFiles := maps.Clone(w.fileObservations)
 	w.clientsMutex.Unlock()
 	auths := snapshotCoreAuthsFunc(cfg, authDir, parser)
@@ -129,7 +130,7 @@ func (w *Watcher) refreshAuthState(force bool) {
 			path = auth.Attributes[coreauth.AttributeSource]
 		}
 		normalized := w.normalizeAuthPath(path)
-		return previous[auth.ID] != w.authRevisions[auth.ID] ||
+		return previous[auth.ID] != w.authSourceRevisions[auth.ID] ||
 			previousFiles[normalized] != w.fileObservations[normalized]
 	}
 	for index, auth := range auths {
@@ -149,7 +150,6 @@ func (w *Watcher) refreshAuthState(force bool) {
 			}
 		}
 	}
-	markCodexCredentialIdentityConflicts(auths)
 	updates := w.prepareAuthUpdatesLocked(auths, force)
 	w.clientsMutex.Unlock()
 	w.dispatchAuthUpdates(updates)
@@ -167,6 +167,13 @@ func (w *Watcher) prepareAuthUpdatesLocked(auths []*coreauth.Auth, force bool) [
 		}
 		newState[auth.ID] = auth.Clone()
 	}
+	// Runtime entries override scanned entries with the same ID. Only the final
+	// state may participate in namespace ownership checks.
+	finalAuths := make([]*coreauth.Auth, 0, len(newState))
+	for _, id := range orderedIDs {
+		finalAuths = append(finalAuths, newState[id])
+	}
+	markCodexCredentialIdentityConflicts(finalAuths)
 	updates := make([]AuthUpdate, 0, len(newState)+len(w.currentAuths))
 	for _, id := range orderedIDs {
 		auth := newState[id]
@@ -201,6 +208,9 @@ func (w *Watcher) stampAuthUpdatesLocked(updates []AuthUpdate) {
 	if w.authRevisions == nil {
 		w.authRevisions = make(map[string]uint64)
 	}
+	if w.authSourceRevisions == nil {
+		w.authSourceRevisions = make(map[string]uint64)
+	}
 	for index := range updates {
 		update := &updates[index]
 		if update.ID == "" && update.Auth != nil {
@@ -211,6 +221,9 @@ func (w *Watcher) stampAuthUpdatesLocked(updates []AuthUpdate) {
 		}
 		w.authRevisions[update.ID]++
 		update.revision = w.authRevisions[update.ID]
+		if !update.identityConflictOnly {
+			w.authSourceRevisions[update.ID]++
+		}
 	}
 }
 

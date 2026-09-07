@@ -37,3 +37,46 @@ func markCodexCredentialIdentityConflicts(auths []*coreauth.Auth) {
 		}
 	}
 }
+
+// reconcileCodexCredentialIdentityConflictsLocked updates every affected owner,
+// including credentials outside the changed file. Call before stamping revisions
+// so stale scans and delayed dispatch cannot restore an obsolete conflict marker.
+func (w *Watcher) reconcileCodexCredentialIdentityConflictsLocked(updates []AuthUpdate) []AuthUpdate {
+	auths := make([]*coreauth.Auth, 0, len(w.currentAuths))
+	for _, auth := range w.currentAuths {
+		if auth != nil {
+			auths = append(auths, auth.Clone())
+		}
+	}
+	markCodexCredentialIdentityConflicts(auths)
+	updatedIDs := make(map[string]bool, len(updates))
+	for _, update := range updates {
+		id := update.ID
+		if id == "" && update.Auth != nil {
+			id = update.Auth.ID
+		}
+		updatedIDs[id] = true
+	}
+	for _, auth := range auths {
+		existing := w.currentAuths[auth.ID]
+		if existing.Attributes[internalcodex.CredentialIdentityConflictAttribute] == auth.Attributes[internalcodex.CredentialIdentityConflictAttribute] {
+			continue
+		}
+		w.currentAuths[auth.ID] = auth
+		if !updatedIDs[auth.ID] {
+			updates = append(updates, AuthUpdate{
+				Action: AuthUpdateActionModify, ID: auth.ID, Auth: auth.Clone(),
+				identityConflictOnly: true,
+			})
+		}
+	}
+	for index := range updates {
+		update := &updates[index]
+		if update.Auth != nil && update.Action != AuthUpdateActionDelete {
+			if current := w.currentAuths[update.Auth.ID]; current != nil {
+				update.Auth = current.Clone()
+			}
+		}
+	}
+	return updates
+}

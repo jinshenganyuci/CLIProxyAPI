@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -260,6 +261,8 @@ func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.Fil
 }
 
 func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) error {
+	h.codexIdentityMu.Lock()
+	defer h.codexIdentityMu.Unlock()
 	dst := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
 	if !filepath.IsAbs(dst) {
 		if abs, errAbs := filepath.Abs(dst); errAbs == nil {
@@ -277,20 +280,36 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 	}
 	writeFile := func() error { return os.WriteFile(dst, data, 0o600) }
 	if isCodexOAuth {
-		writeFile = func() error { return writeCodexCredentialFileAtomic(dst, data) }
+		writeFile = func() error {
+			unlock := credentialfile.Lock(dst)
+			defer unlock()
+			var metadata map[string]any
+			if errParse := json.Unmarshal(data, &metadata); errParse != nil {
+				return errParse
+			}
+			if errPreserve := codex.PreserveFileCredentialIdentity(dst, metadata); errPreserve != nil {
+				return errPreserve
+			}
+			updated, errMarshal := json.MarshalIndent(metadata, "", "  ")
+			if errMarshal != nil {
+				return errMarshal
+			}
+			data = append(updated, '\n')
+			return writeCodexCredentialFileAtomic(dst, data)
+		}
 	}
 	if errWrite := writeFile(); errWrite != nil {
 		return fmt.Errorf("failed to write file: %w", errWrite)
 	}
-	if err := h.upsertAuthRecord(ctx, auth); err != nil {
-		return err
-	}
 	if isCodexOAuth {
-		if errWrite := writeCodexCredentialFileAtomic(dst, data); errWrite != nil {
-			return fmt.Errorf("failed to finalize Codex auth file: %w", errWrite)
+		// Rebuild after releasing the file lock; no manager calls may happen
+		// while holding a file lock used by manager persistence.
+		auth, err = h.buildAuthFromFileData(dst, data)
+		if err != nil {
+			return err
 		}
 	}
-	return nil
+	return h.upsertAuthRecord(ctx, auth)
 }
 
 func (h *Handler) prepareUploadedCodexCredentialIdentity(dst string, data []byte) ([]byte, bool, error) {

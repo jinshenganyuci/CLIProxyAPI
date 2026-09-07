@@ -65,6 +65,7 @@ type apiCallResponse struct {
 //   - url (required): Absolute URL including scheme and host, e.g. "https://api.example.com/v1/ping".
 //   - proxy_url (optional): Proxy used for this request. Supports HTTP, HTTPS, SOCKS5, SOCKS5H,
 //     and "direct"/"none" to explicitly bypass proxies. When set, credential and global proxies are ignored.
+//     Codex OAuth credentials under the "require" policy only allow their configured proxy.
 //   - header (optional): Request headers map.
 //     Supports magic variable "$TOKEN$" which is replaced using the selected credential:
 //     1) metadata.access_token
@@ -130,6 +131,11 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	authIndex := firstNonEmptyString(body.AuthIndexSnake, body.AuthIndexCamel, body.AuthIndexPascal)
 	auth := h.authByIndex(authIndex)
+	transport, errTransport := h.apiCallRequestTransport(auth, requestProxyURL)
+	if errTransport != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": errTransport.Error()})
+		return
+	}
 
 	reqHeaders := body.Header
 	if reqHeaders == nil {
@@ -185,9 +191,10 @@ func (h *Handler) APICall(c *gin.Context) {
 	}
 
 	httpClient := &http.Client{
-		Timeout: defaultAPICallTimeout,
+		Timeout:   defaultAPICallTimeout,
+		Transport: transport,
 	}
-	httpClient.Transport = h.apiCallTransport(auth, requestProxyURL)
+	defer httpClient.CloseIdleConnections()
 
 	resp, errDo := httpClient.Do(req)
 	if errDo != nil {
@@ -479,6 +486,39 @@ func (h *Handler) authByIndex(authIndex string) *coreauth.Auth {
 		}
 	}
 	return nil
+}
+
+// apiCallRequestTransport enforces the credential policy before resolving tokens
+// or creating any outbound request, including management quota queries.
+func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL string) (http.RoundTripper, error) {
+	if h == nil || auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") || auth.AuthKind() == coreauth.AuthKindAPIKey {
+		return h.apiCallTransport(auth, requestProxyURL), nil
+	}
+	h.mu.Lock()
+	require := h.cfg != nil && strings.EqualFold(strings.TrimSpace(h.cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
+	h.mu.Unlock()
+	if !require {
+		return h.apiCallTransport(auth, requestProxyURL), nil
+	}
+
+	setting, errParse := proxyutil.Parse(auth.ProxyURL)
+	if errParse != nil || setting.Mode == proxyutil.ModeInvalid {
+		return nil, fmt.Errorf("codex credential proxy for auth %q is invalid", auth.ID)
+	}
+	if setting.Mode == proxyutil.ModeInherit {
+		return nil, fmt.Errorf("codex credential proxy for auth %q is required; configure proxy-url or explicit direct", auth.ID)
+	}
+	if strings.TrimSpace(requestProxyURL) != "" {
+		requested, errRequested := proxyutil.Parse(requestProxyURL)
+		if errRequested != nil || requested.Mode != setting.Mode || (setting.Mode == proxyutil.ModeProxy && requested.URL.String() != setting.URL.String()) {
+			return nil, fmt.Errorf("codex credential proxy for auth %q cannot be overridden while credential-proxy-policy is require", auth.ID)
+		}
+	}
+	transport, _, errBuild := proxyutil.BuildHTTPTransport(auth.ProxyURL)
+	if errBuild != nil || transport == nil {
+		return nil, fmt.Errorf("codex credential proxy for auth %q could not be initialized", auth.ID)
+	}
+	return transport, nil
 }
 
 func (h *Handler) apiCallTransport(auth *coreauth.Auth, requestProxyURL string) http.RoundTripper {

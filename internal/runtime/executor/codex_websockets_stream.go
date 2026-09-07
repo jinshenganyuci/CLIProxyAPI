@@ -163,7 +163,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			if cliproxyexecutor.UpstreamAttempted(dialCtx) {
 				cliproxyexecutor.MarkUpstreamAttempt(ctx)
 			}
-			return nil, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
+			return nil, statusErr{code: respHS.StatusCode, msg: string(applyCodexIdentityExposeResponsePayload(bodyErr, identityState))}
 		}
 		if cliproxyexecutor.UpstreamAttempted(dialCtx) {
 			cliproxyexecutor.MarkUpstreamAttempt(ctx)
@@ -172,7 +172,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			if sess != nil {
 				sess.reqMu.Unlock()
 			}
-			return nil, newCodexStatusErr(respHS.StatusCode, bodyErr)
+			return nil, newCodexStatusErr(respHS.StatusCode, applyCodexIdentityExposeResponsePayload(bodyErr, identityState))
 		}
 		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
 		if sess != nil {
@@ -397,9 +397,9 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 					// conductor can transparently retry on another credential, and report the
 					// status the upstream refused to put on the wire.
 					helps.LogWithRequestID(ctx).Debugf("codex websockets executor: bootstrap overload rejection after %d buffered handshake events, failing over", len(bufferedChunks))
-					return nil, newCodexBootstrapOverloadErr(terminalBody)
+					return nil, exposeCodexIdentityStatusError(newCodexBootstrapOverloadErr(terminalBody), identityState)
 				}
-				bootstrapTerminalErr = exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
+				bootstrapTerminalErr = exposeCodexIdentityStatusError(streamErr, identityState)
 				break
 			}
 
@@ -587,7 +587,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 				return
 			}
 			if streamErr, terminalBody, ok := codexTerminalFailureErr(payload); ok {
-				clientErr := exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
+				clientErr := exposeCodexIdentityStatusError(streamErr, identityState)
 				terminateReason = "upstream_error"
 				terminateErr = streamErr
 				if sess != nil {

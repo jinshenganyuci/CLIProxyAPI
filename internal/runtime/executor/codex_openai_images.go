@@ -373,7 +373,7 @@ func (e *CodexExecutor) executeDirectOpenAIImage(ctx context.Context, auth *clip
 
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(data))
 	reporter.EnsurePublished(ctx)
-	return cliproxyexecutor.Response{Payload: data, Headers: exposeCodexIdentityHeaders(httpResp.Header, identityState)}, nil
+	return cliproxyexecutor.Response{Payload: applyCodexIdentityExposeResponsePayload(data, identityState), Headers: exposeCodexIdentityHeaders(httpResp.Header, identityState)}, nil
 }
 
 func (e *CodexExecutor) executeDirectOpenAIImageStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, endpointPath string) (_ *cliproxyexecutor.StreamResult, err error) {
@@ -441,18 +441,17 @@ func (e *CodexExecutor) executeDirectOpenAIImageStream(ctx context.Context, auth
 			reporter.EnsurePublished(ctx)
 		}()
 
-		buffer := make([]byte, 32*1024)
+		reader := bufio.NewReader(httpResp.Body)
 		for {
-			n, errRead := httpResp.Body.Read(buffer)
-			if n > 0 {
-				chunk := bytes.Clone(buffer[:n])
+			chunk, errRead := reader.ReadBytes('\n')
+			if len(chunk) > 0 {
 				chunk = applyCodexIdentityConfuseResponsePayload(chunk, identityState)
 				helps.AppendAPIResponseChunk(ctx, e.cfg, chunk)
 				for _, line := range bytes.Split(chunk, []byte("\n")) {
 					streamUsage.ObserveOpenAIStream(bytes.TrimSpace(line))
 				}
 				select {
-				case out <- cliproxyexecutor.StreamChunk{Payload: chunk}:
+				case out <- cliproxyexecutor.StreamChunk{Payload: applyCodexIdentityExposeResponsePayload(chunk, identityState)}:
 				case <-ctx.Done():
 					return
 				}

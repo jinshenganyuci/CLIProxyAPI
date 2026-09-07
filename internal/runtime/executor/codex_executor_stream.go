@@ -192,9 +192,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 						// transparently retry on another credential, and report the status the
 						// upstream refused to put on the wire.
 						helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap overload rejection after %d buffered handshake events, failing over", len(bufferedChunks))
-						return nil, newCodexBootstrapOverloadErr(terminalBody)
+						return nil, exposeCodexIdentityStatusError(newCodexBootstrapOverloadErr(terminalBody), identityState)
 					}
-					bootstrapTerminalErr = exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)
+					bootstrapTerminalErr = exposeCodexIdentityStatusError(streamErr, identityState)
 					break
 				}
 				if isCodexHandshakeMetadataEvent(eventType) {
@@ -320,7 +320,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
 					select {
-					case out <- cliproxyexecutor.StreamChunk{Err: exposeCodexIdentityStatusError(streamErr, terminalBody, identityState)}:
+					case out <- cliproxyexecutor.StreamChunk{Err: exposeCodexIdentityStatusError(streamErr, identityState)}:
 					case <-ctx.Done():
 					}
 					return

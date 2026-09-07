@@ -341,3 +341,142 @@ func TestCodexCredentialIdentityWebsocketPathsIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexCredentialIdentityPrettyJSONCompact(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mapped := gjson.GetBytes(body, "prompt_cache_key").String()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, "{\n  \"id\": \"resp_compact\",\n  \"object\": \"response.compaction\",\n  \"metadata\": {\n    \"prompt_cache_key\": %q\n  }\n}\n", mapped)
+	}))
+	defer server.Close()
+	auth := codexCredentialIdentityTestAuth("audit.json", "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+	auth.Attributes = map[string]string{"base_url": server.URL}
+	auth.ProxyURL = "direct"
+	res, err := NewCodexExecutor(codexCredentialIdentityTestConfig(false)).Execute(context.Background(), auth, cliproxyexecutor.Request{Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","prompt_cache_key":"client-session","input":[]}`)}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse, Alt: "responses/compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(res.Payload, "metadata.prompt_cache_key").String(); got != "client-session" {
+		t.Fatalf("pretty JSON leaked mapped identity=%s payload=%s", got, res.Payload)
+	}
+}
+
+func TestCodexCredentialIdentityWebsocketHandshakeError(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUpgradeRequired} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("status=%d/stream=%v", status, stream), func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(status)
+					_, _ = fmt.Fprintf(w, `{"error":{"message":"test rejection","session_id":%q}}`, codexSessionHeaderValue(r.Header))
+				}))
+				defer server.Close()
+				auth := codexCredentialIdentityTestAuth("audit.json", "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+				auth.Attributes = map[string]string{"base_url": server.URL}
+				auth.ProxyURL = "direct"
+				executor := NewCodexWebsocketsExecutor(codexCredentialIdentityTestConfig(false))
+				req := cliproxyexecutor.Request{Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","prompt_cache_key":"client-session","input":[]}`)}
+				opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse}
+				ctx := cliproxyexecutor.WithDownstreamWebsocket(context.Background())
+				var errExecute error
+				if stream {
+					_, errExecute = executor.ExecuteStream(ctx, auth, req, opts)
+				} else {
+					_, errExecute = executor.Execute(ctx, auth, req, opts)
+				}
+				if errExecute == nil {
+					t.Fatal("expected handshake failure")
+				}
+				if got := gjson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
+					t.Fatalf("handshake error identity=%s error=%v", got, errExecute)
+				}
+			})
+		}
+	}
+}
+
+func TestCodexCredentialIdentityHTTPTerminalError(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"test rejection\",\"session_id\":%q}}}\n\n", codexSessionHeaderValue(r.Header))
+			}))
+			defer server.Close()
+			auth := codexCredentialIdentityTestAuth("audit.json", "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+			auth.Attributes = map[string]string{"base_url": server.URL}
+			auth.ProxyURL = "direct"
+			executor := NewCodexExecutor(codexCredentialIdentityTestConfig(false))
+			req := cliproxyexecutor.Request{Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","prompt_cache_key":"client-session","input":[]}`)}
+			opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse}
+			var errExecute error
+			if stream {
+				var result *cliproxyexecutor.StreamResult
+				result, errExecute = executor.ExecuteStream(context.Background(), auth, req, opts)
+				if errExecute == nil {
+					for chunk := range result.Chunks {
+						if chunk.Err != nil {
+							errExecute = chunk.Err
+						}
+					}
+				}
+			} else {
+				_, errExecute = executor.Execute(context.Background(), auth, req, opts)
+			}
+			if errExecute == nil {
+				t.Fatal("expected terminal failure")
+			}
+			if got := gjson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
+				t.Fatalf("terminal error identity=%s error=%v", got, errExecute)
+			}
+		})
+	}
+}
+
+func TestCodexCredentialIdentityDirectImageResponse(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				mapped := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+				if stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = fmt.Fprintf(w, "data: {\"type\":\"image_generation.completed\",\"padding\":%q,\"installation_id\":%q}\n\n", string(bytes.Repeat([]byte("a"), 40*1024)), mapped)
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"data":[],"installation_id":%q}`, mapped)
+				}
+			}))
+			defer server.Close()
+			auth := codexCredentialIdentityTestAuth("audit.json", "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+			auth.Attributes = map[string]string{"base_url": server.URL}
+			auth.ProxyURL = "direct"
+			e := NewCodexExecutor(codexCredentialIdentityTestConfig(false))
+			req := cliproxyexecutor.Request{Model: "gpt-image-1.5", Payload: []byte(`{"model":"gpt-image-1.5","prompt":"test","client_metadata":{"x-codex-installation-id":"client-install"}}`)}
+			opts := codexOpenAIImageTestOptions(codexImagesGenerationsPath, stream)
+			var result []byte
+			if stream {
+				res, err := e.ExecuteStream(context.Background(), auth, req, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for chunk := range res.Chunks {
+					if chunk.Err != nil {
+						t.Fatal(chunk.Err)
+					}
+					result = append(result, chunk.Payload...)
+				}
+			} else {
+				res, err := e.Execute(context.Background(), auth, req, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result = res.Payload
+			}
+			if !bytes.Contains(result, []byte(`"installation_id":"client-install"`)) {
+				t.Fatalf("image response identity not restored: %s", result)
+			}
+		})
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 )
 
@@ -65,11 +66,16 @@ func (ts *CodexTokenStorage) SaveTokenToFile(authFilePath string) error {
 	if err := os.MkdirAll(filepath.Dir(authFilePath), 0700); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
+	unlock := credentialfile.Lock(authFilePath)
+	defer unlock()
 
 	// Merge metadata using helper
 	data, errMerge := misc.MergeMetadata(ts, ts.Metadata)
 	if errMerge != nil {
 		return fmt.Errorf("failed to merge metadata: %w", errMerge)
+	}
+	if errPreserve := PreserveFileCredentialIdentity(authFilePath, data); errPreserve != nil {
+		return errPreserve
 	}
 
 	var encoded bytes.Buffer

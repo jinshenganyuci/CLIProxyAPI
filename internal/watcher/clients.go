@@ -324,6 +324,7 @@ func (w *Watcher) computePerPathUpdatesLocked(oldByID, newByID map[string]*corea
 		delete(w.currentAuths, id)
 		updates = append(updates, AuthUpdate{Action: AuthUpdateActionDelete, ID: id})
 	}
+	updates = w.reconcileCodexCredentialIdentityConflictsLocked(updates)
 	w.stampAuthUpdatesLocked(updates)
 	return updates
 }

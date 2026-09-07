@@ -237,7 +237,7 @@ func applyCodexTurnMetadataIdentityConfuse(rawTurnMetadata string, state *codexI
 
 func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
 	if state.credentialIdentity {
-		return rewriteCodexIdentityPayload(payload, state.forwardIdentities)
+		return rewriteCodexIdentityPayload(payload, state.forwardIdentities, true)
 	}
 	payload = replaceCodexIdentityResponsePayload(payload, state.originalPromptCacheKey, state.promptCacheKey)
 	for _, turnID := range state.turnIDs {
@@ -248,7 +248,7 @@ func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentit
 
 func applyCodexIdentityExposeResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
 	if state.credentialIdentity {
-		return rewriteCodexIdentityPayload(payload, state.reverseIdentities)
+		return rewriteCodexIdentityPayload(payload, state.reverseIdentities, false)
 	}
 	payload = replaceCodexIdentityResponsePayload(payload, state.promptCacheKey, state.originalPromptCacheKey)
 	for _, turnID := range state.turnIDs {

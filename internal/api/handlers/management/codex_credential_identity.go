@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -56,6 +57,11 @@ type codexCredentialIdentityMutation struct {
 	updatedRaw  []byte
 	namespace   string
 }
+
+var (
+	errCodexIdentityConflict = errors.New("Codex credential identity transaction conflict")
+	errCodexIdentityRollback = errors.New("Codex credential identity rollback failed")
+)
 
 // GetCodexCredentialIdentity reports migration readiness without exposing namespaces or tokens.
 func (h *Handler) GetCodexCredentialIdentity(c *gin.Context) {
@@ -150,8 +156,7 @@ func (h *Handler) InitializeCodexCredentialIdentity(c *gin.Context) {
 
 	mutations, errPlan := h.planCodexCredentialIdentityInitialization(auths)
 	if errPlan != nil {
-		h.disableCodexCredentialIdentityAfterMigrationFailure(c.Request.Context())
-		c.JSON(http.StatusConflict, gin.H{"error": errPlan.Error(), "feature_disabled": true})
+		c.JSON(http.StatusConflict, gin.H{"error": errPlan.Error()})
 		return
 	}
 	if len(mutations) == 0 {
@@ -165,6 +170,10 @@ func (h *Handler) InitializeCodexCredentialIdentity(c *gin.Context) {
 	}
 
 	if errApply := h.applyCodexCredentialIdentityMutations(c.Request.Context(), mutations); errApply != nil {
+		if codexIdentityMutationConflict(errApply) {
+			c.JSON(http.StatusConflict, gin.H{"error": errApply.Error()})
+			return
+		}
 		h.disableCodexCredentialIdentityAfterMigrationFailure(c.Request.Context())
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":            errApply.Error(),
@@ -227,6 +236,10 @@ func (h *Handler) RotateCodexCredentialIdentity(c *gin.Context) {
 		return
 	}
 	if errApply := h.applyCodexCredentialIdentityMutations(c.Request.Context(), []codexCredentialIdentityMutation{mutation}); errApply != nil {
+		if codexIdentityMutationConflict(errApply) {
+			c.JSON(http.StatusConflict, gin.H{"error": errApply.Error()})
+			return
+		}
 		h.disableCodexCredentialIdentityAfterMigrationFailure(c.Request.Context())
 		c.JSON(http.StatusInternalServerError, gin.H{"error": errApply.Error(), "feature_disabled": true})
 		return
@@ -454,68 +467,124 @@ func (h *Handler) planCodexCredentialIdentityMutation(auth *coreauth.Auth, names
 
 func (h *Handler) applyCodexCredentialIdentityMutations(ctx context.Context, mutations []codexCredentialIdentityMutation) error {
 	committed := make([]codexCredentialIdentityMutation, 0, len(mutations))
-	rollback := func() {
-		for index := len(committed) - 1; index >= 0; index-- {
-			mutation := committed[index]
-			_ = writeCodexCredentialFileAtomic(mutation.path, mutation.originalRaw)
-			if h.authManager != nil {
-				if restored, errBuild := h.buildAuthFromFileData(mutation.path, mutation.originalRaw); errBuild == nil {
-					_, _ = h.authManager.Update(coreauth.WithSkipPersist(context.Background()), restored)
+	for _, mutation := range mutations {
+		if errCommit := h.applyCodexCredentialIdentityMutation(ctx, mutation, false); errCommit != nil {
+			// Validation conflicts happen before writing. Other errors may occur
+			// after rename, so include the attempted commit in their rollback.
+			if !errors.Is(errCommit, errCodexIdentityConflict) {
+				committed = append(committed, mutation)
+			}
+			combined := fmt.Errorf("commit Codex credential identity for %q: %w", mutation.auth.ID, errCommit)
+			for index := len(committed) - 1; index >= 0; index-- {
+				if errRollback := h.applyCodexCredentialIdentityMutation(context.Background(), committed[index], true); errRollback != nil {
+					combined = errors.Join(combined, errCodexIdentityRollback, fmt.Errorf("rollback Codex credential identity for %q: %w", committed[index].auth.ID, errRollback))
 				}
 			}
-		}
-	}
-
-	for _, mutation := range mutations {
-		if errWrite := writeCodexCredentialFileAtomic(mutation.path, mutation.updatedRaw); errWrite != nil {
-			rollback()
-			return fmt.Errorf("persist Codex credential identity for %q: %w", mutation.auth.ID, errWrite)
+			return combined
 		}
 		committed = append(committed, mutation)
 	}
+	return nil
+}
 
-	if h.authManager != nil {
-		for _, mutation := range mutations {
-			updated, errBuild := h.buildAuthFromFileData(mutation.path, mutation.updatedRaw)
-			if errBuild != nil {
-				rollback()
-				return fmt.Errorf("reload Codex credential identity for %q: %w", mutation.auth.ID, errBuild)
-			}
-			if existing, ok := h.authManager.GetByID(updated.ID); !ok || existing == nil {
-				rollback()
-				return fmt.Errorf("update runtime Codex credential %q: auth record disappeared", mutation.auth.ID)
-			}
-			if _, errUpdate := h.authManager.Update(coreauth.WithSkipPersist(ctx), updated); errUpdate != nil {
-				rollback()
-				return fmt.Errorf("update runtime Codex credential %q: %w", mutation.auth.ID, errUpdate)
-			}
-		}
+func codexIdentityMutationConflict(err error) bool {
+	return errors.Is(err, errCodexIdentityConflict) && !errors.Is(err, errCodexIdentityRollback)
+}
+
+func (h *Handler) applyCodexCredentialIdentityMutation(ctx context.Context, mutation codexCredentialIdentityMutation, rollback bool) error {
+	var original, replacement map[string]any
+	if errParse := json.Unmarshal(mutation.originalRaw, &original); errParse != nil {
+		return errParse
 	}
-
-	for _, mutation := range mutations {
-		// Repeat the atomic commit after runtime synchronization and then verify the
-		// exact namespace from disk. Runtime synchronization itself never persists.
-		if errWrite := writeCodexCredentialFileAtomic(mutation.path, mutation.updatedRaw); errWrite != nil {
-			rollback()
-			return fmt.Errorf("finalize Codex credential identity for %q: %w", mutation.auth.ID, errWrite)
-		}
+	if errParse := json.Unmarshal(mutation.updatedRaw, &replacement); errParse != nil {
+		return errParse
+	}
+	if rollback {
+		original, replacement = replacement, original
+	}
+	commit := func(auth *coreauth.Auth) error {
+		unlock := credentialfile.Lock(mutation.path)
+		defer unlock()
 		raw, errRead := os.ReadFile(mutation.path)
 		if errRead != nil {
-			rollback()
-			return fmt.Errorf("verify Codex credential identity for %q: %w", mutation.auth.ID, errRead)
+			return errRead
 		}
-		var metadata map[string]any
-		if errUnmarshal := json.Unmarshal(raw, &metadata); errUnmarshal != nil {
-			rollback()
-			return fmt.Errorf("verify Codex credential identity for %q: %w", mutation.auth.ID, errUnmarshal)
+		var current map[string]any
+		if errParse := json.Unmarshal(raw, &current); errParse != nil {
+			return errParse
 		}
-		namespace, _, errParse := codex.ParseCredentialIdentity(metadata)
-		if errParse != nil || namespace.String() != mutation.namespace {
-			rollback()
-			return fmt.Errorf("verify Codex credential identity for %q: persisted namespace mismatch", mutation.auth.ID)
+		if !strings.EqualFold(authMetadataStringValue(current, "type"), "codex") {
+			return fmt.Errorf("%w: credential type changed", errCodexIdentityConflict)
+		}
+		if auth != nil && auth.Storage != nil {
+			if _, supported := auth.Storage.(*codex.CodexTokenStorage); !supported {
+				return fmt.Errorf("%w: credential storage requires provider synchronization", errCodexIdentityConflict)
+			}
+		}
+		if !codexIdentityFieldsEqual(current, original) {
+			// A failed write may have left the original identity untouched.
+			if !rollback || !codexIdentityFieldsEqual(current, replacement) {
+				return fmt.Errorf("%w: namespace changed concurrently", errCodexIdentityConflict)
+			}
+		} else {
+			copyCodexIdentityFields(current, replacement)
+			updatedRaw, errMarshal := json.MarshalIndent(current, "", "  ")
+			if errMarshal != nil {
+				return errMarshal
+			}
+			if errWrite := writeCodexCredentialFileAtomic(mutation.path, append(updatedRaw, '\n')); errWrite != nil {
+				return errWrite
+			}
+		}
+		if auth != nil {
+			if auth.Metadata == nil {
+				auth.Metadata = make(map[string]any)
+			}
+			copyCodexIdentityFields(auth.Metadata, replacement)
+			// OAuth may already have persisted fresh credentials while its
+			// watcher update is still queued. Publish these canonical fields with
+			// the identity so a later routine save cannot restore stale tokens.
+			for _, key := range []string{"access_token", "refresh_token", "id_token", "account_id", "email", "expired", "last_refresh", "proxy_url"} {
+				if value, exists := current[key]; exists {
+					auth.Metadata[key] = value
+				} else {
+					delete(auth.Metadata, key)
+				}
+			}
+			auth.ProxyURL = authMetadataStringValue(current, "proxy_url")
+			if lastRefresh, exists := extractLastRefreshTimestamp(current); exists {
+				auth.LastRefreshedAt = lastRefresh
+			}
+			// File-synthesized Codex auths use metadata persistence. Discard the
+			// login-only typed storage, whose omitted fields may contain old tokens.
+			auth.Storage = nil
+		}
+		return nil
+	}
+	if h.authManager == nil {
+		return commit(nil)
+	}
+	_, errUpdate := h.authManager.UpdatePersistedMetadata(ctx, mutation.auth.ID, commit)
+	return errUpdate
+}
+
+func copyCodexIdentityFields(target, source map[string]any) {
+	for _, key := range []string{codex.CredentialIdentityVersionMetadataKey, codex.CredentialIdentityNamespaceMetadataKey} {
+		if value, exists := source[key]; exists {
+			target[key] = value
+		} else {
+			delete(target, key)
 		}
 	}
-	return nil
+}
+
+func codexIdentityFieldsEqual(left, right map[string]any) bool {
+	leftIdentity, rightIdentity := make(map[string]any), make(map[string]any)
+	copyCodexIdentityFields(leftIdentity, left)
+	copyCodexIdentityFields(rightIdentity, right)
+	leftRaw, _ := json.Marshal(leftIdentity)
+	rightRaw, _ := json.Marshal(rightIdentity)
+	return string(leftRaw) == string(rightRaw)
 }
 
 func (h *Handler) codexCredentialIdentityPath(auth *coreauth.Auth) string {

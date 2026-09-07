@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
@@ -121,6 +123,13 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
 			return "", err
 		}
 	case auth.Metadata != nil:
+		unlock := credentialfile.Lock(path)
+		defer unlock()
+		if strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+			if errPreserve := codex.PreserveFileCredentialIdentity(path, auth.Metadata); errPreserve != nil {
+				return "", errPreserve
+			}
+		}
 		auth.Metadata["disabled"] = auth.Disabled
 		raw, errMarshal := json.Marshal(auth.Metadata)
 		if errMarshal != nil {
@@ -208,6 +217,8 @@ func (s *FileTokenStore) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	unlock := credentialfile.Lock(path)
+	defer unlock()
 	if err = os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("auth filestore: delete failed: %w", err)
 	}

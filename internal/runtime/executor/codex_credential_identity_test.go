@@ -33,10 +33,10 @@ func TestCodexCredentialIdentityMapsEverySupportedBodyAndHeaderField(t *testing.
 		t.Fatalf("snapshot = %+v", state.credentialSnapshot)
 	}
 
-	mappedSession := state.forwardIdentities["session-original"]
-	mappedInstall := state.forwardIdentities["install-original"]
-	mappedWindow := state.forwardIdentities["window-original"]
-	mappedTurn := state.forwardIdentities["turn-original"]
+	mappedSession := state.forwardIdentities[codexIdentityMapKey("session", "session-original")]
+	mappedInstall := state.forwardIdentities[codexIdentityMapKey("installation", "install-original")]
+	mappedWindow := state.forwardIdentities[codexIdentityMapKey("window", "window-original")]
+	mappedTurn := state.forwardIdentities[codexIdentityMapKey("turn", "turn-original")]
 	for label, value := range map[string]string{
 		"session": mappedSession,
 		"install": mappedInstall,
@@ -85,10 +85,10 @@ func TestCodexCredentialIdentityMapsEverySupportedBodyAndHeaderField(t *testing.
 	if got := headerValueCaseInsensitive(headers, "Conversation_id"); got != mappedSession {
 		t.Fatalf("Conversation_id = %q, want %q", got, mappedSession)
 	}
-	if got := headerValueCaseInsensitive(headers, "Thread-Id"); got != state.forwardIdentities["thread-original"] {
+	if got := headerValueCaseInsensitive(headers, "Thread-Id"); got != state.forwardIdentities[codexIdentityMapKey("session", "thread-original")] {
 		t.Fatalf("Thread-Id = %q", got)
 	}
-	if got := headerValueCaseInsensitive(headers, "X-Client-Request-Id"); got != state.forwardIdentities["request-original"] {
+	if got := headerValueCaseInsensitive(headers, "X-Client-Request-Id"); got != state.forwardIdentities[codexIdentityMapKey("request", "request-original")] {
 		t.Fatalf("X-Client-Request-Id = %q", got)
 	}
 	if got := headerValueCaseInsensitive(headers, "X-Codex-Window-Id"); got != mappedWindow {
@@ -149,28 +149,109 @@ func TestCodexCredentialIdentitySameCredentialIgnoresDownstreamKeyAsNamespace(t 
 	}
 }
 
-func TestCodexCredentialIdentityPreservesCrossFieldEquality(t *testing.T) {
+func TestCodexCredentialIdentityPreservesEqualityWithinKinds(t *testing.T) {
 	cfg := codexCredentialIdentityTestConfig(false)
 	auth := codexCredentialIdentityTestAuth("codex-a.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
 	body := []byte(`{"prompt_cache_key":"shared","client_metadata":{"x-codex-installation-id":"shared","x-codex-window-id":"shared","x-codex-turn-metadata":"{\"prompt_cache_key\":\"shared\",\"turn_id\":\"shared\",\"window_id\":\"shared\"}"}}`)
-	upstream, _, errIdentity := applyCodexIdentityBody(cfg, auth, body, body)
+	upstream, state, errIdentity := applyCodexIdentityBody(cfg, auth, body, body)
 	if errIdentity != nil {
 		t.Fatal(errIdentity)
 	}
-	values := []string{
-		gjson.GetBytes(upstream, "prompt_cache_key").String(),
-		gjson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String(),
-		gjson.GetBytes(upstream, "client_metadata.x-codex-window-id").String(),
-	}
+	headers := http.Header{"Session-Id": {"shared"}, "Conversation_id": {"shared"}, "Thread-Id": {"shared"}, "X-Client-Request-Id": {"shared"}, "X-Codex-Window-Id": {"shared"}}
+	applyCodexIdentityHeaders(headers, &state)
 	metadata := gjson.GetBytes(upstream, "client_metadata.x-codex-turn-metadata").String()
-	values = append(values,
-		gjson.Get(metadata, "prompt_cache_key").String(),
-		gjson.Get(metadata, "turn_id").String(),
-		gjson.Get(metadata, "window_id").String(),
-	)
-	for _, value := range values[1:] {
-		if value != values[0] {
-			t.Fatalf("equal original values did not remain equal after mapping: %v", values)
+	byKind := map[string][]string{
+		"session":      {gjson.GetBytes(upstream, "prompt_cache_key").String(), gjson.Get(metadata, "prompt_cache_key").String(), codexSessionHeaderValue(headers), headerValueCaseInsensitive(headers, "Conversation_id"), headerValueCaseInsensitive(headers, "Thread-Id")},
+		"installation": {gjson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String()},
+		"window":       {gjson.GetBytes(upstream, "client_metadata.x-codex-window-id").String(), gjson.Get(metadata, "window_id").String(), headerValueCaseInsensitive(headers, "X-Codex-Window-Id")},
+		"turn":         {gjson.Get(metadata, "turn_id").String()},
+		"request":      {headerValueCaseInsensitive(headers, "X-Client-Request-Id")},
+	}
+	seen := make(map[string]string)
+	for kind, values := range byKind {
+		want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, "shared")
+		for _, got := range values {
+			if got != want {
+				t.Fatalf("%s identity=%q, want unchanged derivation %q", kind, got, want)
+			}
+		}
+		if previous, ok := seen[want]; ok {
+			t.Fatalf("%s and %s reused one identity", kind, previous)
+		}
+		seen[want] = kind
+	}
+	applyCodexIdentityHeaders(headers, &state)
+	if got := codexSessionHeaderValue(headers); got != byKind["session"][0] {
+		t.Fatalf("reapplying headers remapped session: %q", got)
+	}
+}
+
+func TestCodexCredentialIdentityStableAcrossFieldCombinations(t *testing.T) {
+	cfg := codexCredentialIdentityTestConfig(false)
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
+	for _, body := range []string{
+		`{"prompt_cache_key":"shared","client_metadata":{"x-codex-installation-id":"shared","x-codex-window-id":"shared"}}`,
+		`{"prompt_cache_key":"different-session","client_metadata":{"x-codex-installation-id":"shared","x-codex-window-id":"shared"}}`,
+		`{"client_metadata":{"x-codex-installation-id":"shared","x-codex-window-id":"shared"}}`,
+		`{"client_metadata":{"x-codex-window-id":"shared"}}`,
+	} {
+		upstream, state, errIdentity := applyCodexIdentityBody(cfg, auth, []byte(body), []byte(body))
+		if errIdentity != nil {
+			t.Fatal(errIdentity)
+		}
+		for key, kind := range map[string]string{"x-codex-installation-id": "installation", "x-codex-window-id": "window"} {
+			if got := gjson.GetBytes(upstream, "client_metadata."+key); got.Exists() {
+				want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, "shared")
+				if got.String() != want {
+					t.Fatalf("%s changed with body %s: got %s want %s", key, body, got.String(), want)
+				}
+			}
+		}
+	}
+}
+
+func TestCodexCredentialIdentityMappedValuesAreIdempotentOnlyWithinKind(t *testing.T) {
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
+	_, state, errIdentity := applyCodexIdentityBody(codexCredentialIdentityTestConfig(false), auth, nil, nil)
+	if errIdentity != nil {
+		t.Fatal(errIdentity)
+	}
+	session := state.mapCredentialIdentity("session", "shared")
+	if got := state.mapCredentialIdentity("session", session); got != session {
+		t.Fatalf("session remapped to %s", got)
+	}
+	installation := state.mapCredentialIdentity("installation", session)
+	want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, "installation", session)
+	if installation != want || installation == session {
+		t.Fatalf("cross-kind mapped value reused: got %s want %s", installation, want)
+	}
+	if got := state.mapCredentialIdentity("installation", installation); got != installation {
+		t.Fatalf("installation remapped to %s", got)
+	}
+}
+
+func TestCodexCredentialIdentityResponseMappingUsesFieldKinds(t *testing.T) {
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
+	body := []byte(`{"prompt_cache_key":"shared","client_metadata":{"x-codex-installation-id":"shared","x-codex-window-id":"shared","x-codex-turn-metadata":{"turn_id":"shared"}}}`)
+	_, state, errIdentity := applyCodexIdentityBody(codexCredentialIdentityTestConfig(false), auth, body, body)
+	if errIdentity != nil {
+		t.Fatal(errIdentity)
+	}
+	payload := []byte(`{"metadata":{"session_id":"shared","installation_id":"shared","window_id":"shared","turn_id":"shared","note":"shared"},"x-codex-turn-metadata":"{\"prompt_cache_key\":\"shared\",\"turn_id\":\"shared\"}"}`)
+	upstream := applyCodexIdentityConfuseResponsePayload(payload, state)
+	for key, kind := range map[string]string{"session_id": "session", "installation_id": "installation", "window_id": "window", "turn_id": "turn"} {
+		want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, "shared")
+		if got := gjson.GetBytes(upstream, "metadata."+key).String(); got != want {
+			t.Fatalf("response %s=%s want %s", key, got, want)
+		}
+	}
+	if got := gjson.Get(gjson.GetBytes(upstream, "x-codex-turn-metadata").String(), "turn_id").String(); got != state.forwardIdentities[codexIdentityMapKey("turn", "shared")] {
+		t.Fatalf("nested turn ID=%s", got)
+	}
+	client := applyCodexIdentityExposeResponsePayload(upstream, state)
+	for _, key := range []string{"session_id", "installation_id", "window_id", "turn_id", "note"} {
+		if got := gjson.GetBytes(client, "metadata."+key).String(); got != "shared" {
+			t.Fatalf("response %s not restored: %s", key, got)
 		}
 	}
 }
@@ -217,8 +298,8 @@ func TestCodexCredentialIdentityResponseReverseMappingIsStructured(t *testing.T)
 	if errIdentity != nil {
 		t.Fatal(errIdentity)
 	}
-	mappedSession := state.forwardIdentities["session-original"]
-	mappedInstall := state.forwardIdentities["install-original"]
+	mappedSession := state.forwardIdentities[codexIdentityMapKey("session", "session-original")]
+	mappedInstall := state.forwardIdentities[codexIdentityMapKey("installation", "install-original")]
 	upstream := []byte(`data: {"type":"response.completed","response":{"metadata":{"prompt_cache_key":"` + mappedSession + `","x-codex-installation-id":"` + mappedInstall + `","note":"` + mappedSession + `"}}}` + "\n\n")
 	client := applyCodexIdentityExposeResponsePayload(upstream, state)
 	if !bytes.Contains(client, []byte(`"prompt_cache_key":"session-original"`)) {
@@ -258,5 +339,28 @@ func codexCredentialIdentityTestAuth(id string, namespace string) *cliproxyauth.
 			internalcodex.CredentialIdentityVersionMetadataKey:   internalcodex.CredentialIdentityCurrentVersion,
 			internalcodex.CredentialIdentityNamespaceMetadataKey: namespace,
 		},
+	}
+}
+
+func TestCodexCredentialIdentityResponsePreservesMultipleJSONRecords(t *testing.T) {
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
+	body := []byte(`{"prompt_cache_key":"client-session"}`)
+	_, state, errIdentity := applyCodexIdentityBody(codexCredentialIdentityTestConfig(false), auth, body, body)
+	if errIdentity != nil {
+		t.Fatal(errIdentity)
+	}
+	payload := []byte(`{"session_id":"` + state.promptCacheKey + `","sequence":1}` + "\n" + `{"session_id":"` + state.promptCacheKey + `","sequence":2}` + "\n")
+	client := applyCodexIdentityExposeResponsePayload(payload, state)
+	records := bytes.Split(bytes.TrimSpace(client), []byte("\n"))
+	if len(records) != 2 {
+		t.Fatalf("response lost JSON records: %s", client)
+	}
+	for index, record := range records {
+		if got := gjson.GetBytes(record, "session_id").String(); got != "client-session" {
+			t.Fatalf("record %d identity = %s", index, got)
+		}
+		if got := gjson.GetBytes(record, "sequence").Int(); got != int64(index+1) {
+			t.Fatalf("record %d sequence = %d", index, got)
+		}
 	}
 }

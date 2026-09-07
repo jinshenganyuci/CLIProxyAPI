@@ -380,6 +380,9 @@ type authPersistLock struct {
 	mu             sync.Mutex
 	lastEpoch      uint64
 	lastGeneration uint64
+	// The ordering watermark records attempts, including failed writes. Keep
+	// their durability separate so metadata transactions retry unsaved tokens.
+	lastSaveFailed bool
 }
 
 func (m *Manager) persist(ctx context.Context, auth *Auth) error {
@@ -419,6 +422,7 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 			return nil
 		}
 		_, err := m.store.Save(ctx, auth)
+		pLock.lastSaveFailed = err != nil
 		return err
 	}
 
