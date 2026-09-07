@@ -94,6 +94,64 @@ func TestCodexCredentialProxyRequireUnreachableProxyDoesNotFallBack(t *testing.T
 	}
 }
 
+func TestCodexCredentialProxyPreferFailuresDoNotFallBack(t *testing.T) {
+	for _, test := range []struct {
+		name, credential, global string
+	}{
+		{name: "invalid_credential", credential: "invalid", global: "global"},
+		{name: "invalid_global", global: "invalid"},
+		{name: "unreachable_credential", credential: "unreachable", global: "global"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var upstreamHits, globalHits atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				upstreamHits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer upstream.Close()
+			global := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				globalHits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer global.Close()
+			unreachable := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			unreachable.Close()
+			cfg := &config.Config{Codex: config.CodexConfig{CredentialProxyPolicy: config.CodexCredentialProxyPolicyPrefer}}
+			cfg.ProxyURL = test.global
+			if test.global == "global" {
+				cfg.ProxyURL = global.URL
+			}
+			credentialURL := test.credential
+			if credentialURL == "unreachable" {
+				credentialURL = unreachable.URL
+			}
+			auth := codexProxyTestOAuth(credentialURL)
+			auth.Attributes = map[string]string{"base_url": upstream.URL}
+			_, errExecute := NewCodexExecutor(cfg).Execute(context.Background(), auth, cliproxyexecutor.Request{
+				Model: "gpt-5-codex", Payload: []byte(`{"model":"gpt-5-codex","input":"hello"}`),
+			}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse})
+			if errExecute == nil {
+				t.Fatal("expected selected proxy failure")
+			}
+			if globalHits.Load() != 0 || upstreamHits.Load() != 0 {
+				t.Fatalf("selected proxy failure leaked to global=%d direct=%d", globalHits.Load(), upstreamHits.Load())
+			}
+		})
+	}
+}
+
+func TestValidateCodexCredentialProxyPolicyPreferAPIKeyExemption(t *testing.T) {
+	cfg := &config.Config{Codex: config.CodexConfig{CredentialProxyPolicy: "prefer"}}
+	cfg.ProxyURL = "invalid"
+	auth := &cliproxyauth.Auth{ProxyURL: "invalid", Attributes: map[string]string{"api_key": "synthetic-api-key"}}
+	if errProxy := validateCodexCredentialProxyPolicy(cfg, auth); errProxy != nil {
+		t.Fatalf("API key behavior changed: %v", errProxy)
+	}
+	if errProxy := validateCodexCredentialProxyPolicy(nil, codexProxyTestOAuth("invalid")); errProxy == nil {
+		t.Fatal("nil config allowed invalid explicit OAuth proxy")
+	}
+}
+
 func codexProxyTestOAuth(proxyURL string) *cliproxyauth.Auth {
 	return &cliproxyauth.Auth{
 		ID:       "codex-oauth.json",

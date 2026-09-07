@@ -5,9 +5,10 @@
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.152-codex-identity.2`，Docker 标签为
-`codex-identity-v7.2.152.2`。本次修复身份变更与 Token 刷新的并发覆盖、热更新的
-重复命名空间检查、管理额度查询的严格代理约束，以及跨类型标识映射和响应还原。
+当前修订为 `v7.2.152-codex-identity.3`，Docker 标签为
+`codex-identity-v7.2.152.3`。本次增加登录前选择代理，并将该选择固定到 OAuth 会话
+和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询。继承 `.2` 的身份并发、
+热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
 
 ## 最终边界
 
@@ -162,7 +163,8 @@ codex:
 
 策略含义：
 
-- `prefer`：保持原版行为；凭据未配置 `proxy_url` 时可继承全局代理或直连。
+- `prefer`：旧凭据未配置 `proxy_url` 时可继承全局代理或直连；已有明确设置时必须
+  使用该设置，无效或不可达时失败，不退回其他出口。
 - `require`：Codex OAuth 凭据必须明确配置有效的 `http`、`https`、`socks5`、
   `socks5h` 代理，或显式填写 `direct`。
 
@@ -170,11 +172,16 @@ codex:
 连接错误。两种情况都不会退回全局代理或直连。HTTP、SSE、WebSocket、Token 刷新和
 Codex Live 的直连/sideband 路径都执行该策略。
 
-从 `7.2.152.2` 起，管理页 Codex 额度查询及选择该 OAuth 凭据的 `/api-call` 也遵循
-`require`：缺失或无效凭据代理在出站前返回 HTTP 409；请求级 `proxy_url` 只能与
-凭据设置一致，不能改成其他代理或 `direct` 绕过。显式 direct/none 等价。有效代理
-连接失败仍返回连接错误，不继承全局代理。`prefer`、其他供应商及 API Key 凭据的
-原有管理请求行为保持不变。
+从 `7.2.152.3` 起，管理页 Codex 额度查询及选择该 OAuth 凭据的 `/api-call` 在
+`prefer` 下也固定使用凭据已有的明确代理：请求级 `proxy_url` 只能与凭据设置一致，
+不能改成其他代理或 `direct` 绕过。`require` 下缺失代理、两种策略下选中的无效代理
+均在出站前返回 HTTP 409。显式 direct/none 等价；有效代理连接失败仍返回连接错误。
+其他供应商及 API Key 凭据的管理请求行为保持不变。
+
+首次 Token 交换和刷新会校验实际选择的代理，错误地址不会被当作默认网络配置。
+并发刷新仅在 Token 和出口设置都相同时合并请求；不同出口不会共用一次刷新结果。
+WebSocket 连接复用也检查出口设置，修改凭据代理后不能继续复用旧出口的连接。
+必须保留上游会话的续接请求会明确要求重放，避免静默切换或复用错误出口。
 
 注意：多个凭据都填写 `direct` 时，它们仍共享 CPA 宿主机公网出口；`direct` 只表示
 明确禁止代理继承，并不代表不同公网 IP。
@@ -206,6 +213,35 @@ POST /v0/management/codex-credential-identity/rotate
 
 状态 API 不返回 Token、代理凭据或完整命名空间。
 
+### 登录前选择代理
+
+“OAuth 登录”页的 Codex 卡片在开始登录前提供三个选项：
+
+- 使用当前全局设置：在开始登录时解析并保存当前值；全局未配置时保存为 `direct`。
+  此后修改全局代理不会改变这次登录或新凭据的出口。
+- 指定代理：填写 `http://`、`https://`、`socks5://` 或 `socks5h://` 地址，可带认证信息。
+- 直接连接：明确保存 `direct`，禁用全局和环境代理继承。
+
+`require` 模式下，新登录必须明确选择指定代理或直接连接。代理选择仅属于本次登录，
+不会修改全局配置，也不会修改其他凭据。登录等待期间锁定选择，成功或取消后清空
+代理输入。取消会通知后端停止该 OAuth 会话。
+
+```text
+POST /v0/management/codex-auth-url
+Content-Type: application/json
+
+{"proxy_url":"socks5://127.0.0.1:1080","is_webui":true}
+```
+
+代理只通过受保护管理接口的 JSON 请求体提交，不放入授权链接或查询参数。省略
+`proxy_url` 表示使用开始登录时的全局设置；显式空字符串返回错误。旧 GET 调用继续
+兼容，但不能通过查询参数传代理。API 可附带 `auth_index` 重新认证指定旧凭据：
+未覆盖代理时先使用该凭据设置，并检查登录账号是否匹配，保留原文件和身份。
+
+CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使用浏览器自身的网络；
+这里的代理控制 CPA 发起的 Token 交换及后续请求。创建凭据本身是本地保存操作，
+会同时写入本次选定的 `proxy_url`，无需登录后再补填。
+
 ## Docker Compose 升级
 
 1. 备份当前 `config.yaml` 和 auth volume。默认 Compose 中 auth volume 是：
@@ -215,7 +251,7 @@ POST /v0/management/codex-credential-identity/rotate
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.152.2`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.152.3`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -224,6 +260,9 @@ POST /v0/management/codex-credential-identity/rotate
 
 已有 OAuth 凭据无需重新登录；迁移只增加两个身份字段。一个凭据下已有的多个 CPA Key
 继续正常使用，并自动享受该凭据命名空间。
+
+已经在 `.1` 或 `.2` 初始化并启用的部署无需重复初始化；已有有效代理、直连设置和
+身份继续使用。若旧凭据填写了畸形代理，`.3` 会明确报错，需修正该地址。
 
 ## 回滚
 

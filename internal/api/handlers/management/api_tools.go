@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
@@ -495,26 +496,35 @@ func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL s
 		return h.apiCallTransport(auth, requestProxyURL), nil
 	}
 	h.mu.Lock()
-	require := h.cfg != nil && strings.EqualFold(strings.TrimSpace(h.cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
-	h.mu.Unlock()
-	if !require {
-		return h.apiCallTransport(auth, requestProxyURL), nil
+	var cfg config.Config
+	if h.cfg != nil {
+		cfg.ProxyURL = h.cfg.ProxyURL
+		cfg.Codex.CredentialProxyPolicy = h.cfg.Codex.CredentialProxyPolicy
 	}
-
-	setting, errParse := proxyutil.Parse(auth.ProxyURL)
-	if errParse != nil || setting.Mode == proxyutil.ModeInvalid {
-		return nil, fmt.Errorf("codex credential proxy for auth %q is invalid", auth.ID)
+	h.mu.Unlock()
+	require := strings.EqualFold(strings.TrimSpace(cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
+	var setting proxyutil.Setting
+	var errProxy error
+	if strings.TrimSpace(auth.ProxyURL) != "" || require {
+		setting, errProxy = codexauth.ResolveCredentialProxySetting(&cfg, auth.ProxyURL)
+		if errProxy == nil && strings.TrimSpace(requestProxyURL) != "" {
+			requested, errRequested := codexauth.ResolveProxySetting(requestProxyURL, "")
+			if errRequested != nil || requested.Mode != setting.Mode || (setting.Mode == proxyutil.ModeProxy && requested.URL.String() != setting.URL.String()) {
+				return nil, fmt.Errorf("codex credential proxy for auth %q cannot be overridden", auth.ID)
+			}
+		}
+	} else {
+		// Legacy credentials without a selected route may use a request override
+		// or inherit the global route. An invalid selected route never falls back.
+		setting, errProxy = codexauth.ResolveProxySetting(requestProxyURL, cfg.ProxyURL)
+	}
+	if errProxy != nil {
+		return nil, fmt.Errorf("%w for auth %q", errProxy, auth.ID)
 	}
 	if setting.Mode == proxyutil.ModeInherit {
-		return nil, fmt.Errorf("codex credential proxy for auth %q is required; configure proxy-url or explicit direct", auth.ID)
+		return directAPICallTransport(), nil
 	}
-	if strings.TrimSpace(requestProxyURL) != "" {
-		requested, errRequested := proxyutil.Parse(requestProxyURL)
-		if errRequested != nil || requested.Mode != setting.Mode || (setting.Mode == proxyutil.ModeProxy && requested.URL.String() != setting.URL.String()) {
-			return nil, fmt.Errorf("codex credential proxy for auth %q cannot be overridden while credential-proxy-policy is require", auth.ID)
-		}
-	}
-	transport, _, errBuild := proxyutil.BuildHTTPTransport(auth.ProxyURL)
+	transport, _, errBuild := proxyutil.BuildHTTPTransport(setting.Raw)
 	if errBuild != nil || transport == nil {
 		return nil, fmt.Errorf("codex credential proxy for auth %q could not be initialized", auth.ID)
 	}

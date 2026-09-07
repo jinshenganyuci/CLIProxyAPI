@@ -7,6 +7,10 @@ The image serves `static/management.html` at `/management.html`. It is built fro
 - commit: `6586f88858ca27e840bd8db2630dccd371a1cd4a`
 - patch: `management-center-v1.22.6-credential-identity.patch`
 
+The patch also adds a Codex login proxy selector. Proxy credentials are sent in the
+POST body and held only in page memory; successful login and cancellation clear
+the input. The selected egress is saved with the credential for later use.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
@@ -22,7 +26,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-038080a6d2c41e0588454db94990d935576e257b09d6d6d144c8fa4a1b1bdb80
+abbc27677a5b859aad8e1a57b30dab09ff97a7c7685c4d3052f9a6ad76146380
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

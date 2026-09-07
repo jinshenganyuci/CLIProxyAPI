@@ -25,6 +25,7 @@ func TestAPICallCodexCredentialProxyPolicy(t *testing.T) {
 		credentialProxy string
 		requestProxy    string
 		global          bool
+		invalidGlobal   bool
 		apiKey          bool
 		wantStatus      int
 		wantRoute       string
@@ -42,9 +43,19 @@ func TestAPICallCodexCredentialProxyPolicy(t *testing.T) {
 		{name: "direct_alias_allowed", credentialProxy: "direct", requestProxy: "none", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
 		{name: "unreachable_never_falls_back", credentialProxy: "unreachable", global: true, wantStatus: http.StatusBadGateway},
 		{name: "prefer_retains_inheritance", policy: "prefer", global: true, wantStatus: http.StatusOK, wantRoute: "global"},
-		{name: "prefer_retains_override", policy: "prefer", credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
+		{name: "prefer_rejects_credential_override", policy: "prefer", credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusConflict},
+		{name: "prefer_retains_unbound_override", policy: "prefer", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
+		{name: "prefer_matching_override", policy: "prefer", credentialProxy: "credential", requestProxy: "credential", global: true, wantStatus: http.StatusOK, wantRoute: "credential"},
+		{name: "prefer_direct_alias", policy: "prefer", credentialProxy: "direct", requestProxy: "none", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
+		{name: "prefer_invalid_credential", policy: "prefer", credentialProxy: "invalid-proxy", global: true, wantStatus: http.StatusConflict},
+		{name: "prefer_invalid_global", policy: "prefer", invalidGlobal: true, wantStatus: http.StatusConflict},
+		{name: "prefer_unreachable_credential", policy: "prefer", credentialProxy: "unreachable", global: true, wantStatus: http.StatusBadGateway},
+		{name: "prefer_credential_overrides_invalid_global", policy: "prefer", credentialProxy: "credential", invalidGlobal: true, wantStatus: http.StatusOK, wantRoute: "credential"},
+		{name: "prefer_unbound_request_overrides_invalid_global", policy: "prefer", requestProxy: "credential", invalidGlobal: true, wantStatus: http.StatusOK, wantRoute: "credential"},
 		{name: "other_provider_retains_inheritance", provider: "claude", global: true, wantStatus: http.StatusOK, wantRoute: "global"},
 		{name: "api_key_retains_inheritance", apiKey: true, global: true, wantStatus: http.StatusOK, wantRoute: "global"},
+		{name: "other_provider_retains_override", provider: "claude", credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
+		{name: "api_key_retains_override", apiKey: true, credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -86,6 +97,9 @@ func TestAPICallCodexCredentialProxyPolicy(t *testing.T) {
 			cfg := &config.Config{Codex: config.CodexConfig{CredentialProxyPolicy: policy}}
 			if test.global {
 				cfg.SDKConfig = sdkconfig.SDKConfig{ProxyURL: globalProxy.URL}
+			}
+			if test.invalidGlobal {
+				cfg.ProxyURL = "invalid-global-proxy"
 			}
 			provider := test.provider
 			if provider == "" {

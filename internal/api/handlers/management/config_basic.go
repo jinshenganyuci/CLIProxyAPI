@@ -335,11 +335,28 @@ func (h *Handler) PutRoutingStrategy(c *gin.Context) {
 }
 
 // Proxy URL
-func (h *Handler) GetProxyURL(c *gin.Context) { c.JSON(200, gin.H{"proxy-url": h.cfg.ProxyURL}) }
+func (h *Handler) GetProxyURL(c *gin.Context) {
+	h.mu.Lock()
+	proxyURL := h.cfg.ProxyURL
+	h.mu.Unlock()
+	c.JSON(http.StatusOK, gin.H{"proxy-url": proxyURL})
+}
 func (h *Handler) PutProxyURL(c *gin.Context) {
-	h.updateStringField(c, func(v string) { h.cfg.ProxyURL = v })
+	var body struct {
+		Value *string `json:"value"`
+	}
+	if errBind := c.ShouldBindJSON(&body); errBind != nil || body.Value == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.ProxyURL = *body.Value
+	h.persistLocked(c)
 }
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfg.ProxyURL = ""
-	h.persist(c)
+	h.persistLocked(c)
 }

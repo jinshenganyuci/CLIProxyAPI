@@ -2,8 +2,6 @@ package management
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,6 +192,11 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
 }
 
 func (h *Handler) RequestCodexToken(c *gin.Context) {
+	options, status, errPrepare := h.prepareCodexOAuthSession(c)
+	if errPrepare != nil {
+		c.JSON(status, gin.H{"error": errPrepare.Error()})
+		return
+	}
 	ctx := context.Background()
 	ctx = PopulateAuthContext(ctx, c)
 
@@ -216,7 +219,7 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 	}
 
 	// Initialize Codex auth service
-	openaiAuth := newCodexOAuthService(h.cfg)
+	openaiAuth := newCodexOAuthService(options.handler.cfg)
 
 	// Generate authorization URL
 	authURL, err := openaiAuth.GenerateAuthURL(state, pkceCodes)
@@ -228,17 +231,19 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 
 	RegisterOAuthSession(state, "codex")
 
-	isWebUI := isWebUIRequest(c)
+	isWebUI := options.isWebUI
 	var forwarder *callbackForwarder
 	if isWebUI {
-		targetURL, errTarget := h.managementCallbackURL("/codex/callback")
+		targetURL, errTarget := options.handler.managementCallbackURL("/codex/callback")
 		if errTarget != nil {
+			CancelOAuthSession(state)
 			log.WithError(errTarget).Error("failed to compute codex callback target")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "callback server unavailable"})
 			return
 		}
 		var errStart error
 		if forwarder, errStart = startCallbackForwarder(codexCallbackPort, "codex", targetURL); errStart != nil {
+			CancelOAuthSession(state)
 			log.WithError(errStart).Error("failed to start codex callback forwarder")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start callback server"})
 			return
@@ -251,7 +256,7 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 		}
 
 		// Wait for callback file
-		waitFile := filepath.Join(h.cfg.AuthDir, fmt.Sprintf(".oauth-codex-%s.oauth", state))
+		waitFile := filepath.Join(options.handler.cfg.AuthDir, fmt.Sprintf(".oauth-codex-%s.oauth", state))
 		deadline := time.Now().Add(5 * time.Minute)
 		var code string
 		for {
@@ -290,41 +295,16 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 		// Exchange code for tokens using internal auth service
 		bundle, errExchange := openaiAuth.ExchangeCodeForTokens(ctx, code, pkceCodes)
 		if errExchange != nil {
-			authErr := codex.NewAuthenticationError(codex.ErrCodeExchangeFailed, errExchange)
-			SetOAuthSessionError(state, oauthSessionErrorWithCause("Failed to exchange authorization code for tokens", errExchange))
-			log.Errorf("Failed to exchange authorization code for tokens: %v", authErr)
+			reportCodexOAuthExchangeError(state, errExchange)
 			return
 		}
 
-		// Extract additional info for filename generation
-		claims, _ := codex.ParseJWTToken(bundle.TokenData.IDToken)
-		planType := ""
-		hashAccountID := ""
-		if claims != nil {
-			planType = strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType)
-			if accountID := claims.GetAccountID(); accountID != "" {
-				digest := sha256.Sum256([]byte(accountID))
-				hashAccountID = hex.EncodeToString(digest[:])[:8]
-			}
-		}
-
-		// Create token storage and persist
-		tokenStorage := openaiAuth.CreateTokenStorage(bundle)
-		fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
-		record := &coreauth.Auth{
-			ID:       fileName,
-			Provider: "codex",
-			FileName: fileName,
-			Storage:  tokenStorage,
-			Metadata: map[string]any{
-				"email":      tokenStorage.Email,
-				"account_id": tokenStorage.AccountID,
-			},
-		}
-		if errGuard := guardOAuthSessionPendingForSave(state, "codex"); errGuard != nil {
+		record, errRecord := options.record(openaiAuth, bundle)
+		if errRecord != nil {
+			SetOAuthSessionError(state, errRecord.Error())
 			return
 		}
-		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		savedPath, errSave := options.save(ctx, state, record)
 		if errSave != nil {
 			SetOAuthSessionError(state, "Failed to save authentication tokens")
 			log.Errorf("Failed to save authentication tokens: %v", errSave)
@@ -338,7 +318,7 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 		CompleteOAuthSession(state)
 	}()
 
-	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state, "proxy_mode": options.proxyMode})
 }
 
 func (h *Handler) RequestAntigravityToken(c *gin.Context) {

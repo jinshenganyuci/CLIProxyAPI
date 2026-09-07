@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 )
@@ -33,7 +33,8 @@ const (
 // It manages the HTTP client and provides methods for generating authorization URLs,
 // exchanging authorization codes for tokens, and refreshing access tokens.
 type CodexAuth struct {
-	httpClient *http.Client
+	httpClient   *http.Client
+	refreshRoute string
 }
 
 var codexRefreshGroup singleflight.Group
@@ -47,18 +48,26 @@ func NewCodexAuth(cfg *config.Config) *CodexAuth {
 // NewCodexAuthWithProxyURL creates a new CodexAuth service instance.
 // proxyURL takes precedence over cfg.ProxyURL when non-empty.
 func NewCodexAuthWithProxyURL(cfg *config.Config, proxyURL string) *CodexAuth {
-	effectiveProxyURL := strings.TrimSpace(proxyURL)
-	var sdkCfg config.SDKConfig
+	globalURL := ""
 	if cfg != nil {
-		sdkCfg = cfg.SDKConfig
-		if effectiveProxyURL == "" {
-			effectiveProxyURL = strings.TrimSpace(cfg.ProxyURL)
+		globalURL = cfg.ProxyURL
+	}
+	client := &http.Client{}
+	setting, errProxy := ResolveProxySetting(proxyURL, globalURL)
+	if errProxy == nil {
+		transport, _, errBuild := proxyutil.BuildHTTPTransport(setting.Raw)
+		if errBuild != nil || (setting.Mode != proxyutil.ModeInherit && transport == nil) {
+			errProxy = fmt.Errorf("codex OAuth proxy could not be initialized")
+		} else if transport != nil {
+			client.Transport = transport
 		}
 	}
-	sdkCfg.ProxyURL = effectiveProxyURL
-	return &CodexAuth{
-		httpClient: util.SetProxy(&sdkCfg, &http.Client{}),
+	if errProxy != nil {
+		// Keep the constructor signature while ensuring a configuration error
+		// cannot send OAuth codes or tokens through the default transport.
+		client.Transport = proxyConfigurationErrorTransport{err: errProxy}
 	}
+	return &CodexAuth{httpClient: client, refreshRoute: codexProxyRefreshRoute(setting)}
 }
 
 // GenerateAuthURL creates the OAuth authorization URL with PKCE (Proof Key for Code Exchange).
@@ -195,7 +204,7 @@ func (o *CodexAuth) RefreshTokens(ctx context.Context, refreshToken string) (*Co
 		ctx = context.Background()
 	}
 
-	result, err, _ := codexRefreshGroup.Do(refreshToken, func() (interface{}, error) {
+	result, err, _ := codexRefreshGroup.Do(o.refreshSingleflightKey(refreshToken), func() (interface{}, error) {
 		refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), codexRefreshTimeout)
 		defer cancelRefresh()
 		return o.refreshTokensSingleFlight(refreshCtx, refreshToken)

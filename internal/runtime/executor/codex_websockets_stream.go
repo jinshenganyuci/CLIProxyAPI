@@ -133,7 +133,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	var errDial error
 	dialCtx := ctx
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
-		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL)
+		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, helps.CodexWebsocketConnectionKey(e.cfg, auth))
 		if conn == nil {
 			if sess != nil {
 				sess.reqMu.Unlock()
