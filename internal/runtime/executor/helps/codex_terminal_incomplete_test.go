@@ -84,3 +84,36 @@ func TestIsCodexTerminalEmptyIncomplete(t *testing.T) {
 		t.Fatal("expected false for response.completed")
 	}
 }
+
+func TestCodexIncompleteAfterCustomToolInputDelta(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		delta     string
+		wantEmpty bool
+	}{
+		{name: "partial_input", delta: `{"type":"response.custom_tool_call_input.delta","delta":"print('hello')"}`},
+		{name: "empty_input", delta: `{"type":"response.custom_tool_call_input.delta","delta":""}`, wantEmpty: true},
+		{name: "whitespace_input", delta: `{"type":"response.custom_tool_call_input.delta","delta":"   "}`, wantEmpty: true},
+		{name: "missing_input", delta: `{"type":"response.custom_tool_call_input.delta"}`, wantEmpty: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			events := []string{
+				`{"type":"response.created","response":{"id":"r1","output":[]}}`,
+				`{"type":"response.output_item.added","item":{"type":"custom_tool_call","name":"code","input":""}}`,
+				testCase.delta,
+				`{"type":"response.incomplete","response":{"id":"r1","output":[],"usage":{"output_tokens":0}}}`,
+			}
+			sawOutputDelta := false
+			emptyIncomplete := false
+			for _, event := range events {
+				payload := []byte(event)
+				sawOutputDelta = sawOutputDelta || HasMeaningfulCodexOutputDelta(payload)
+				// No output_item.done has arrived; partial input must still count.
+				emptyIncomplete = IsCodexTerminalEmptyIncomplete(payload, 0, sawOutputDelta)
+			}
+			if emptyIncomplete != testCase.wantEmpty {
+				t.Fatalf("custom tool stream classified empty=%t, want %t", emptyIncomplete, testCase.wantEmpty)
+			}
+		})
+	}
+}

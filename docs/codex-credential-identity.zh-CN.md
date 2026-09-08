@@ -17,6 +17,9 @@
 Antigravity 默认改用短连接，可通过新增的 `antigravity.connection-pool` 配置启用
 连接池；该项不改变 Codex 的凭据代理设置。
 
+本次二开另补齐 custom tool 输入增量的有效输出识别，避免已有部分工具输入的
+`response.incomplete` 被新检测逻辑误报为空响应；真正没有输出的情况仍正常报错。
+
 ## 最终边界
 
 - 身份隔离单位是 **Codex OAuth 凭据**，不是 CPA Key。

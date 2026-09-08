@@ -13,14 +13,14 @@ const (
 )
 
 // HasMeaningfulCodexOutputDelta reports whether an event carries non-empty generated content
-// (such as non-empty text, reasoning, or function call arguments delta).
+// (such as non-empty text, reasoning, function arguments, or custom tool input).
 func HasMeaningfulCodexOutputDelta(eventData []byte) bool {
 	eventType := gjson.GetBytes(eventData, "type").String()
 	switch eventType {
 	case "response.output_text.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta":
 		delta := gjson.GetBytes(eventData, "delta")
 		return delta.Exists() && len(strings.TrimSpace(delta.String())) > 0
-	case "response.function_call_arguments.delta":
+	case "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
 		delta := gjson.GetBytes(eventData, "delta")
 		return delta.Exists() && len(strings.TrimSpace(delta.String())) > 0
 	}
@@ -35,7 +35,7 @@ func IsCodexTerminalEmptyIncomplete(eventData []byte, outputItemsCount int, sawO
 	if eventType != "response.incomplete" {
 		return false
 	}
-	// If any non-empty text delta, reasoning delta, or tool argument delta was emitted, content was produced.
+	// Non-empty text, reasoning, function argument, or custom tool input deltas are output content.
 	if sawOutputDelta {
 		return false
 	}
