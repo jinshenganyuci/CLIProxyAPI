@@ -1,14 +1,21 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.152`（上游提交
-`c76dfd4e0edabab9000628b1560ab8ab379eadb8`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.154`（上游提交
+`ba7e55836dee959e93ec6d41395865d9ec535086`），目标是让每个 Codex OAuth
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.152-codex-identity.3`，Docker 标签为
-`codex-identity-v7.2.152.3`。本次增加登录前选择代理，并将该选择固定到 OAuth 会话
-和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询。继承 `.2` 的身份并发、
+当前修订为 `v7.2.154-codex-identity.1`，Docker 标签为
+`codex-identity-v7.2.154.1`。本次合并上游 `v7.2.153` 和 `v7.2.154`，保留
+`v7.2.152-codex-identity.3` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
+和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询；同时保留身份并发、
 热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
+
+上游更新包括 Codex 工具名称、命名空间和复杂工具 schema 兼容性，空 incomplete
+响应及可重试错误处理，service tier 和缓存写入用量保留，Claude 结构化输出提示与
+代理消息转换，Gemini 消息顺序与签名过滤，以及 Antigravity 会话压缩和连接管理。
+Antigravity 默认改用短连接，可通过新增的 `antigravity.connection-pool` 配置启用
+连接池；该项不改变 Codex 的凭据代理设置。
 
 ## 最终边界
 
@@ -251,7 +258,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.152.3`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.154.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -261,8 +268,9 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 已有 OAuth 凭据无需重新登录；迁移只增加两个身份字段。一个凭据下已有的多个 CPA Key
 继续正常使用，并自动享受该凭据命名空间。
 
-已经在 `.1` 或 `.2` 初始化并启用的部署无需重复初始化；已有有效代理、直连设置和
-身份继续使用。若旧凭据填写了畸形代理，`.3` 会明确报错，需修正该地址。
+已经在 `v7.2.152` 二开系列初始化并启用的部署无需重复初始化；已有有效代理、直连
+设置和身份继续使用。若旧凭据填写了畸形代理，从 `v7.2.152` 二开 `.3` 起会明确
+报错，需修正该地址。
 
 ## 回滚
 
