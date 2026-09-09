@@ -1,23 +1,25 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.154`（上游提交
-`ba7e55836dee959e93ec6d41395865d9ec535086`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.155`（上游提交
+`7fac6b15bcfe5ea55c18c9eaec8e5b7e6457d974`），目标是让每个 Codex OAuth
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.154-codex-identity.1`，Docker 标签为
-`codex-identity-v7.2.154.1`。本次合并上游 `v7.2.153` 和 `v7.2.154`，保留
-`v7.2.152-codex-identity.3` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
+当前修订为 `v7.2.155-codex-identity.1`，Docker 标签为
+`codex-identity-v7.2.155.1`。本次合并上游 `v7.2.155`，保留
+`v7.2.154-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
 和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询；同时保留身份并发、
 热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
 
-上游更新包括 Codex 工具名称、命名空间和复杂工具 schema 兼容性，空 incomplete
-响应及可重试错误处理，service tier 和缓存写入用量保留，Claude 结构化输出提示与
-代理消息转换，Gemini 消息顺序与签名过滤，以及 Antigravity 会话压缩和连接管理。
-Antigravity 默认改用短连接，可通过新增的 `antigravity.connection-pool` 配置启用
-连接池；该项不改变 Codex 的凭据代理设置。
+上游更新包括 Kimi Responses API 支持、Claude/Gemini 工具与思考内容转换、Codex
+工具 schema 方言字段清理、插件更新检查缓存和 GitHub 限流协调、休眠后的认证刷新
+检查，以及 Antigravity 连接池配置与无界面 OAuth 辅助接口。
 
-本次二开另补齐 custom tool 输入增量的有效输出识别，避免已有部分工具输入的
+用量上报的会话层级新增规范化 UUID：现有 UUID 保留，其他标识可派生为 UUIDv8。
+这属于 usage 上报层，不替换本二开的凭据 namespace、UUIDv5 出站映射或代理设置。
+插件 schema 6 支持原样管理 JSON；声明旧 schema 的插件继续使用原有转义行为。
+
+上一版补齐的 custom tool 输入增量有效输出识别继续保留，避免已有部分工具输入的
 `response.incomplete` 被新检测逻辑误报为空响应；真正没有输出的情况仍正常报错。
 
 ## 最终边界
@@ -261,7 +263,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.154.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.155.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -271,7 +273,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 已有 OAuth 凭据无需重新登录；迁移只增加两个身份字段。一个凭据下已有的多个 CPA Key
 继续正常使用，并自动享受该凭据命名空间。
 
-已经在 `v7.2.152` 二开系列初始化并启用的部署无需重复初始化；已有有效代理、直连
+已经在此前二开系列初始化并启用的部署无需重复初始化；已有有效代理、直连
 设置和身份继续使用。若旧凭据填写了畸形代理，从 `v7.2.152` 二开 `.3` 起会明确
 报错，需修正该地址。
 
