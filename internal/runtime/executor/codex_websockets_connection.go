@@ -142,21 +142,35 @@ func readCodexWebsocketMessage(ctx context.Context, sess *codexWebsocketSession,
 		return 0, nil, fmt.Errorf("codex websockets executor: session read channel is nil")
 	}
 	for {
-		select {
-		case <-ctx.Done():
-			return 0, nil, ctx.Err()
-		case ev, ok := <-readCh:
-			if !ok {
-				return 0, nil, fmt.Errorf("codex websockets executor: session read channel closed")
+		var ev codexWebsocketRead
+		var ok bool
+		if terminalErr := sess.upstreamDisconnectError(conn); terminalErr != nil {
+			// A reader may stop before activation. Drain its buffered frames first.
+			select {
+			case ev, ok = <-readCh:
+			default:
+				return 0, nil, terminalErr
 			}
-			if ev.conn != conn {
-				continue
+		} else {
+			select {
+			case <-ctx.Done():
+				return 0, nil, ctx.Err()
+			case ev, ok = <-readCh:
 			}
-			if ev.err != nil {
-				return 0, nil, ev.err
-			}
-			return ev.msgType, ev.payload, nil
 		}
+		if !ok {
+			if terminalErr := sess.upstreamDisconnectError(conn); terminalErr != nil {
+				return 0, nil, terminalErr
+			}
+			return 0, nil, fmt.Errorf("codex websockets executor: session read channel closed")
+		}
+		if ev.conn != conn {
+			continue
+		}
+		if ev.err != nil {
+			return 0, nil, ev.err
+		}
+		return ev.msgType, ev.payload, nil
 	}
 }
 

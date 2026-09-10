@@ -1233,21 +1233,35 @@ func readXAIWebsocketMessage(ctx context.Context, sess *codexWebsocketSession, c
 		return 0, nil, fmt.Errorf("xai websockets executor: session read channel is nil")
 	}
 	for {
-		select {
-		case <-ctx.Done():
-			return 0, nil, ctx.Err()
-		case ev, ok := <-readCh:
-			if !ok {
-				return 0, nil, fmt.Errorf("xai websockets executor: session read channel closed")
+		var ev codexWebsocketRead
+		var ok bool
+		if terminalErr := sess.upstreamDisconnectError(conn); terminalErr != nil {
+			// A reader may stop before activation. Drain its buffered frames first.
+			select {
+			case ev, ok = <-readCh:
+			default:
+				return 0, nil, terminalErr
 			}
-			if ev.conn != conn {
-				continue
+		} else {
+			select {
+			case <-ctx.Done():
+				return 0, nil, ctx.Err()
+			case ev, ok = <-readCh:
 			}
-			if ev.err != nil {
-				return 0, nil, ev.err
-			}
-			return ev.msgType, ev.payload, nil
 		}
+		if !ok {
+			if terminalErr := sess.upstreamDisconnectError(conn); terminalErr != nil {
+				return 0, nil, terminalErr
+			}
+			return 0, nil, fmt.Errorf("xai websockets executor: session read channel closed")
+		}
+		if ev.conn != conn {
+			continue
+		}
+		if ev.err != nil {
+			return 0, nil, ev.err
+		}
+		return ev.msgType, ev.payload, nil
 	}
 }
 
@@ -1258,6 +1272,7 @@ func (e *XAIWebsocketsExecutor) readUpstreamLoop(sess *codexWebsocketSession, co
 	for {
 		msgType, payload, errRead := conn.ReadMessage()
 		if errRead != nil {
+			sess.setUpstreamDisconnectError(conn, errRead)
 			invalidate := func() {
 				e.invalidateUpstreamConn(sess, conn, "upstream_disconnected", errRead)
 			}
@@ -1278,6 +1293,7 @@ func (e *XAIWebsocketsExecutor) readUpstreamLoop(sess *codexWebsocketSession, co
 		if msgType != websocket.TextMessage {
 			if msgType == websocket.BinaryMessage {
 				errBinary := fmt.Errorf("xai websockets executor: unexpected binary message")
+				sess.setUpstreamDisconnectError(conn, errBinary)
 				invalidate := func() {
 					e.invalidateUpstreamConn(sess, conn, "unexpected_binary", errBinary)
 				}
