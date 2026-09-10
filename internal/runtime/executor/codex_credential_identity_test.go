@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
@@ -319,6 +320,83 @@ func TestCodexCredentialIdentityResponseReverseMappingIsStructured(t *testing.T)
 	}
 	if got := exposed.Get("X-Unrelated"); got != mappedSession {
 		t.Fatalf("unrelated response header changed to %q", got)
+	}
+}
+
+func TestCodexCredentialIdentityWebsocketErrorPreservesQuotaMetadata(t *testing.T) {
+	const originalSession = "client-session"
+	auth := codexCredentialIdentityTestAuth("codex-a.json", "97174329-7101-4217-becd-6b7b4f5c1088")
+	body := []byte(`{"prompt_cache_key":"` + originalSession + `"}`)
+	_, state, errIdentity := applyCodexIdentityBody(codexCredentialIdentityTestConfig(false), auth, body, body)
+	if errIdentity != nil {
+		t.Fatal(errIdentity)
+	}
+	mappedSession := state.forwardIdentities[codexIdentityMapKey("session", originalSession)]
+	payload := []byte(`{"type":"error","status":429,"error":{"type":"usage_limit_reached","message":"quota exhausted","resets_at":1700003600,"session_id":"` + mappedSession + `","note":"` + mappedSession + `"},"headers":{"Session-Id":"` + mappedSession + `","Retry-After":"3600","X-Unrelated":"` + mappedSession + `"}}`)
+	for _, cooling := range []struct {
+		name       string
+		modelLevel bool
+	}{
+		{name: "credential scope"},
+		{name: "model scope", modelLevel: true},
+	} {
+		for _, form := range []string{"value", "pointer"} {
+			t.Run(cooling.name+"/"+form, func(t *testing.T) {
+				parsedErr, ok := parseCodexWebsocketErrorWithCooling(payload, cooling.modelLevel)
+				if !ok {
+					t.Fatal("websocket quota error was not recognized")
+				}
+				parsed, ok := parsedErr.(statusErrWithHeaders)
+				if !ok {
+					t.Fatalf("parsed error type = %T", parsedErr)
+				}
+				// Resolve the absolute reset with a fixed clock, as if the error had
+				// already been parsed earlier. Identity exposure must not reparse it.
+				parsed.retryAfter = parseCodexRetryAfter(parsed.code, []byte(parsed.msg), time.Unix(1700000000, 123))
+				if parsed.retryAfter == nil {
+					t.Fatal("quota reset was not resolved")
+				}
+				var upstream error = parsed
+				if form == "pointer" {
+					upstream = &parsed
+				}
+				client := exposeCodexIdentityWebsocketError(payload, state, upstream)
+				metadata, ok := client.(interface {
+					StatusCode() int
+					IsCredentialScoped() bool
+					RetryAfter() *time.Duration
+					Headers() http.Header
+				})
+				if !ok {
+					t.Fatalf("client error lost metadata: %T", client)
+				}
+				if metadata.StatusCode() != http.StatusTooManyRequests {
+					t.Errorf("status = %d", metadata.StatusCode())
+				}
+				if metadata.IsCredentialScoped() != !cooling.modelLevel {
+					t.Errorf("credential scope = %t, want %t", metadata.IsCredentialScoped(), !cooling.modelLevel)
+				}
+				if retryAfter := metadata.RetryAfter(); retryAfter == nil || *retryAfter != *parsed.retryAfter {
+					t.Errorf("retry reset changed: got %v, want %v", retryAfter, *parsed.retryAfter)
+				}
+				if got := gjson.Get(client.Error(), "error.session_id").String(); got != originalSession {
+					t.Errorf("client session = %q, want %q", got, originalSession)
+				}
+				if got := gjson.Get(client.Error(), "error.note").String(); got != mappedSession {
+					t.Errorf("unrelated error field changed to %q", got)
+				}
+				headers := metadata.Headers()
+				if got := headers.Get("Session-Id"); got != originalSession {
+					t.Errorf("client Session-Id = %q, want %q", got, originalSession)
+				}
+				if headers.Get("Retry-After") != "3600" || headers.Get("X-Unrelated") != mappedSession {
+					t.Errorf("unrelated error headers changed: %v", headers)
+				}
+				if got := gjson.Get(upstream.Error(), "error.session_id").String(); got != mappedSession || parsed.headers.Get("Session-Id") != mappedSession {
+					t.Errorf("upstream error was mutated: %s, headers=%v", upstream.Error(), parsed.headers)
+				}
+			})
+		}
 	}
 }
 

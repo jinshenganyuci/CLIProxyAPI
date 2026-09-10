@@ -1,25 +1,34 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.155`（上游提交
-`7fac6b15bcfe5ea55c18c9eaec8e5b7e6457d974`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.156`（上游提交
+`d1a024e9400bc65bd78ccd908945cf2eacc2835e`），目标是让每个 Codex OAuth
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.155-codex-identity.1`，Docker 标签为
-`codex-identity-v7.2.155.1`。本次合并上游 `v7.2.155`，保留
-`v7.2.154-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
+当前修订为 `v7.2.156-codex-identity.1`，Docker 标签为
+`codex-identity-v7.2.156.1`。本次合并上游 `v7.2.156`，保留
+`v7.2.155-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
 和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询；同时保留身份并发、
 热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
 
-上游更新包括 Kimi Responses API 支持、Claude/Gemini 工具与思考内容转换、Codex
-工具 schema 方言字段清理、插件更新检查缓存和 GitHub 限流协调、休眠后的认证刷新
-检查，以及 Antigravity 连接池配置与无界面 OAuth 辅助接口。
+上游更新包括可选的 Codex 模型级额度冷却、手动刷新凭据接口、插件查询会话绑定、
+自定义请求头展开 `$CPA-SESSION-ID`、不可重试认证错误分类、工具 schema 正则兼容
+修复、Claude 流式用量补全和 `gpt-image-2.5` 系列支持。
 
-用量上报的会话层级新增规范化 UUID：现有 UUID 保留，其他标识可派生为 UUIDv8。
+`codex.model-level-cooling` 默认关闭，沿用原凭据级冷却。显式启用后，Codex
+`usage_limit_reached` 冷却按请求模型处理。本次合并在错误身份还原时保留原来的
+冷却范围、等待时间与响应头，避免丢失新策略信息。
+
+`POST /v0/management/auth-files/refresh` 使用原凭据的刷新路径和代理；接口成功
+状态与持久化结果应分别核对。管理页面继续沿用本二开的登录代理面板，新增刷新
+接口也可通过上游 TUI 使用。`gpt-image-2.5` 支持不表示账号权限已实测，省略图像
+模型时仍沿用上游默认的 `gpt-image-2`。
+
+继续保留 `v7.2.155` 起的用量会话规范化：现有 UUID 保留，其他标识可派生为 UUIDv8。
 这属于 usage 上报层，不替换本二开的凭据 namespace、UUIDv5 出站映射或代理设置。
 插件 schema 6 支持原样管理 JSON；声明旧 schema 的插件继续使用原有转义行为。
 
-上一版补齐的 custom tool 输入增量有效输出识别继续保留，避免已有部分工具输入的
+此前补齐的 custom tool 输入增量有效输出识别继续保留，避免已有部分工具输入的
 `response.incomplete` 被新检测逻辑误报为空响应；真正没有输出的情况仍正常报错。
 
 ## 最终边界
@@ -263,7 +272,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.155.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.156.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。

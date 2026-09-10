@@ -171,6 +171,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.DELETE("/auth-files", s.mgmt.DeleteAuthFile)
 		mgmt.PATCH("/auth-files/status", s.mgmt.PatchAuthFileStatus)
 		mgmt.PATCH("/auth-files/fields", s.mgmt.PatchAuthFileFields)
+		mgmt.POST("/auth-files/refresh", s.mgmt.RefreshAuthFiles)
 		mgmt.GET("/codex-credential-identity", s.mgmt.GetCodexCredentialIdentity)
 		mgmt.PUT("/codex-credential-identity", s.mgmt.PutCodexCredentialIdentity)
 		mgmt.POST("/codex-credential-identity/initialize", s.mgmt.InitializeCodexCredentialIdentity)

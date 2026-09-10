@@ -382,8 +382,20 @@ func exposeCodexIdentityWebsocketError(payload []byte, state codexIdentityConfus
 	if bytes.Equal(exposed, payload) {
 		return upstream
 	}
-	if clientError, ok := parseCodexWebsocketError(exposed); ok {
+	// Preserve the parsed quota scope and retry reset while exposing identities.
+	switch parsed := upstream.(type) {
+	case statusErrWithHeaders:
+		clientError := parsed
+		clientError.statusErr = exposeCodexIdentityStatusError(parsed.statusErr, state)
+		clientError.headers = exposeCodexIdentityHeaders(parsed.headers, state)
 		return clientError
+	case *statusErrWithHeaders:
+		if parsed != nil {
+			clientError := *parsed
+			clientError.statusErr = exposeCodexIdentityStatusError(parsed.statusErr, state)
+			clientError.headers = exposeCodexIdentityHeaders(parsed.headers, state)
+			return &clientError
+		}
 	}
 	return upstream
 }
