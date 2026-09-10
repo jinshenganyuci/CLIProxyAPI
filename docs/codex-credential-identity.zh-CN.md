@@ -1,17 +1,28 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.156`（上游提交
-`d1a024e9400bc65bd78ccd908945cf2eacc2835e`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.157`（上游提交
+`09a29bd345bc44c473abe7fd07859e32df2ea543`），目标是让每个 Codex OAuth
 凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.156-codex-identity.1`，Docker 标签为
-`codex-identity-v7.2.156.1`。本次合并上游 `v7.2.156`，保留
-`v7.2.155-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
+当前修订为 `v7.2.157-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.2.157.1` 和 `latest`，两者指向同一份镜像。本次合并上游
+`v7.2.157`，保留 `v7.2.156-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
 和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询；同时保留身份并发、
 热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
 
-上游更新包括可选的 Codex 模型级额度冷却、手动刷新凭据接口、插件查询会话绑定、
+本次上游修复 Responses WebSocket 预热后丢失输入、带名称的工具输出兼容、流式
+嵌套错误详情与事件序号丢失、Codex 模型满载时的启动阶段重试、模型不存在时的
+冷却与轮换、SSE 跨数据块 CRLF 解析，以及 Claude 子代理请求的 1 小时缓存 TTL。
+固定到单个凭据的请求仍不会跨凭据轮换。
+
+模型满载时的启动阶段切换依赖既有 `codex.stream-bootstrap-buffering`，本次不改变
+其默认关闭状态。模型不存在会按该凭据与模型组合冷却，仍遵守 `disable-cooling`。
+Responses 流式 `error` 事件的错误字段改为嵌套的 `error.code` / `error.message`；
+自行编写且只读取顶层 `code` / `message` 的客户端需要兼容这一上游格式变化。
+
+同时保留上一版的凭据文件读写协调修复，避免自动刷新写入期间读取到半成品文件。
+此前上游更新包括可选的 Codex 模型级额度冷却、手动刷新凭据接口、插件查询会话绑定、
 自定义请求头展开 `$CPA-SESSION-ID`、不可重试认证错误分类、工具 schema 正则兼容
 修复、Claude 流式用量补全和 `gpt-image-2.5` 系列支持。
 
@@ -272,7 +283,8 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
    ```
 
 2. 把 `CLI_PROXY_IMAGE` 改为
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.156.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.157.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -285,6 +297,15 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 已经在此前二开系列初始化并启用的部署无需重复初始化；已有有效代理、直连
 设置和身份继续使用。若旧凭据填写了畸形代理，从 `v7.2.152` 二开 `.3` 起会明确
 报错，需修正该地址。
+
+`latest` 是可移动标签；后续发布可将它指向新版本，不会自动更新已运行的容器。
+使用该标签升级时，需要先拉取镜像，再重建对应的 CPA 服务；只重启旧容器不会
+切换镜像。仓库 Compose 模板的默认镜像属于上游，需明确设置上述个人仓库地址。
+固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
+
+回退到此前二开版本时，将镜像改回例如
+`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.156.1` 并重建对应服务，继续使用原有
+配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
 
