@@ -2,11 +2,17 @@ package watcher
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -164,6 +170,121 @@ func TestDispatchPersistedAuthUpdateKeepsRuntimeStateOnCanonicalParseFailure(t *
 	w.dispatchMu.Unlock()
 	if pendingCount != 0 {
 		t.Fatalf("queued updates after parse failure = %d, want 0", pendingCount)
+	}
+}
+
+func TestDispatchPersistedAuthUpdateWaitsForCredentialWrite(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		name := "completed refresh"
+		if !valid {
+			name = "invalid completed write"
+		}
+		t.Run(name, func(t *testing.T) {
+			authDir := t.TempDir()
+			fileName := "codex-refresh.json"
+			path := filepath.Join(authDir, fileName)
+			w := &Watcher{
+				authDir:      authDir,
+				config:       &config.Config{},
+				currentAuths: make(map[string]*coreauth.Auth),
+				authQueue:    make(chan AuthUpdate, 1),
+				pluginAuthParser: persistedAuthParserFunc(func(_ context.Context, req pluginapi.AuthParseRequest) (*coreauth.Auth, bool, error) {
+					// The reader must release the file lock before plugin callbacks.
+					unlock := credentialfile.Lock(req.Path)
+					unlock()
+					var metadata map[string]any
+					if errParse := json.Unmarshal(req.RawJSON, &metadata); errParse != nil {
+						return nil, false, errParse
+					}
+					return &coreauth.Auth{ID: req.FileName, Provider: req.Provider, Metadata: metadata}, true, nil
+				}),
+			}
+			update := AuthUpdate{
+				Action: AuthUpdateActionAdd,
+				ID:     fileName,
+				Auth: &coreauth.Auth{
+					ID:         fileName,
+					Provider:   "codex",
+					Metadata:   map[string]any{"access_token": "pre-serialization-token"},
+					Attributes: map[string]string{coreauth.AttributePath: path},
+				},
+			}
+
+			// Reproduce the truncate/write window used by refresh persistence.
+			unlock := credentialfile.Lock(path)
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(unlock) }
+			defer release()
+			if errWrite := os.WriteFile(path, nil, 0o600); errWrite != nil {
+				t.Fatalf("truncate credential: %v", errWrite)
+			}
+			completed := make(chan bool, 1)
+			go func() { completed <- w.DispatchPersistedAuthUpdate(update) }()
+			waitForPersistedCredentialReadLock(t, completed)
+
+			raw := []byte(`{"type":"codex","access_token":"refreshed-access","refresh_token":"refreshed-refresh","proxy_url":"socks5://selected.example:1080","codex_identity_version":1,"codex_identity_namespace":"981bd5bd-1ad8-4eef-88f8-5f0ec7cb1df7"}`)
+			if !valid {
+				raw = []byte(`{"type":`)
+			}
+			if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
+				t.Fatalf("complete credential write: %v", errWrite)
+			}
+			release()
+			select {
+			case ok := <-completed:
+				if ok != valid {
+					t.Fatalf("DispatchPersistedAuthUpdate() = %v, want %v", ok, valid)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("canonical reload remained blocked after credential write completed")
+			}
+			if !valid {
+				if len(w.currentAuths) != 0 || len(w.pendingUpdates) != 0 {
+					t.Fatal("invalid completed write published an auth update")
+				}
+				return
+			}
+			current := w.currentAuths[fileName]
+			if current == nil || current.Metadata["access_token"] != "refreshed-access" || current.Metadata["refresh_token"] != "refreshed-refresh" {
+				t.Fatal("canonical reload did not publish the completed refresh tokens")
+			}
+			if current.ProxyURL != "socks5://selected.example:1080" {
+				t.Fatal("canonical reload lost the selected proxy")
+			}
+			if _, _, errIdentity := codex.ParseCredentialIdentity(current.Metadata); errIdentity != nil {
+				t.Fatalf("canonical reload lost credential identity: %v", errIdentity)
+			}
+			if pending := w.pendingUpdates[fileName]; pending.Auth == nil || pending.Auth.Metadata["access_token"] != "refreshed-access" {
+				t.Fatal("completed canonical refresh was not queued")
+			}
+		})
+	}
+}
+
+func waitForPersistedCredentialReadLock(t *testing.T, completed <-chan bool) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	stack := make([]byte, 128<<10)
+	for {
+		select {
+		case ok := <-completed:
+			t.Fatalf("canonical reload returned %v while credential persistence still held a truncated file", ok)
+		case <-deadline:
+			t.Fatal("canonical reload did not wait for the credential write lock")
+		default:
+		}
+		// A mutex wait is not a durable block for testing/synctest. Observe the
+		// blocked reader instead of using a delay to guess whether it has run.
+		n := runtime.Stack(stack, true)
+		for _, goroutine := range strings.Split(string(stack[:n]), "\n\n") {
+			header, _, _ := strings.Cut(goroutine, "\n")
+			if strings.Contains(header, "[sync.Mutex.Lock") &&
+				strings.Contains(goroutine, "credentialfile.Lock(") &&
+				strings.Contains(goroutine, "(*Watcher).addOrUpdateClientLocked(") {
+				return
+			}
+		}
+		runtime.Gosched()
 	}
 }
 
