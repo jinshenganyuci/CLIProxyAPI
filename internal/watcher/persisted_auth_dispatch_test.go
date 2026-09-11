@@ -69,12 +69,15 @@ func TestDispatchPersistedAuthUpdateReloadsCanonicalFileAuth(t *testing.T) {
 					coreauth.AttributeSource: path,
 				},
 			}
-			if ok := w.DispatchPersistedAuthUpdate(AuthUpdate{
-				Action: AuthUpdateActionModify,
-				ID:     fileName,
-				Auth:   preSerialization,
-			}); !ok {
-				t.Fatal("DispatchPersistedAuthUpdate() = false")
+			update := AuthUpdate{Action: AuthUpdateActionModify, ID: fileName, Auth: preSerialization}
+			if ok, rev := w.DispatchPersistedAuthUpdateWithRevision(&update); !ok || rev == 0 || rev != update.Revision() {
+				t.Fatalf("persisted canonical update = %v/%d, revision=%d", ok, rev, update.Revision())
+			}
+			if update.Auth == preSerialization || update.Auth.Metadata["access_token"] != "token" || update.Auth.Metadata["plugin_owned"] != true {
+				t.Fatal("synchronous update did not use the canonical plugin-parsed auth")
+			}
+			if _, _, errIdentity := codex.ParseCredentialIdentity(update.Auth.Metadata); errIdentity != nil {
+				t.Fatalf("synchronous canonical identity invalid: %v", errIdentity)
 			}
 
 			w.clientsMutex.RLock()
@@ -95,6 +98,9 @@ func TestDispatchPersistedAuthUpdateReloadsCanonicalFileAuth(t *testing.T) {
 			w.dispatchMu.Unlock()
 			if pending.Auth == nil {
 				t.Fatal("canonical runtime update was not queued")
+			}
+			if pending.Revision() != update.Revision() {
+				t.Fatalf("queued revision=%d differs from synchronous revision=%d", pending.Revision(), update.Revision())
 			}
 			if _, _, errIdentity := codex.ParseCredentialIdentity(pending.Auth.Metadata); errIdentity != nil {
 				t.Fatalf("queued runtime identity invalid: %v", errIdentity)

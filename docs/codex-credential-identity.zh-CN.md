@@ -1,49 +1,51 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.157`（上游提交
-`09a29bd345bc44c473abe7fd07859e32df2ea543`），目标是让每个 Codex OAuth
-凭据拥有一个永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
+本分支基于 CLIProxyAPI `v7.2.158`（上游提交
+`5b2785617d1e7de84a9f4dee599d275a4ccd8999`），目标是让每个 Codex OAuth
+凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.157-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.2.157.1` 和 `latest`，两者指向同一份镜像。本次合并上游
-`v7.2.157`，保留 `v7.2.156-codex-identity.1` 的全部二开功能：登录前选择代理并固定到 OAuth 会话
-和新凭据，覆盖首次 Token 交换、刷新、推理和管理额度查询；同时保留身份并发、
-热更新冲突检查、跨类型标识映射和响应还原修复，不改变已有身份 schema 或 namespace。
+当前修订为 `v7.2.158-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.2.158.1` 和 `latest`，两者指向同一份镜像。本次合并上游
+`v7.2.158`，保留 `v7.2.157-codex-identity.1` 的全部二开功能：登录前选择代理并
+固定到 OAuth 会话和新凭据，覆盖 CPA 发起的首次 Token 交换、刷新、推理和管理
+额度查询；继续保留身份并发、热更新冲突检查、跨类型标识映射和响应还原修复。
+已有 Codex 身份 schema、namespace、代理设置和凭据文件名不变。
 
-本次上游修复 Responses WebSocket 预热后丢失输入、带名称的工具输出兼容、流式
-嵌套错误详情与事件序号丢失、Codex 模型满载时的启动阶段重试、模型不存在时的
-冷却与轮换、SSE 跨数据块 CRLF 解析，以及 Claude 子代理请求的 1 小时缓存 TTL。
-固定到单个凭据的请求仍不会跨凭据轮换。
+本次上游增加 Kimi K2.8/K2.8 Code，更新 Codex User-Agent 至 0.154.0；修复
+WebSocket 大请求写入期间的 Ping/Pong 处理、Cloudflare 520–526 临时错误分类、
+凭据变更后的 401 冷却恢复、工具调用配对、未完成响应翻译及 Gemini 思考用量统计。
+手动批量刷新现在也使用已有 `auth-auto-refresh-workers` 并发上限。
 
-模型满载时的启动阶段切换依赖既有 `codex.stream-bootstrap-buffering`，本次不改变
-其默认关闭状态。模型不存在会按该凭据与模型组合冷却，仍遵守 `disable-cooling`。
-Responses 流式 `error` 事件的错误字段改为嵌套的 `error.code` / `error.message`；
-自行编写且只读取顶层 `code` / `message` 的客户端需要兼容这一上游格式变化。
+上游将 Claude 工具返回的图片转为 OpenAI 用户消息。本次同时适配已有纯文本模型
+设置：在翻译前只把工具返回图片替换为省略说明，避免移位后绕过原有降级；普通
+用户图片不受此工具结果规则影响，多模态模型继续使用上游的新转发格式。
 
-同时保留上一版的凭据文件读写协调修复，避免自动刷新写入期间读取到半成品文件。
-本次验证还补齐 Codex/xAI WebSocket 提前断开的处理：上游在请求激活前断开或发送
-不支持的二进制消息时，后续读取会返回对应错误，不再等待已退出的读取协程。
-已经缓冲的响应仍优先交付；终止状态按连接隔离，不影响替换后的新连接。
-此前上游更新包括可选的 Codex 模型级额度冷却、手动刷新凭据接口、插件查询会话绑定、
-自定义请求头展开 `$CPA-SESSION-ID`、不可重试认证错误分类、工具 schema 正则兼容
-修复、Claude 流式用量补全和 `gpt-image-2.5` 系列支持。
+本次合并把上游的凭据修订序号和同步注册机制与二开文件解析路径结合：保存后先
+读取最终文件并经过插件解析，再将同一份记录及序号用于同步注册与队列更新。
+较旧队列更新不能覆盖新令牌、代理或身份；文件无法正确解析时仍明确失败，保留
+已有运行记录，不使用保存前的半成品 Auth 快照。已有文件读写协调修复继续保留。
+插件重命名单条认证记录时同步使用新 ID；拆分成多条虚拟记录时只交付完整解析
+批次，队列恢复后重试同一文件也会补发，避免误注册原始文件记录。
 
-`codex.model-level-cooling` 默认关闭，沿用原凭据级冷却。显式启用后，Codex
-`usage_limit_reached` 冷却按请求模型处理。本次合并在错误身份还原时保留原来的
-冷却范围、等待时间与响应头，避免丢失新策略信息。
+上一版 Codex/xAI WebSocket 提前断开修复继续保留：请求激活前的 EOF 或不支持的
+二进制消息会被保留，已经缓冲的响应优先交付，终止状态按连接隔离。连接复用仍
+检查凭据代理与身份，固定到单个凭据的请求不会跨凭据轮换。
 
-`POST /v0/management/auth-files/refresh` 使用原凭据的刷新路径和代理；接口成功
-状态与持久化结果应分别核对。管理页面继续沿用本二开的登录代理面板，新增刷新
-接口也可通过上游 TUI 使用。`gpt-image-2.5` 支持不表示账号权限已实测，省略图像
-模型时仍沿用上游默认的 `gpt-image-2`。
+配置没有新增必填项。Claude 登录或重新登录会采用包含组织哈希的新文件名，并
+迁移匹配的旧文件、继承元数据与禁用状态；这不改变已有 Codex 凭据文件名。
+模型列表新增插件拦截入口，用量记录增加上游 base_url；旧插件需结合实际请求验证。
+Gemini completion/output token 统计现在包含 thought tokens，显示数值可能增加。
 
-继续保留 `v7.2.155` 起的用量会话规范化：现有 UUID 保留，其他标识可派生为 UUIDv8。
-这属于 usage 上报层，不替换本二开的凭据 namespace、UUIDv5 出站映射或代理设置。
-插件 schema 6 支持原样管理 JSON；声明旧 schema 的插件继续使用原有转义行为。
+Codex 模型别名继承模型模板，但混用非 Codex provider 时会收紧其能力声明，避免
+向客户端宣称实际不支持的能力。新的 SDK ResultPolicy 默认为 nil，不会自动解除
+额度或冷却限制。`codex.model-level-cooling` 与 `codex.stream-bootstrap-buffering`
+仍沿用原有默认关闭设置。模型满载时的启动阶段切换依赖后者。
 
-此前补齐的 custom tool 输入增量有效输出识别继续保留，避免已有部分工具输入的
-`response.incomplete` 被新检测逻辑误报为空响应；真正没有输出的情况仍正常报错。
+保留此前 Responses 流式 `error` 事件的嵌套 `error.code` / `error.message` 格式、
+custom tool 输入增量有效输出识别、用量会话 UUIDv8 规范化与旧插件 schema 兼容。
+UUIDv8 用量规范化不会替换本二开的凭据 namespace 或 UUIDv5 出站映射。
+`POST /v0/management/auth-files/refresh` 继续使用原凭据的刷新路径与代理。
 
 ## 最终边界
 
@@ -287,7 +289,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.157.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.158.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -307,7 +309,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.156.1` 并重建对应服务，继续使用原有
+`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.157.1` 并重建对应服务，继续使用原有
 配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚

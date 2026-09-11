@@ -52,6 +52,46 @@ func NormalizeOpenAIToolResultsTextOnly(payload []byte) []byte {
 	return out
 }
 
+// NormalizeClaudeToolResultImagesTextOnly replaces only tool-returned images
+// before translation can merge them with images in an ordinary user message.
+func NormalizeClaudeToolResultImagesTextOnly(payload []byte) []byte {
+	messages := gjson.GetBytes(payload, "messages")
+	if !messages.IsArray() {
+		return payload
+	}
+	out := payload
+	replacement := []byte(`{"type":"text","text":"` + openAIToolResultImageOmittedText + `"}`)
+	for messageIndex, message := range messages.Array() {
+		parts := message.Get("content")
+		if !parts.IsArray() {
+			continue
+		}
+		for partIndex, part := range parts.Array() {
+			if part.Get("type").String() != "tool_result" {
+				continue
+			}
+			path := fmt.Sprintf("messages.%d.content.%d.content", messageIndex, partIndex)
+			content := part.Get("content")
+			if content.IsObject() && content.Get("type").String() == "image" {
+				if updated, errSet := sjson.SetRawBytes(out, path, replacement); errSet == nil {
+					out = updated
+				}
+				continue
+			}
+			for contentIndex, item := range content.Array() {
+				if item.Get("type").String() != "image" {
+					continue
+				}
+				imagePath := fmt.Sprintf("%s.%d", path, contentIndex)
+				if updated, errSet := sjson.SetRawBytes(out, imagePath, replacement); errSet == nil {
+					out = updated
+				}
+			}
+		}
+	}
+	return out
+}
+
 func openAICompatibilityModelExcludesImages(models []config.OpenAICompatibilityModel, model string) (bool, bool) {
 	model = normalizeOpenAICompatibilityModelName(model)
 	if model == "" {

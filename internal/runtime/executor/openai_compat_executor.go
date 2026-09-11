@@ -115,19 +115,25 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
+	normalizeToolResults := helps.ShouldNormalizeOpenAIToolResultsForModel(e.resolveCompatConfig(auth), baseModel, requestedModel)
+	originalTranslationPayload, translationPayload := originalPayload, req.Payload
+	if normalizeToolResults && from == sdktranslator.FormatClaude && to == sdktranslator.FormatOpenAI {
+		originalTranslationPayload = helps.NormalizeClaudeToolResultImagesTextOnly(originalTranslationPayload)
+		translationPayload = helps.NormalizeClaudeToolResultImagesTextOnly(translationPayload)
+	}
 	isCompat := helps.APIKeyModelIsCompat(req)
-	originalTranslated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, originalPayload, opts.Stream, isCompat)
-	translated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, req.Payload, opts.Stream, isCompat)
+	originalTranslated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, originalTranslationPayload, opts.Stream, isCompat)
+	translated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, translationPayload, opts.Stream, isCompat)
 
 	translated, err = helps.ApplyRequestThinking(translated, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return resp, err
 	}
 
-	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	translated = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", translated, originalTranslated, requestedModel, requestPath, opts.Headers)
-	if helps.ShouldNormalizeOpenAIToolResultsForModel(e.resolveCompatConfig(auth), baseModel, requestedModel) {
+	if normalizeToolResults {
 		translated = helps.NormalizeOpenAIToolResultsTextOnly(translated)
 	}
 	if opts.Alt != "responses/compact" {
@@ -330,19 +336,25 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
+	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
+	normalizeToolResults := helps.ShouldNormalizeOpenAIToolResultsForModel(e.resolveCompatConfig(auth), baseModel, requestedModel)
+	originalTranslationPayload, translationPayload := originalPayload, req.Payload
+	if normalizeToolResults && from == sdktranslator.FormatClaude && to == sdktranslator.FormatOpenAI {
+		originalTranslationPayload = helps.NormalizeClaudeToolResultImagesTextOnly(originalTranslationPayload)
+		translationPayload = helps.NormalizeClaudeToolResultImagesTextOnly(translationPayload)
+	}
 	isCompat := helps.APIKeyModelIsCompat(req)
-	originalTranslated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, originalPayload, true, isCompat)
-	translated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, req.Payload, true, isCompat)
+	originalTranslated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, originalTranslationPayload, true, isCompat)
+	translated := helps.TranslateRequestWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, translationPayload, true, isCompat)
 
 	translated, err = helps.ApplyRequestThinking(translated, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return nil, err
 	}
 
-	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
 	translated = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", translated, originalTranslated, requestedModel, requestPath, opts.Headers)
-	if helps.ShouldNormalizeOpenAIToolResultsForModel(e.resolveCompatConfig(auth), baseModel, requestedModel) {
+	if normalizeToolResults {
 		translated = helps.NormalizeOpenAIToolResultsTextOnly(translated)
 	}
 	if opts.Alt != "responses/compact" {

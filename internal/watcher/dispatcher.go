@@ -82,11 +82,16 @@ func (w *Watcher) dispatchRuntimeAuthUpdate(update AuthUpdate) bool {
 }
 
 func (w *Watcher) dispatchPersistedAuthUpdate(update AuthUpdate) bool {
-	if w == nil {
-		return false
+	ok, _ := w.dispatchPersistedAuthUpdateWithRevision(&update)
+	return ok
+}
+
+func (w *Watcher) dispatchPersistedAuthUpdateWithRevision(update *AuthUpdate) (bool, uint64) {
+	if w == nil || update == nil {
+		return false, 0
 	}
 	if update.Auth == nil || update.Auth.ID == "" {
-		return false
+		return false, 0
 	}
 	path := ""
 	if update.Auth.Attributes != nil {
@@ -97,17 +102,61 @@ func (w *Watcher) dispatchPersistedAuthUpdate(update AuthUpdate) bool {
 	}
 	normalized := w.normalizeAuthPath(path)
 	if normalized == "" {
-		return false
+		return false, 0
 	}
-	if w.getAuthQueue() == nil {
-		return false
+	// Reload the persisted file through the same parser as file events. Return
+	// that canonical snapshot with its revision so synchronous registration and
+	// queued delivery cannot race using different representations of one auth.
+	w.authRescanMu.Lock()
+	defer w.authRescanMu.Unlock()
+	if !w.addOrUpdateClientLocked(path) {
+		return false, 0
 	}
-	// The persisted file is the canonical auth representation. Token storage may
-	// add fields that are absent from the pre-serialization Auth.Metadata, and
-	// plugins may further normalize the runtime auth. Reload through the same
-	// file synthesis path used by fsnotify so event ordering cannot overwrite the
-	// canonical auth with the incomplete pre-serialization record.
-	return w.addOrUpdateClient(path)
+	var canonicalBatch []AuthUpdate
+	w.clientsMutex.RLock()
+	defer func() {
+		w.clientsMutex.RUnlock()
+		w.dispatchAuthUpdates(canonicalBatch)
+	}()
+	canonical := w.currentAuths[update.Auth.ID]
+	pathAuths := w.fileAuthsByPath[normalized]
+	_, belongsToFile := pathAuths[update.Auth.ID]
+	if canonical == nil || !belongsToFile {
+		if len(pathAuths) == 1 {
+			for id := range pathAuths {
+				canonical = w.currentAuths[id]
+			}
+		} else if len(pathAuths) > 1 && w.authQueue != nil {
+			// A plugin may replace the file auth with several virtual records.
+			// Requeue their current revisions even on a hash match, so retrying
+			// after a missing queue delivers the batch without a partial original.
+			for id := range pathAuths {
+				if current := w.currentAuths[id]; current != nil {
+					canonicalBatch = append(canonicalBatch, AuthUpdate{
+						Action: AuthUpdateActionModify, ID: id, Auth: current.Clone(),
+						revision: w.authRevisions[id],
+					})
+				}
+			}
+			update.Auth = nil
+			update.ID = ""
+			update.revision = 0
+			return true, 0
+		} else {
+			return false, 0
+		}
+	}
+	if canonical == nil {
+		return false, 0
+	}
+	rev := w.authRevisions[canonical.ID]
+	if rev == 0 {
+		return false, 0
+	}
+	update.ID = canonical.ID
+	update.Auth = canonical.Clone()
+	update.revision = rev
+	return w.authQueue != nil, rev
 }
 
 func (w *Watcher) refreshAuthState(force bool) {

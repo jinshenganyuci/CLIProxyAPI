@@ -1,11 +1,53 @@
 package helps
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/tidwall/gjson"
 )
+
+func TestNormalizeClaudeToolResultImagesTextOnlyPreservesOtherContent(t *testing.T) {
+	input := []byte(`{"messages":[
+        {"role":"assistant","content":[{"type":"tool_use","id":"call_1","input":{"type":"image","source":{"data":"input-image"}}}]},
+        {"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"call_1","is_error":false,"content":[{"type":"text","text":"image inspected"},{"type":"image","source":{"type":"base64","data":"tool-image-a"}},{"type":"custom","value":1}]},
+            {"type":"tool_result","tool_use_id":"call_2","content":{"type":"image","source":{"type":"url","url":"https://example.com/tool-image-b"}}},
+            {"type":"tool_result","tool_use_id":"call_3","content":"already text"},
+            {"type":"image","source":{"type":"base64","data":"user-image"}},
+            {"type":"text","text":"ordinary user text"}
+        ]}
+    ]}`)
+	original := bytes.Clone(input)
+	got := NormalizeClaudeToolResultImagesTextOnly(input)
+	for _, path := range []string{"messages.1.content.0.content.1", "messages.1.content.1.content"} {
+		part := gjson.GetBytes(got, path)
+		if part.Get("type").String() != "text" || part.Get("text").String() != openAIToolResultImageOmittedText {
+			t.Fatalf("tool image at %s was not replaced: %s", path, part.Raw)
+		}
+	}
+	for _, path := range []string{"messages.0", "messages.1.content.0.tool_use_id", "messages.1.content.0.is_error", "messages.1.content.0.content.0", "messages.1.content.0.content.2", "messages.1.content.2", "messages.1.content.3", "messages.1.content.4"} {
+		if gjson.GetBytes(got, path).Raw != gjson.GetBytes(original, path).Raw {
+			t.Fatalf("unrelated content at %s changed", path)
+		}
+	}
+	if !bytes.Equal(input, original) {
+		t.Fatal("normalization mutated the original request")
+	}
+}
+
+func TestNormalizeClaudeToolResultImagesTextOnlyLeavesUnsupportedShapesUnchanged(t *testing.T) {
+	for _, input := range []string{
+		`{"messages":{"role":"user","content":[{"type":"tool_result","content":{"type":"image"}}]}}`,
+		`{"messages":[{"role":"user","content":{"type":"tool_result","content":{"type":"image"}}}]}`,
+		`{"messages":[{"role":"user","content":"hello"}]}`,
+	} {
+		if got := NormalizeClaudeToolResultImagesTextOnly([]byte(input)); string(got) != input {
+			t.Fatalf("unsupported content shape changed: %s", got)
+		}
+	}
+}
 
 func TestNormalizeOpenAIToolResultsTextOnly(t *testing.T) {
 	input := []byte(`{"messages":[
