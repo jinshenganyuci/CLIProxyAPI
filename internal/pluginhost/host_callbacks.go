@@ -148,8 +148,11 @@ func (h *Host) callHostHTTPDo(ctx context.Context, request []byte) ([]byte, erro
 	if errDecode != nil {
 		return nil, errDecode
 	}
-	ctx = h.resolveCallbackContext(callbackID, ctx)
-	resp, errDo := h.newHTTPClient(nil).Do(ctx, httpReq)
+	ctx, client, errCallback := h.resolveHTTPCallback(ctx, callbackID)
+	if errCallback != nil {
+		return nil, errCallback
+	}
+	resp, errDo := client.Do(ctx, httpReq)
 	if errDo != nil {
 		return nil, errDo
 	}
@@ -165,12 +168,12 @@ func (h *Host) callHostHTTPDoStream(ctx context.Context, request []byte) ([]byte
 	if errDecode != nil {
 		return nil, errDecode
 	}
-	ctx = h.resolveCallbackContext(callbackID, ctx)
-	if ctx == nil {
-		ctx = context.Background()
+	ctx, client, errCallback := h.resolveHTTPCallback(ctx, callbackID)
+	if errCallback != nil {
+		return nil, errCallback
 	}
 	streamCtx, cancel := newStreamContext(ctx)
-	resp, errDo := h.newHTTPClient(nil).DoStream(streamCtx, httpReq)
+	resp, errDo := client.DoStream(streamCtx, httpReq)
 	if errDo != nil {
 		cancel()
 		return nil, errDo
@@ -182,6 +185,10 @@ func (h *Host) callHostHTTPDoStream(ctx context.Context, request []byte) ([]byte
 	if streamID == "" {
 		cancel()
 		return nil, fmt.Errorf("host http stream bridge is unavailable")
+	}
+	if quotaCallbackHTTPClient(ctx) != nil && !h.addCallbackCleanup(callbackID, func() { h.httpStreams.close(streamID) }) {
+		h.httpStreams.close(streamID)
+		return nil, fmt.Errorf("quota host HTTP callback context is invalid or expired")
 	}
 	return marshalRPCResult(rpcHostHTTPStreamResponse{
 		StatusCode: resp.StatusCode,

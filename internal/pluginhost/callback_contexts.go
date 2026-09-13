@@ -9,9 +9,10 @@ import (
 )
 
 type callbackContextRegistry struct {
-	next     atomic.Uint64
-	mu       sync.RWMutex
-	contexts map[string]callbackContextEntry
+	next               atomic.Uint64
+	mu                 sync.RWMutex
+	contexts           map[string]callbackContextEntry
+	quotaScopedPlugins map[string]struct{}
 }
 
 type callbackContextEntry struct {
@@ -21,7 +22,33 @@ type callbackContextEntry struct {
 }
 
 func newCallbackContextRegistry() *callbackContextRegistry {
-	return &callbackContextRegistry{contexts: make(map[string]callbackContextEntry)}
+	return &callbackContextRegistry{
+		contexts:           make(map[string]callbackContextEntry),
+		quotaScopedPlugins: make(map[string]struct{}),
+	}
+}
+
+func (r *callbackContextRegistry) requireQuotaScope(pluginID string) {
+	if r == nil || strings.TrimSpace(pluginID) == "" {
+		return
+	}
+	r.mu.Lock()
+	if r.quotaScopedPlugins == nil {
+		r.quotaScopedPlugins = make(map[string]struct{})
+	}
+	// Keep capability constraints after unload until the host is discarded.
+	r.quotaScopedPlugins[strings.TrimSpace(pluginID)] = struct{}{}
+	r.mu.Unlock()
+}
+
+func (r *callbackContextRegistry) requiresQuotaScope(pluginID string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	_, required := r.quotaScopedPlugins[strings.TrimSpace(pluginID)]
+	r.mu.RUnlock()
+	return required
 }
 
 func (r *callbackContextRegistry) open(ctx context.Context, pluginID string) (string, func()) {

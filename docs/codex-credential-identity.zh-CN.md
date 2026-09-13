@@ -1,51 +1,41 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.158`（上游提交
-`5b2785617d1e7de84a9f4dee599d275a4ccd8999`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.2.159`（上游提交
+`ac02da6c05e18f465aa7e3ed5b0a65a2f060917d`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.158-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.2.158.1` 和 `latest`，两者指向同一份镜像。本次合并上游
-`v7.2.158`，保留 `v7.2.157-codex-identity.1` 的全部二开功能：登录前选择代理并
+当前修订为 `v7.2.159-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.2.159.1` 和 `latest`，两者指向同一份镜像。本次合并上游
+`v7.2.159`，保留 `v7.2.158-codex-identity.1` 的全部二开功能：登录前选择代理并
 固定到 OAuth 会话和新凭据，覆盖 CPA 发起的首次 Token 交换、刷新、推理和管理
 额度查询；继续保留身份并发、热更新冲突检查、跨类型标识映射和响应还原修复。
-已有 Codex 身份 schema、namespace、代理设置和凭据文件名不变。
+已有身份 schema、namespace、代理设置和凭据文件名不变。
 
-本次上游增加 Kimi K2.8/K2.8 Code，更新 Codex User-Agent 至 0.154.0；修复
-WebSocket 大请求写入期间的 Ping/Pong 处理、Cloudflare 520–526 临时错误分类、
-凭据变更后的 401 冷却恢复、工具调用配对、未完成响应翻译及 Gemini 思考用量统计。
-手动批量刷新现在也使用已有 `auth-auto-refresh-workers` 并发上限。
+本次上游增加插件额度查询/重置能力与声明式额度探测接口；插件需要声明
+QuotaProvider，或凭据配置 quota_probe 才能使用。现有内置管理页与 Access Guard
+不会因升级自动出现新的通用额度界面，也不会自动解除供应商额度限制。
 
-上游将 Claude 工具返回的图片转为 OpenAI 用户消息。本次同时适配已有纯文本模型
-设置：在翻译前只把工具返回图片替换为省略说明，避免移位后绕过原有降级；普通
-用户图片不受此工具结果规则影响，多模态模型继续使用上游的新转发格式。
+本次同时把新额度路径接入凭据代理约束：声明式探测在解析 token 前校验代理；
+插件额度调用独立保留运行态凭据，即使附加的物理文件不可读，也不会退回无凭据
+客户端；原生和 RPC 插件使用绑定到该次调用的 HTTP 客户端。无效或缺失的严格
+代理明确失败，已选择的凭据不能被 provider 字段或调用方客户端替换成其他出口。
 
-本次合并把上游的凭据修订序号和同步注册机制与二开文件解析路径结合：保存后先
-读取最终文件并经过插件解析，再将同一份记录及序号用于同步注册与队列更新。
-较旧队列更新不能覆盖新令牌、代理或身份；文件无法正确解析时仍明确失败，保留
-已有运行记录，不使用保存前的半成品 Auth 快照。已有文件读写协调修复继续保留。
-插件重命名单条认证记录时同步使用新 ID；拆分成多条虚拟记录时只交付完整解析
-批次，队列恢复后重试同一文件也会补发，避免误注册原始文件记录。
+插件登录 URL 的查询参数现在传给插件 StartLogin 的 metadata；仅作用于插件
+登录回退入口，不替换内建 Codex 的 POST 代理选择和 OAuth 会话快照。
 
-上一版 Codex/xAI WebSocket 提前断开修复继续保留：请求激活前的 EOF 或不支持的
-二进制消息会被保留，已经缓冲的响应优先交付，终止状态按连接隔离。连接复用仍
-检查凭据代理与身份，固定到单个凭据的请求不会跨凭据轮换。
+Antigravity 能力探测按目标地址与代理组合缓存、合并并发请求，成功缓存 5 分钟，
+失败退避 1 分钟；401/403 按账号与 token 分开退避。默认探测仅访问 daily 地址。
+这是模型能力探测优化，不缓存用户推理结果，也不改变 Codex 调用逻辑。
 
-配置没有新增必填项。Claude 登录或重新登录会采用包含组织哈希的新文件名，并
-迁移匹配的旧文件、继承元数据与禁用状态；这不改变已有 Codex 凭据文件名。
-模型列表新增插件拦截入口，用量记录增加上游 base_url；旧插件需结合实际请求验证。
-Gemini completion/output token 统计现在包含 thought tokens，显示数值可能增加。
+配置没有新增必填项。插件 ABI 仍为 1、RPC schema 仍为 6；额度能力是可选扩展。
+继续保留上一版的 canonical 文件/插件解析与 revision 同步、改名/多虚拟认证记录
+及队列恢复处理、Codex/xAI WebSocket 提前断开的终止通知与大请求保活修复。
+纯文本模型的 Claude 工具图片在翻译前降级，普通用户图片及多模态行为保持原样。
 
-Codex 模型别名继承模型模板，但混用非 Codex provider 时会收紧其能力声明，避免
-向客户端宣称实际不支持的能力。新的 SDK ResultPolicy 默认为 nil，不会自动解除
-额度或冷却限制。`codex.model-level-cooling` 与 `codex.stream-bootstrap-buffering`
-仍沿用原有默认关闭设置。模型满载时的启动阶段切换依赖后者。
-
-保留此前 Responses 流式 `error` 事件的嵌套 `error.code` / `error.message` 格式、
-custom tool 输入增量有效输出识别、用量会话 UUIDv8 规范化与旧插件 schema 兼容。
-UUIDv8 用量规范化不会替换本二开的凭据 namespace 或 UUIDv5 出站映射。
-`POST /v0/management/auth-files/refresh` 继续使用原凭据的刷新路径与代理。
+固定到单个凭据的请求仍不会跨凭据轮换。`codex.model-level-cooling` 与
+`codex.stream-bootstrap-buffering` 沿用原有默认关闭设置；模型满载时的启动阶段
+切换依赖后者。用量会话 UUIDv8 规范化不会替换凭据 namespace 或 UUIDv5 出站映射。
 
 ## 最终边界
 
@@ -289,7 +279,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.158.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.159.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -309,7 +299,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.157.1` 并重建对应服务，继续使用原有
+`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.158.1` 并重建对应服务，继续使用原有
 配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
