@@ -99,6 +99,7 @@ func (h *BaseAPIHandler) ExecuteModel(ctx context.Context, req ModelExecutionReq
 	if req.Stream {
 		return ModelExecutionResponse{}, modelExecutionModeError("ExecuteModel requires Stream=false")
 	}
+	ctx = withoutSelectedAuthProviderCallback(ctx)
 	body, headers, errMsg := h.executeWithAuthManagerFormats(ctx, req.EntryProtocol, req.ExitProtocol, req.Model, cloneBytes(req.Body), req.Alt, false, modelExecutionOptions{
 		Headers:                 req.Headers,
 		Query:                   req.Query,
@@ -125,6 +126,7 @@ func (h *BaseAPIHandler) ExecuteModelStream(ctx context.Context, req ModelExecut
 	if !req.Stream {
 		return ModelExecutionStream{}, modelExecutionModeError("ExecuteModelStream requires Stream=true")
 	}
+	ctx = withoutSelectedAuthProviderCallback(ctx)
 	dataChan, headers, errChan := h.executeStreamWithAuthManagerFormats(ctx, req.EntryProtocol, req.ExitProtocol, req.Model, cloneBytes(req.Body), req.Alt, false, modelExecutionOptions{
 		Headers:                 req.Headers,
 		Query:                   req.Query,

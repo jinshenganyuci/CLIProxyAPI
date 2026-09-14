@@ -223,6 +223,9 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	if selectedCallback := selectedAuthIDCallbackFromContext(ctx); selectedCallback != nil {
 		meta[coreexecutor.SelectedAuthCallbackMetadataKey] = selectedCallback
 	}
+	if selectedCallback := selectedAuthProviderCallbackFromContext(ctx); selectedCallback != nil {
+		meta[coreexecutor.SelectedAuthProviderCallbackMetadataKey] = selectedCallback
+	}
 	if ginCtx != nil && !websocket.IsWebSocketUpgrade(ginCtx.Request) {
 		if traceCallback := logging.GinCPATraceIDCallback(ginCtx); traceCallback != nil {
 			meta[coreexecutor.SelectedAuthIndexCallbackMetadataKey] = traceCallback

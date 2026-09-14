@@ -14,6 +14,8 @@ type pinnedAuthContextKey struct{}
 
 type selectedAuthCallbackContextKey struct{}
 
+type selectedAuthProviderCallbackContextKey struct{}
+
 type preparedModelRouteContextKey struct{}
 
 type executionSessionContextKey struct{}
@@ -86,6 +88,25 @@ func WithSelectedAuthIDCallback(ctx context.Context, callback func(string)) cont
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, selectedAuthCallbackContextKey{}, callback)
+}
+
+// WithSelectedAuthProviderCallback observes actual selections, including remote Home credentials.
+func WithSelectedAuthProviderCallback(ctx context.Context, callback func(string)) context.Context {
+	if callback == nil {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, selectedAuthProviderCallbackContextKey{}, callback)
+}
+
+// withoutSelectedAuthProviderCallback keeps nested model calls from changing the outer response dialect.
+func withoutSelectedAuthProviderCallback(ctx context.Context) context.Context {
+	if selectedAuthProviderCallbackFromContext(ctx) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, selectedAuthProviderCallbackContextKey{}, (func(string))(nil))
 }
 
 // PrepareStreamModelRoute resolves a stream route once and stores it on the returned context for execution.
@@ -182,6 +203,14 @@ func selectedAuthIDCallbackFromContext(ctx context.Context) func(string) {
 		return callback
 	}
 	return nil
+}
+
+func selectedAuthProviderCallbackFromContext(ctx context.Context) func(string) {
+	if ctx == nil {
+		return nil
+	}
+	callback, _ := ctx.Value(selectedAuthProviderCallbackContextKey{}).(func(string))
+	return callback
 }
 
 func executionSessionIDFromContext(ctx context.Context) string {

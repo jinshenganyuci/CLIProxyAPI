@@ -64,6 +64,10 @@ func MergeRefreshedAuth(base, current, updated *Auth) *Auth {
 		return merged
 	}
 
+	// Refresh may observe quota without changing scheduler cooldown state.
+	// Keep a newer concurrent snapshot and never accumulate stale signal keys.
+	merged.Quota = mergeQuotaObservation(merged.Quota, updated.Quota)
+
 	// 1. Refresh Lifecycle Timestamps
 	if !updated.LastRefreshedAt.IsZero() {
 		merged.LastRefreshedAt = updated.LastRefreshedAt

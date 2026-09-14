@@ -44,6 +44,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	from := opts.SourceFormat
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
 	preserveNativeOutput := helps.IsNativeCodexRequest(req.Payload, opts)
+	if preserveNativeOutput {
+		responseFormat = sdktranslator.FormatCodex
+	}
 	isGrokClient := grokbuild.IsGrokClientContext(ctx, opts.Headers)
 	to := sdktranslator.FromString("codex")
 	originalPayloadSource := req.Payload

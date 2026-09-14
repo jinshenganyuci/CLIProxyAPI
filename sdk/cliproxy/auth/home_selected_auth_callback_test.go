@@ -66,10 +66,14 @@ func TestHomeSelectedAuthCallbackPinsFirstHandlerSelectionAndCleansFailure(t *te
 
 	ctx := cliproxyexecutor.WithDownstreamWebsocket(context.Background())
 	callbackSawRuntimeAuth := false
+	selectedProvider := ""
 	opts := cliproxyexecutor.Options{Stream: true, Metadata: map[string]any{
 		cliproxyexecutor.ExecutionSessionMetadataKey: executor.session,
 		cliproxyexecutor.SelectedAuthCallbackMetadataKey: func(authID string) {
 			_, callbackSawRuntimeAuth = manager.GetExecutionSessionAuthByID(executor.session, authID)
+		},
+		cliproxyexecutor.SelectedAuthProviderCallbackMetadataKey: func(provider string) {
+			selectedProvider = provider
 		},
 	}}
 	result, errExecute := manager.ExecuteStream(ctx, []string{"home-execution"}, cliproxyexecutor.Request{Model: "model-a"}, opts)
@@ -80,6 +84,9 @@ func TestHomeSelectedAuthCallbackPinsFirstHandlerSelectionAndCleansFailure(t *te
 	}
 	if !callbackSawRuntimeAuth {
 		t.Fatal("first selected-auth callback could not resolve the Home runtime auth")
+	}
+	if selectedProvider != "home-execution" {
+		t.Fatalf("Home provider callback = %q, want home-execution", selectedProvider)
 	}
 
 	manager.CloseExecutionSession(executor.session)

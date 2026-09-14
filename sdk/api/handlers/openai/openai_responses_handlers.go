@@ -16,12 +16,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/optimize-multi-agent-v2"
 	. "github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -49,15 +51,16 @@ func writeResponsesSSEChunk(w io.Writer, chunk []byte) {
 }
 
 type responsesSSEFramer struct {
-	pending              []byte
-	outputItems          map[int][]byte
-	outputOrder          []int
-	unindexedOutputItems [][]byte
-	lastEvent            string
-	terminalEvent        string
-	terminalError        *interfaces.ErrorMessage
-	failureEvent         string
-	dataFrames           int
+	preserveCompletionOutput func() bool
+	pending                  []byte
+	outputItems              map[int][]byte
+	outputOrder              []int
+	unindexedOutputItems     [][]byte
+	lastEvent                string
+	terminalEvent            string
+	terminalError            *interfaces.ErrorMessage
+	failureEvent             string
+	dataFrames               int
 }
 
 func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) {
@@ -161,6 +164,9 @@ func (f *responsesSSEFramer) repairFrame(frame []byte) []byte {
 	case "response.output_item.done":
 		f.recordOutputItem(payload)
 	case "response.completed":
+		if f.preserveCompletionOutput != nil && f.preserveCompletionOutput() {
+			return frame
+		}
 		repaired := f.repairCompletedPayload(payload)
 		if !bytes.Equal(repaired, payload) {
 			return responsesSSEFrameWithData(frame, repaired)
@@ -660,6 +666,13 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	// New core execution path
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	nativeRequest := util.IsCodexResponsesLiteRequest(rawJSON, c.Request.Header)
+	var preserveNativeOutput atomic.Bool
+	if nativeRequest {
+		cliCtx = handlers.WithSelectedAuthProviderCallback(cliCtx, func(provider string) {
+			preserveNativeOutput.Store(provider == "codex")
+		})
+	}
 	dataChan, upstreamHeaders, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
 
 	setSSEHeaders := func() {
@@ -672,7 +685,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	if isCodexResponsesClientRequest(c) {
 		failureEvent = "response.failed"
 	}
-	framer := &responsesSSEFramer{failureEvent: failureEvent}
+	framer := &responsesSSEFramer{failureEvent: failureEvent, preserveCompletionOutput: preserveNativeOutput.Load}
 	var initialOutput bytes.Buffer
 
 	// Peek at the first complete SSE data frame.

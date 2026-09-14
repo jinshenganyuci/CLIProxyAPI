@@ -38,6 +38,8 @@ const (
 	SelectedAuthMetadataKey = "selected_auth_id"
 	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with the selected auth ID.
 	SelectedAuthCallbackMetadataKey = "selected_auth_callback"
+	// SelectedAuthProviderCallbackMetadataKey observes the provider of each selected credential.
+	SelectedAuthProviderCallbackMetadataKey = "selected_auth_provider_callback"
 	// SelectedAuthIndexMetadataKey stores the stable index of the auth selected by the scheduler.
 	SelectedAuthIndexMetadataKey = "selected_auth_index"
 	// SelectedAuthIndexCallbackMetadataKey carries an optional callback invoked with the selected auth index.

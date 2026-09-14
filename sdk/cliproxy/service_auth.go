@@ -321,6 +321,14 @@ func (s *Service) prepareCoreAuthForModelRegistration(ctx context.Context, auth 
 			return existing
 		}
 		auth.CreatedAt = existing.CreatedAt
+		if strings.EqualFold(strings.TrimSpace(existing.Provider), strings.TrimSpace(auth.Provider)) &&
+			!coreauth.CredentialsChanged(existing, auth) && existing.Quota.ObservedAt.After(auth.Quota.ObservedAt) {
+			// Canonical credential files omit passive quota observations. Keep the
+			// runtime snapshot for this credential without restoring cooldown fields.
+			observation := existing.Quota.Clone()
+			auth.Quota.ObservedAt = observation.ObservedAt
+			auth.Quota.Signals = observation.Signals
+		}
 		if !existing.Disabled && existing.Status != coreauth.StatusDisabled && !auth.Disabled && auth.Status != coreauth.StatusDisabled {
 			auth.LastRefreshedAt = existing.LastRefreshedAt
 			auth.NextRefreshAfter = existing.NextRefreshAfter
