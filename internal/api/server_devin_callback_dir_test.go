@@ -17,18 +17,20 @@ func TestOAuthCallbacksHonorFrozenDevinAuthDir(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "test-frozen-callback-key")
 	server := newTestServer(t)
 	for index, test := range []struct {
-		name, provider string
-		public, bound  bool
-		cancel         bool
-		status         int
+		name, provider, publicPath string
+		bound, cancel              bool
+		status                     int
 	}{
-		{name: "public frozen Devin", provider: "devin", public: true, bound: true, status: http.StatusOK},
+		{name: "public frozen Devin", provider: "devin", publicPath: "/callback", bound: true, status: http.StatusOK},
+		{name: "legacy public frozen Devin", provider: "devin", publicPath: "/devin/callback", bound: true, status: http.StatusOK},
 		{name: "management frozen Devin", provider: "devin", bound: true, status: http.StatusOK},
 		{name: "legacy Devin follows current directory", provider: "devin", status: http.StatusOK},
 		{name: "legacy Codex follows current directory", provider: "codex", status: http.StatusOK},
-		{name: "cancelled public flow cannot write", provider: "devin", public: true, bound: true, cancel: true, status: http.StatusBadRequest},
+		{name: "cancelled public flow cannot write", provider: "devin", publicPath: "/callback", bound: true, cancel: true, status: http.StatusBadRequest},
+		{name: "cancelled legacy public flow cannot write", provider: "devin", publicPath: "/devin/callback", bound: true, cancel: true, status: http.StatusBadRequest},
 		{name: "cancelled management flow cannot write", provider: "devin", bound: true, cancel: true, status: http.StatusNotFound},
-		{name: "public provider mismatch cannot write", provider: "codex", public: true, bound: true, status: http.StatusBadRequest},
+		{name: "public provider mismatch cannot write", provider: "codex", publicPath: "/callback", bound: true, status: http.StatusBadRequest},
+		{name: "legacy public provider mismatch cannot write", provider: "codex", publicPath: "/devin/callback", bound: true, status: http.StatusBadRequest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := fmt.Sprintf("devin-frozen-callback-%d", index)
@@ -53,8 +55,8 @@ func TestOAuthCallbacksHonorFrozenDevinAuthDir(t *testing.T) {
 			server.cfg = after
 			server.mgmt.SetConfig(after)
 			var request *http.Request
-			if test.public {
-				request = httptest.NewRequest(http.MethodGet, "/devin/callback?state="+state+"&code=callback-code", nil)
+			if test.publicPath != "" {
+				request = httptest.NewRequest(http.MethodGet, test.publicPath+"?state="+state+"&code=callback-code", nil)
 			} else {
 				body := fmt.Sprintf(`{"provider":%q,"state":%q,"code":"callback-code"}`, test.provider, state)
 				request = httptest.NewRequest(http.MethodPost, "/v0/management/oauth-callback", strings.NewReader(body))

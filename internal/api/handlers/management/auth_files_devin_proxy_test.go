@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -147,6 +148,7 @@ func TestDevinOAuthSessionsFreezeProxyForExchangeProfileStatusAndSave(t *testing
 	inherited := newDevinProxyFixture(t, "inherited")
 	installDevinProxyFixtureFactory(t)
 	h := newDevinProxyTestHandler(t, inherited.server.URL)
+	h.cfg.TLS.Enable = true
 	authDir := h.cfg.AuthDir
 	saved := make(chan *coreauth.Auth, 2)
 	h.postAuthPersistHook = func(_ context.Context, record *coreauth.Auth) error {
@@ -164,20 +166,44 @@ func TestDevinOAuthSessionsFreezeProxyForExchangeProfileStatusAndSave(t *testing
 	if status != http.StatusOK {
 		t.Fatalf("selected login: %d %s", status, body)
 	}
+	redirectForResponse := func(body string) string {
+		t.Helper()
+		var payload struct{ URL string }
+		if errDecode := json.Unmarshal([]byte(body), &payload); errDecode != nil {
+			t.Fatal(errDecode)
+		}
+		authorizationURL, errParse := url.Parse(payload.URL)
+		if errParse != nil {
+			t.Fatal(errParse)
+		}
+		redirect := authorizationURL.Query().Get("redirect_uri")
+		if redirect != "http://127.0.0.1:8317/callback" {
+			t.Fatalf("TLS-enabled login redirect = %q", redirect)
+		}
+		return redirect
+	}
+	firstRedirect := redirectForResponse(body)
 	status, secondState, body := startDevinProxyTest(t, h, http.MethodGet, "/devin-auth-url?is_webui=true", "")
 	if status != http.StatusOK {
 		t.Fatalf("legacy inherited login: %d %s", status, body)
 	}
+	redirectForResponse(body)
 	h.mu.Lock()
 	h.cfg = h.cfg.CloneForRuntime()
 	h.cfg.ProxyURL = "http://127.0.0.1:1"
 	h.cfg.AuthDir = t.TempDir()
+	h.cfg.Port = 9317
 	h.mu.Unlock()
 	callbackRouter := gin.New()
 	callbackRouter.POST("/oauth-callback", h.PostOAuthCallback)
-	for _, state := range []string{firstState, secondState} {
+	for index, state := range []string{firstState, secondState} {
 		response := httptest.NewRecorder()
-		callbackBody := `{"provider":"devin","redirect_url":"http://127.0.0.1:8317/devin/callback?code=test-code&state=` + state + `"}`
+		redirect := firstRedirect
+		if index == 1 {
+			// Previously issued callbacks remain accepted after the native path change.
+			redirect = "http://127.0.0.1:8317/devin/callback"
+		}
+		callbackBody := `{"provider":"devin","redirect_url":"` + redirect + `?code=test-code&state=` + state + `"}`
 		callbackRouter.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/oauth-callback", strings.NewReader(callbackBody)))
 		if response.Code != http.StatusOK {
 			t.Fatalf("callback after config reload: %d %s", response.Code, response.Body.String())

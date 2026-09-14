@@ -49,7 +49,9 @@ func (f *fakeDevinOAuthService) CreateAuthRecord(ctx context.Context, token stri
 
 func TestDevinRemoteOAuthFlow(t *testing.T) {
 	authDir := t.TempDir()
-	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir, Port: 8317}, nil)
+	h := NewHandlerWithoutConfigFilePath(&config.Config{
+		AuthDir: authDir, Port: 8317, TLS: config.TLSConfig{Enable: true},
+	}, nil)
 	exchanged := make(chan string, 1)
 	service := &fakeDevinOAuthService{exchange: func(ctx context.Context, code, verifier string) (string, error) {
 		if code != "remote-code" {
@@ -90,7 +92,7 @@ func TestDevinRemoteOAuthFlow(t *testing.T) {
 	if start.Status != "ok" || start.State == "" || query.Get("state") != start.State || query.Get("code_challenge_method") != "S256" {
 		t.Fatalf("invalid authorization response: %s", w.Body.String())
 	}
-	if got := query.Get("redirect_uri"); got != "http://127.0.0.1:8317/devin/callback" {
+	if got := query.Get("redirect_uri"); got != "http://127.0.0.1:8317/callback" {
 		t.Fatalf("redirect_uri = %q", got)
 	}
 	if query.Get("code_verifier") != "" {
