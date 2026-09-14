@@ -103,12 +103,17 @@ func applyCodexCredentialIdentityBody(cfg *config.Config, auth *cliproxyauth.Aut
 	return rawJSON, state, nil
 }
 
-func applyCodexIdentityHeaders(headers http.Header, state *codexIdentityConfuseState) {
+func applyCodexIdentityHeaders(headers http.Header, state *codexIdentityConfuseState, preserveNativeHeaders ...bool) {
 	if state == nil || !state.credentialIdentity {
 		applyCodexIdentityConfuseHeaders(headers, state)
 		return
 	}
 	if headers == nil || !state.enabled {
+		return
+	}
+	if len(preserveNativeHeaders) > 0 && preserveNativeHeaders[0] {
+		state.preserveNativeHeaders = true
+		rewriteCodexNativeIdentityHeaders(headers, state, true)
 		return
 	}
 
@@ -121,6 +126,32 @@ func applyCodexIdentityHeaders(headers http.Header, state *codexIdentityConfuseS
 	mapCodexIdentityHeader(headers, "X-Codex-Window-Id", "window", state)
 	if rawTurnMetadata := strings.TrimSpace(headerValueCaseInsensitive(headers, "X-Codex-Turn-Metadata")); rawTurnMetadata != "" {
 		setHeaderCasePreserved(headers, "X-Codex-Turn-Metadata", rewriteCodexTurnMetadata(rawTurnMetadata, state, true))
+	}
+}
+
+func rewriteCodexNativeIdentityHeaders(headers http.Header, state *codexIdentityConfuseState, forward bool) {
+	for header, values := range headers {
+		switch normalizeCodexIdentityKey(header) {
+		case "session_id", "conversation_id", "thread_id", "x_client_request_id", "x_codex_window_id":
+			for index, value := range values {
+				if strings.TrimSpace(value) == "" {
+					continue
+				}
+				if forward {
+					values[index] = state.mapCredentialIdentity(codexIdentityJSONKind(header), value)
+				} else if original, exists := state.reverseIdentities[strings.TrimSpace(value)]; exists {
+					values[index] = original
+				}
+			}
+		case "x_codex_turn_metadata":
+			for index, value := range values {
+				if forward {
+					values[index] = rewriteCodexTurnMetadata(value, state, true)
+				} else if updated, changed := rewriteCodexIdentityJSONString(value, state.reverseIdentities, false); changed {
+					values[index] = updated
+				}
+			}
+		}
 	}
 }
 
@@ -347,6 +378,10 @@ func exposeCodexIdentityHeaders(headers http.Header, state codexIdentityConfuseS
 	}
 	exposed := headers.Clone()
 	if !state.credentialIdentity || len(state.reverseIdentities) == 0 {
+		return exposed
+	}
+	if state.preserveNativeHeaders {
+		rewriteCodexNativeIdentityHeaders(exposed, &state, false)
 		return exposed
 	}
 	for _, header := range []string{

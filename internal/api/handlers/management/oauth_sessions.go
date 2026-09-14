@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -31,13 +33,14 @@ var (
 )
 
 type oauthSession struct {
-	Provider  string
-	Status    string
-	Source    string
-	Metadata  map[string]any
-	Completed bool
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	Provider        string
+	Status          string
+	Source          string
+	Metadata        map[string]any
+	CallbackAuthDir string
+	Completed       bool
+	CreatedAt       time.Time
+	ExpiresAt       time.Time
 }
 
 type oauthSessionStore struct {
@@ -71,6 +74,10 @@ func (s *oauthSessionStore) purgeExpiredLocked(now time.Time) {
 }
 
 func (s *oauthSessionStore) Register(state, provider string) {
+	s.registerWithAuthDir(state, provider, "")
+}
+
+func (s *oauthSessionStore) registerWithAuthDir(state, provider, authDir string) {
 	state = strings.TrimSpace(state)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if state == "" || provider == "" {
@@ -83,11 +90,12 @@ func (s *oauthSessionStore) Register(state, provider string) {
 
 	s.purgeExpiredLocked(now)
 	s.sessions[state] = oauthSession{
-		Provider:  provider,
-		Status:    "",
-		Source:    oauthSessionSourceBuiltin,
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.ttl),
+		Provider:        provider,
+		Status:          "",
+		Source:          oauthSessionSourceBuiltin,
+		CallbackAuthDir: strings.TrimSpace(authDir),
+		CreatedAt:       now,
+		ExpiresAt:       now.Add(s.ttl),
 	}
 }
 
@@ -263,6 +271,12 @@ var oauthSessions = newOAuthSessionStore(oauthSessionTTL)
 
 func RegisterOAuthSession(state, provider string) { oauthSessions.Register(state, provider) }
 
+// RegisterOAuthSessionWithAuthDir binds callback delivery to the login's config snapshot.
+// Sessions without a binding retain the callback handler's current auth directory.
+func RegisterOAuthSessionWithAuthDir(state, provider, authDir string) {
+	oauthSessions.registerWithAuthDir(state, provider, authDir)
+}
+
 func RegisterPluginOAuthSession(state, provider string, metadata map[string]any) error {
 	return oauthSessions.RegisterPlugin(state, provider, metadata)
 }
@@ -368,6 +382,8 @@ func NormalizeOAuthProvider(provider string) (string, error) {
 		return "antigravity", nil
 	case "xai", "x-ai", "x.ai", "grok":
 		return "xai", nil
+	case "devin", "cognition":
+		return "devin", nil
 	default:
 		return "", errUnsupportedOAuthFlow
 	}
@@ -445,8 +461,27 @@ func writeOAuthCallbackFile(authDir, canonicalProvider, state, code, errorMessag
 	if err != nil {
 		return "", fmt.Errorf("marshal oauth callback payload: %w", err)
 	}
-	if err := os.WriteFile(filePath, data, 0o600); err != nil {
-		return "", fmt.Errorf("write oauth callback file: %w", err)
+	// Publish complete JSON atomically so background waiters cannot read a partial callback.
+	tmp, errCreate := os.CreateTemp(authDir, ".oauth-callback-*")
+	if errCreate != nil {
+		return "", fmt.Errorf("create oauth callback file: %w", errCreate)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if errRemove := os.Remove(tmpPath); errRemove != nil && !errors.Is(errRemove, os.ErrNotExist) {
+			log.Warn("failed to remove temporary OAuth callback file")
+		}
+	}()
+	_, errWrite := tmp.Write(data)
+	errClose := tmp.Close()
+	if errWrite != nil {
+		return "", fmt.Errorf("write oauth callback file: %w", errWrite)
+	}
+	if errClose != nil {
+		return "", fmt.Errorf("close oauth callback file: %w", errClose)
+	}
+	if errRename := os.Rename(tmpPath, filePath); errRename != nil {
+		return "", fmt.Errorf("publish oauth callback file: %w", errRename)
 	}
 	return filePath, nil
 }
@@ -456,8 +491,12 @@ func WriteOAuthCallbackFileForPendingSession(authDir, provider, state, code, err
 	if err != nil {
 		return "", err
 	}
-	if !IsOAuthSessionPending(state, canonicalProvider) {
+	session, ok := oauthSessions.Get(state)
+	if !ok || session.Completed || session.Status != "" || !strings.EqualFold(session.Provider, canonicalProvider) {
 		return "", errOAuthSessionNotPending
+	}
+	if session.CallbackAuthDir != "" {
+		authDir = session.CallbackAuthDir
 	}
 	return writeOAuthCallbackFile(authDir, canonicalProvider, state, code, errorMessage)
 }

@@ -492,7 +492,11 @@ func (h *Handler) authByIndex(authIndex string) *coreauth.Auth {
 // apiCallRequestTransport enforces the credential policy before resolving tokens
 // or creating any outbound request, including management quota queries.
 func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL string) (http.RoundTripper, error) {
-	if h == nil || auth == nil || !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") || auth.AuthKind() == coreauth.AuthKindAPIKey {
+	if h == nil || auth == nil {
+		return h.apiCallTransport(auth, requestProxyURL), nil
+	}
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	if provider != "devin" && (provider != "codex" || auth.AuthKind() == coreauth.AuthKindAPIKey) {
 		return h.apiCallTransport(auth, requestProxyURL), nil
 	}
 	h.mu.Lock()
@@ -502,15 +506,19 @@ func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL s
 		cfg.Codex.CredentialProxyPolicy = h.cfg.Codex.CredentialProxyPolicy
 	}
 	h.mu.Unlock()
-	require := strings.EqualFold(strings.TrimSpace(cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
+	require := provider == "codex" && strings.EqualFold(strings.TrimSpace(cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
 	var setting proxyutil.Setting
 	var errProxy error
 	if strings.TrimSpace(auth.ProxyURL) != "" || require {
-		setting, errProxy = codexauth.ResolveCredentialProxySetting(&cfg, auth.ProxyURL)
+		if provider == "codex" {
+			setting, errProxy = codexauth.ResolveCredentialProxySetting(&cfg, auth.ProxyURL)
+		} else {
+			setting, errProxy = codexauth.ResolveProxySetting(auth.ProxyURL, cfg.ProxyURL)
+		}
 		if errProxy == nil && strings.TrimSpace(requestProxyURL) != "" {
 			requested, errRequested := codexauth.ResolveProxySetting(requestProxyURL, "")
 			if errRequested != nil || requested.Mode != setting.Mode || (setting.Mode == proxyutil.ModeProxy && requested.URL.String() != setting.URL.String()) {
-				return nil, fmt.Errorf("codex credential proxy for auth %q cannot be overridden", auth.ID)
+				return nil, fmt.Errorf("%s credential proxy for auth %q cannot be overridden", provider, auth.ID)
 			}
 		}
 	} else {
@@ -526,7 +534,7 @@ func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL s
 	}
 	transport, _, errBuild := proxyutil.BuildHTTPTransport(setting.Raw)
 	if errBuild != nil || transport == nil {
-		return nil, fmt.Errorf("codex credential proxy for auth %q could not be initialized", auth.ID)
+		return nil, fmt.Errorf("%s credential proxy for auth %q could not be initialized", provider, auth.ID)
 	}
 	return transport, nil
 }

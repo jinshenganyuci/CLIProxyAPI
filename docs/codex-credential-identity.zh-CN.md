@@ -1,41 +1,41 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.2.159`（上游提交
-`ac02da6c05e18f465aa7e3ed5b0a65a2f060917d`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.1`（上游提交
+`44e62bc8acc2f224bff9c62d222717d3f6723dea`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.2.159-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.2.159.1` 和 `latest`，两者指向同一份镜像。本次合并上游
-`v7.2.159`，保留 `v7.2.158-codex-identity.1` 的全部二开功能：登录前选择代理并
-固定到 OAuth 会话和新凭据，覆盖 CPA 发起的首次 Token 交换、刷新、推理和管理
-额度查询；继续保留身份并发、热更新冲突检查、跨类型标识映射和响应还原修复。
-已有身份 schema、namespace、代理设置和凭据文件名不变。
+当前修订为 `v7.3.1-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.1.1` 和 `latest`，两者指向同一份镜像。本次合并上游
+`v7.3.0` 和 `v7.3.1`，保留此前 Codex 登录前代理选择、凭据身份隔离、
+刷新及持久化并发保护、固定凭据、WebSocket 出口约束、原生及 RPC 插件额度
+请求绑定凭据代理等功能。已有身份 schema、namespace 和凭据配置格式不变。
 
-本次上游增加插件额度查询/重置能力与声明式额度探测接口；插件需要声明
-QuotaProvider，或凭据配置 quota_probe 才能使用。现有内置管理页与 Access Guard
-不会因升级自动出现新的通用额度界面，也不会自动解除供应商额度限制。
+## 本次原生更新与兼容处理
 
-本次同时把新额度路径接入凭据代理约束：声明式探测在解析 token 前校验代理；
-插件额度调用独立保留运行态凭据，即使附加的物理文件不可读，也不会退回无凭据
-客户端；原生和 RPC 插件使用绑定到该次调用的 HTTP 客户端。无效或缺失的严格
-代理明确失败，已选择的凭据不能被 provider 字段或调用方客户端替换成其他出口。
+- 新增 Devin/Cognition 提供商、CLI 和网页 OAuth 登录、动态模型目录、状态与
+  额度查询、流式及工具调用支持。Devin 模型使用 `devin/` 前缀。
+- 凭据列表增加冷却快照，区分凭据和模型范围并展示剩余时间；未知状态不能
+  当作没有冷却，空列表也不代表凭据一定可用。
+- Codex Responses Lite 原生请求保留缺失的 instructions、原生完成事件和
+  元数据，并透传 `X-Codex-Turn-State`。该状态作为不透明值沿用上游协议。
+- 原生 WebSocket 模式关闭 cloaking 时，身份映射保留客户端提供的会话头形式
+  和各个值，使用原有凭据 UUIDv5 规则逐项映射、还原。普通兼容模式行为不变。
+- 模型接口增加保守的原生联网搜索能力声明：未知不冒充支持，多条路由中存在
+  不支持者时不宣称全部可用。这不是新增搜索引擎，也不是实际搜索成功的证明。
+- 内置管理页同步到原生 `v1.23.0`，保留 Codex 登录前代理、重新授权及身份控制，
+  接入 Devin 登录与额度展示、冷却状态等原生页面功能。
 
-插件登录 URL 的查询参数现在传给插件 StartLogin 的 metadata；仅作用于插件
-登录回退入口，不替换内建 Codex 的 POST 代理选择和 OAuth 会话快照。
+新增 Devin 也支持在登录前选择代理：CPA 发起的 Token 交换、账号/额度查询使用
+登录开始时冻结的出口，并将其保存到凭据，后续调用和状态刷新沿用该设置。
+已明确指定的错误代理必须失败，不能静默回落默认网络；显式 direct 绕过全局
+和环境代理。该约束覆盖 CPA 发起的请求，不改变独立浏览器自身的网络设置。
 
-Antigravity 能力探测按目标地址与代理组合缓存、合并并发请求，成功缓存 5 分钟，
-失败退避 1 分钟；401/403 按账号与 token 分开退避。默认探测仅访问 daily 地址。
-这是模型能力探测优化，不缓存用户推理结果，也不改变 Codex 调用逻辑。
+配置没有新增必填项。已有 Codex 凭据无需重新登录、重新初始化身份或轮换
+namespace。Devin 不使用 Codex 的 UUIDv5 身份命名空间。
 
-配置没有新增必填项。插件 ABI 仍为 1、RPC schema 仍为 6；额度能力是可选扩展。
-继续保留上一版的 canonical 文件/插件解析与 revision 同步、改名/多虚拟认证记录
-及队列恢复处理、Codex/xAI WebSocket 提前断开的终止通知与大请求保活修复。
-纯文本模型的 Claude 工具图片在翻译前降级，普通用户图片及多模态行为保持原样。
-
-固定到单个凭据的请求仍不会跨凭据轮换。`codex.model-level-cooling` 与
-`codex.stream-bootstrap-buffering` 沿用原有默认关闭设置；模型满载时的启动阶段
-切换依赖后者。用量会话 UUIDv8 规范化不会替换凭据 namespace 或 UUIDv5 出站映射。
+之前的插件额度能力继续保留：插件需声明 QuotaProvider，或凭据配置 quota_probe；
+不会因更新自动解除供应商限制，也不改变 Access Guard 自身的周额度账本。
 
 ## 最终边界
 
@@ -279,7 +279,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.2.159.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.3.1.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -299,7 +299,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.158.1` 并重建对应服务，继续使用原有
+`jinshenganyuci/cli-proxy-api:codex-identity-v7.2.159.1` 并重建对应服务，继续使用原有
 配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
