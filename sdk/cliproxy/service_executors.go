@@ -23,6 +23,11 @@ var pluginHostHasAuthProvider = func(host *pluginhost.Host, provider string) boo
 	return host != nil && host.HasAuthProvider(provider)
 }
 
+// pluginModelsForAuth is overridable in tests to control asynchronous plugin work.
+var pluginModelsForAuth = func(ctx context.Context, host *pluginhost.Host, auth *coreauth.Auth) pluginhost.AuthModelResult {
+	return host.ModelsForAuth(ctx, auth)
+}
+
 type openAICompatibilityRegistrationEntry struct {
 	providerKey string
 	models      []*ModelInfo
@@ -421,10 +426,26 @@ func shouldUpgradeOpenAICompatToPluginRefresh(existing, next coreauth.ProviderEx
 }
 
 func (s *Service) registerResolvedModelsForAuth(a *coreauth.Auth, providerKey string, models []*ModelInfo) {
+	if s != nil {
+		s.authUpdateMu.Lock()
+		defer s.authUpdateMu.Unlock()
+	}
+	s.registerResolvedModelsForAuthLocked(a, providerKey, models)
+}
+
+// registerResolvedModelsForAuthLocked publishes only the current credential's models.
+// Service auth updates hold the same lock only while committing local runtime state.
+func (s *Service) registerResolvedModelsForAuthLocked(a *coreauth.Auth, providerKey string, models []*ModelInfo) {
 	if a == nil || a.ID == "" {
 		return
 	}
+	if s != nil && s.coreManager != nil && s.shouldSkipModelRegistration(a.ID, a.RegistrationEpoch, a.Generation, a.Disabled) {
+		return
+	}
 	providerKey = strings.ToLower(strings.TrimSpace(providerKey))
+	if a.Disabled {
+		providerKey = ""
+	}
 	if providerKey == "" {
 		GlobalModelRegistry().UnregisterClient(a.ID)
 		return
@@ -497,7 +518,7 @@ func (s *Service) tryRegisterPluginModelsForAuth(ctx context.Context, a *coreaut
 	if ctx != nil && ctx.Err() != nil {
 		return true
 	}
-	result := s.pluginHost.ModelsForAuth(ctx, a)
+	result := pluginModelsForAuth(ctx, s.pluginHost, a)
 	if ctx != nil && ctx.Err() != nil {
 		return true
 	}
@@ -505,6 +526,12 @@ func (s *Service) tryRegisterPluginModelsForAuth(ctx context.Context, a *coreaut
 		return false
 	}
 	if result.Err != nil {
+		return true
+	}
+	// Discovery can outlive a management edit or credential replacement. The
+	// manager CAS rejects stale updates without locking unrelated service edits
+	// while persistence and auth hooks run; model publication rechecks afterward.
+	if s.coreManager != nil && s.shouldSkipModelRegistration(a.ID, a.RegistrationEpoch, a.Generation, a.Disabled) {
 		return true
 	}
 	activeAuth := a
@@ -528,9 +555,11 @@ func (s *Service) tryRegisterPluginModelsForAuth(ctx context.Context, a *coreaut
 				result.Auth.Attributes[key] = value
 			}
 		}
-		if updated, errUpdate := s.coreManager.Update(ctx, result.Auth); errUpdate == nil && updated != nil {
-			activeAuth = updated.Clone()
+		updated, errUpdate := s.coreManager.UpdateModelRegistrationAuth(ctx, a, result.Auth)
+		if errUpdate != nil || updated == nil {
+			return true
 		}
+		activeAuth = updated.Clone()
 	}
 	if activeAuth == nil {
 		activeAuth = a
@@ -560,6 +589,6 @@ func (s *Service) tryRegisterPluginModelsForAuth(ctx context.Context, a *coreaut
 		s.registerResolvedModelsForAuth(activeAuth, providerKey, applyModelPrefixes(models, activeAuth.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
 		return true
 	}
-	GlobalModelRegistry().UnregisterClient(activeAuth.ID)
+	s.registerResolvedModelsForAuth(activeAuth, "", nil)
 	return true
 }

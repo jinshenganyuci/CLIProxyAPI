@@ -62,7 +62,8 @@ type apiCallResponse struct {
 // Request JSON:
 //   - auth_index / authIndex / AuthIndex (optional):
 //     The credential "auth_index" from GET /v0/management/auth-files (or other endpoints returning it).
-//     If omitted or not found, credential-specific proxy/token substitution is skipped.
+//     If omitted or empty, credential-specific proxy/token substitution is skipped.
+//     An explicit index that no longer resolves returns HTTP 404 without an outbound request.
 //   - method (required): HTTP method, e.g. GET, POST, PUT, PATCH, DELETE.
 //   - url (required): Absolute URL including scheme and host, e.g. "https://api.example.com/v1/ping".
 //   - proxy_url (optional): Proxy used for this request. Supports HTTP, HTTPS, SOCKS5, SOCKS5H,
@@ -133,6 +134,10 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	authIndex := firstNonEmptyString(body.AuthIndexSnake, body.AuthIndexCamel, body.AuthIndexPascal)
 	auth := h.authByIndex(authIndex)
+	if authIndex != "" && auth == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "auth not found"})
+		return
+	}
 	transport, errTransport := h.apiCallRequestTransport(auth, requestProxyURL)
 	if errTransport != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": errTransport.Error()})

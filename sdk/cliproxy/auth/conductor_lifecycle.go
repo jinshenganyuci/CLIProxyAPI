@@ -137,12 +137,22 @@ const (
 	updateModeReplace updateAuthMode = iota
 	updateModeRefresh
 	updateModePrepare
+	updateModeModelRegistration
 )
 
 // UpdatePreparedAuth atomically merges request preparation results into the latest runtime auth
 // under the manager lock, preserving concurrent modifications without modifying refresh lifecycle fields.
 func (m *Manager) UpdatePreparedAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
 	return m.updateInternal(ctx, base, updated, updateModePrepare)
+}
+
+// UpdateModelRegistrationAuth applies a plugin discovery update only while its
+// originating credential snapshot is current, retaining the full AuthUpdate contract.
+func (m *Manager) UpdateModelRegistrationAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
+	if base == nil || updated == nil || base.ID != updated.ID {
+		return nil, fmt.Errorf("update model registration auth: missing or mismatched base snapshot")
+	}
+	return m.updateInternal(ctx, base, updated, updateModeModelRegistration)
 }
 
 // UpdateRefreshedAuth atomically merges refresh results into the latest runtime auth
@@ -175,6 +185,10 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 	}
 	if existing.RegistrationEpoch > m.authEpochs[auth.ID] {
 		m.authEpochs[auth.ID] = existing.RegistrationEpoch
+	}
+	if mode == updateModeModelRegistration && (existing.RegistrationEpoch != base.RegistrationEpoch || existing.Generation != base.Generation) {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("update auth %s: stale model registration snapshot", auth.ID)
 	}
 	if (mode == updateModeRefresh || mode == updateModePrepare) && base != nil && existing.RegistrationEpoch != base.RegistrationEpoch {
 		m.mu.Unlock()

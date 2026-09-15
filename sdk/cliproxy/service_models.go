@@ -29,8 +29,18 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		return
 	}
 	if a.Disabled {
-		GlobalModelRegistry().UnregisterClient(a.ID)
+		if s != nil && s.coreManager != nil {
+			if current, ok := s.coreManager.GetByID(a.ID); ok && current != nil && !current.Disabled {
+				return
+			}
+		}
+		s.registerResolvedModelsForAuth(a, "", nil)
 		return
+	}
+	if s != nil && s.coreManager != nil {
+		if current, ok := s.coreManager.GetByID(a.ID); !ok || current == nil || current.Disabled {
+			return
+		}
 	}
 	authKind := a.AuthKind()
 	// Unregister legacy client ID (if present) to avoid double counting
@@ -213,7 +223,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 					if len(ms) > 0 {
 						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					} else {
-						GlobalModelRegistry().UnregisterClient(a.ID)
+						s.registerResolvedModelsForAuth(a, "", nil)
 					}
 				}
 				return true
@@ -235,7 +245,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 					if len(ms) > 0 {
 						s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(ms, a.Prefix, s.cfg.ForceModelPrefix))
 					} else {
-						GlobalModelRegistry().UnregisterClient(a.ID)
+						s.registerResolvedModelsForAuth(a, "", nil)
 					}
 				}
 				return
@@ -255,7 +265,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 					s.registerResolvedModelsForAuth(a, providerKey, applyModelPrefixes(models, a.Prefix, s.cfg != nil && s.cfg.ForceModelPrefix))
 				} else {
 					// No matching provider found or models removed entirely; drop any prior registration.
-					GlobalModelRegistry().UnregisterClient(a.ID)
+					s.registerResolvedModelsForAuth(a, "", nil)
 				}
 				return
 			}
@@ -281,7 +291,7 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		return
 	}
 
-	GlobalModelRegistry().UnregisterClient(a.ID)
+	s.registerResolvedModelsForAuth(a, "", nil)
 }
 
 // refreshModelRegistrationForAuth re-applies the latest model registration for

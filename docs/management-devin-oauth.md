@@ -40,4 +40,22 @@ The route is resolved and frozen when login starts. CPA's token exchange and pro
 
 The callback directory and save destination are also bound to the login session. Reloading the configured auth directory while a browser is open does not move that pending callback. Saving rechecks cancellation and the latest credential controls under the shared file lock. An implicit relogin which would replace a different existing proxy fails with an instruction to select that proxy explicitly; an explicit proxy selection intentionally permits updating the route.
 
-The bundled panel is built from management center v1.23.0 with this fork's additions. Its Devin card uses the POST endpoint and clears proxy input after successful login or cancellation. The Codex proxy, reauthentication, and credential identity controls are retained. Rebuild instructions and the exact upstream source version are in `webui/README.md`.
+The bundled panel is built from management center v1.23.1 with this fork's additions. Its Devin card uses the POST endpoint and clears proxy input after successful login or cancellation. The Codex proxy, reauthentication, and credential identity controls are retained. Rebuild instructions and the exact upstream source version are in `webui/README.md`.
+
+## Headless CLI login and panel quota calls
+
+`--devin-login --no-browser` uses the upstream manual code flow without binding a
+callback port. It accepts an authorization code, supported callback URL, or
+session token. CPA freezes the selected transport before prompting; both the
+headless and browser branches use the shared guarded credential storage.
+The management WebUI continues to use the callback/state flow documented above.
+
+The v1.23.1 panel fetches Devin quota through management `APICall` with the selected
+`authIndex` and `metadata.apiKey` set to `$TOKEN$` in the JSON request body. Token
+replacement and the request use the selected credential transport; the panel no
+longer falls back to an auth-files quota snapshot.
+
+If the explicitly selected `authIndex` no longer resolves, `APICall` returns HTTP
+404 before creating an outbound transport or resolving a token. Refresh the
+credential selection before retrying. Generic calls that omit the index remain
+available under the existing management authentication rules.

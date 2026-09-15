@@ -1,32 +1,45 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.2`（上游提交
-`7fa443dc8bf8ca2f1ffd81c2472deb31b097b697`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.3`（上游提交
+`7bbfeaf8a7acf2cd5a834dcb0842539fe6aabc2b`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.3.2-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.2.1` 和 `latest`，两者指向同一份镜像。本次合并上游
-`v7.3.2`，保留 `v7.3.1-codex-identity.1` 的全部修复及此前 Codex 登录前代理选择、凭据身份隔离、
+当前修订为 `v7.3.3-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.3.1` 和 `latest`，两者指向同一份镜像。本次合并上游
+`v7.3.3`，保留 `v7.3.2-codex-identity.1` 的全部修复及此前 Codex 登录前代理选择、凭据身份隔离、
 刷新及持久化并发保护、固定凭据、WebSocket 出口约束、原生及 RPC 插件额度
 请求绑定凭据代理等功能。已有身份 schema、namespace 和凭据配置格式不变。
 
 ## 本次原生更新与兼容处理
 
-- 修正 Devin 网页 OAuth 回调为供应商要求的
-  `http://127.0.0.1:<端口>/callback`，同时兼容旧 `/devin/callback`。
-  地址从登录配置快照生成，代理、回调目录、保存位置和取消检查继续保留。
-- 修正 Devin Connect-RPC 嵌套消息、重复分组和分段用量解析；补足缺失的输入、
-  输出及缓存 Token 统计，保留流式和非流式调用一致的处理。
-- 管理 API Call 支持请求体内 `$TOKEN$` 替换，并处理 JSON 字符串转义。
-  从磁盘重新加载的 Devin 凭据也能读取 `api_key` / `session_token`；替换前
-  先校验凭据代理，替换后仍使用同一出口，不能通过请求参数绕过凭据代理。
-- 修正 Responses 到 Chat Completions 的显式 function/custom 工具选择转换，
-  包含 namespace 工具名；拒绝仅大小写不同的重复 Devin 模型 ID。
-- 保留上版 Codex 原生 HTTP/WS 输出保真、身份映射与响应还原、插件内部调用
-  作用域保护，以及 Devin 额度刷新和 canonical 文件重载后的观测保留修复。
-- 内置管理页继续基于原生 `v1.23.0`，更新新版回调提示，保留 Codex/Devin
-  登录前代理、Codex 身份控制，以及原生额度和冷却展示。
+- 合入 Codex 启动缓冲对保活帧和空内容公告的处理，以及可选的
+  `stream-bootstrap-timeout`。时间预算只在下一条完整上游数据到达时检查，
+  释放缓冲而不中断连接；它不保证响应头的最晚发送时间。缓冲默认关闭，
+  时间预算默认不限；原生 HTTP/WS 输出保真及身份映射继续保留。
+- Devin CLI 的 `--no-browser` 使用无需监听回调端口的手动代码/Token 登录，
+  授权地址参数顺序与原生流程同步。新增分支共用原有代理绑定及安全保存，
+  注入的授权服务也会绑定登录开始时选择的客户端；WebUI 的冻结回调目录继续保留。
+- 合入局域网 mDNS/DNS-SD 网关发现、命令行扫描与生命周期修复。默认
+  `discovery.enabled: false`，原配置不会自动开启广播，也不会新增 HTTP 管理端口。
+- 合入插件内部模型调用的 `forced_provider` 与 `auth_id`，同时保留内部调用
+  对外层提供商观察回调的隔离。插件错误结构增加接口与构造器，旧插件格式继续兼容。
+- 合入凭据同步解除无关操作阻塞、HTTP 响应前的传输失败重试，以及对应测试。
+  指定 AuthID 的调用仍不能改选另一个凭据，代理与身份配置继续绑定实际凭据。
+- 合入 Claude 工具调用配对、孤立工具输出转换、工具参数 HTML 字符保留、
+  Devin 顺序工具调用、Gemini Interactions 字段清理及推理内容兼容修复。
+- 模型目录增加 Gemini 3.5 Flash Lite；Antigravity 模型抓取工具支持符号链接目录
+  和多凭据回退；同步原生文档、示例和测试。
+- 内置管理页升级至原生 `v1.23.1`。Devin 额度直接通过管理 API Call 请求
+  GetUserStatus，使用请求体中的 `$TOKEN$`，不再以旧凭据列表快照兜底。
+  Codex/Devin 登录前代理、Codex 身份控制与原生页面功能继续保留。
+
+
+本次额外修复三个合并边界：显式指定的管理 API Call 凭据索引已失效时，返回
+HTTP 404 并停止出站；慢插件返回的旧模型/凭据更新须通过 epoch、generation
+校验，不能覆盖新代理、Token 或身份，外部保存和钩子调用也不持有服务更新锁；
+Devin 连续工具调用达到 128 次后拒绝新增调用，后续片段不再污染此前合法调用。
+未指定凭据索引的通用管理请求保持原有行为。
 
 新增 Devin 也支持在登录前选择代理：CPA 发起的 Token 交换、账号/额度查询使用
 登录开始时冻结的出口，并将其保存到凭据，后续调用和状态刷新沿用该设置。
@@ -285,7 +298,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.3.2.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v7.3.3.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -305,7 +318,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v7.3.1.1` 并重建对应服务，继续使用原有
+`jinshenganyuci/cli-proxy-api:codex-identity-v7.3.2.1` 并重建对应服务，继续使用原有
 配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
