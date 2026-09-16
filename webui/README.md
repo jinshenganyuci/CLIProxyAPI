@@ -7,7 +7,7 @@ The image serves `static/management.html` at `/management.html`. It is built fro
 - commit: `c12997e1a544374336ea385d5e9a9bbabe1e4767`
 - patch: `management-center-v1.23.1-credential-identity.patch`
 
-The patch also adds independent Codex and Devin login proxy selectors. Proxy credentials are sent in the
+The patch also adds independent Codex, Devin, and Meta login proxy selectors. Proxy credentials are sent in the
 POST body and held only in page memory; successful login and cancellation clear
 the input. The selected egress is saved with the credential for later use. Native Devin OAuth
 callback/cancellation, quota refresh, reset timelines, and cooldown views are
@@ -17,6 +17,13 @@ with callbacks from earlier releases. The native v1.23.1 Devin quota flow querie
 GetUserStatus through the management API with the selected credential index and a
 body token placeholder, retaining request deduplication and stale-session guards.
 It no longer falls back to old auth-file quota observations.
+
+Meta device login displays the authorization URL, optional device code, expiry guidance,
+and cancellation controls without a callback form. Its selected proxy is sent through
+`POST /meta-auth-url` and stays locked until completion or cancellation. Browser
+authorization uses the browser's own network settings. All four locales are included.
+The official v1.23.1 UI has no dedicated Meta API-key editor; Meta API-key entries
+remain editable through the native YAML configuration editor.
 
 Rebuild the asset from a clean checkout:
 
@@ -34,7 +41,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-8ec0c6a7df3936216f0e50a076d2870a580cf3002d6f1950ccf3b8c318003f08
+b56180f5a2ec06c2efe3fa6c56ce0d4facc87121546b17d4f32b70b9684ef545
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

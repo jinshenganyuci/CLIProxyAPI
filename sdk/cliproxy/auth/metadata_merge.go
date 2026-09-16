@@ -37,6 +37,12 @@ func MergeExistingAuthMetadata(target *Auth, existingMap map[string]any) {
 		if IsAuthTokenPayloadKey(k) {
 			continue
 		}
+		if strings.EqualFold(strings.TrimSpace(target.Provider), "meta") {
+			switch CanonicalCredentialMetadataKey(k) {
+			case "api_key", "dca_token", "dca_expired", "dca_expires_at":
+				continue
+			}
+		}
 		if _, exists := target.Metadata[k]; !exists {
 			target.Metadata[k] = v
 		}
@@ -50,6 +56,42 @@ func MergeExistingAuthMetadata(target *Auth, existingMap map[string]any) {
 // refresh lifecycle fields (such as LastRefreshedAt, LastError, or cooldown status).
 func MergePreparedAuth(base, current, updated *Auth) *Auth {
 	return mergeAuthContent(base, current, updated)
+}
+
+// metaMintCredentialsChanged rejects a key minted for a replaced credential.
+// Check both representations: one may mask a concurrent edit in the other.
+// Proxy and control changes remain eligible for the normal three-way merge.
+func metaMintCredentialsChanged(base, current *Auth) bool {
+	if !strings.EqualFold(strings.TrimSpace(base.Provider), strings.TrimSpace(current.Provider)) || CredentialsChanged(base, current) {
+		return true
+	}
+	for _, key := range []string{"dca_token", "api_key", "access_token"} {
+		if authMetadataString(base, key) != authMetadataString(current, key) || strings.TrimSpace(base.Attributes[key]) != strings.TrimSpace(current.Attributes[key]) {
+			return true
+		}
+	}
+	return metaStorageCredentialTokens(base) != metaStorageCredentialTokens(current)
+}
+
+func metaStorageCredentialTokens(auth *Auth) [3]string {
+	var tokens [3]string
+	if storage, ok := auth.Storage.(interface {
+		MetaCredentialTokens() (string, string, string)
+	}); ok {
+		tokens[0], tokens[1], tokens[2] = storage.MetaCredentialTokens()
+		for index := range tokens {
+			tokens[index] = strings.TrimSpace(tokens[index])
+		}
+		return tokens
+	}
+	// File reloads can replace login storage with equivalent metadata records.
+	for index, key := range []string{"dca_token", "api_key", "access_token"} {
+		tokens[index] = strings.TrimSpace(auth.Attributes[key])
+		if tokens[index] == "" {
+			tokens[index] = authMetadataString(auth, key)
+		}
+	}
+	return tokens
 }
 
 // MergeRefreshedAuth merges the refresh results from updated (derived from base)
