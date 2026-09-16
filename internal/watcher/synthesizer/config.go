@@ -7,6 +7,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/constant"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/diff"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
@@ -32,6 +33,12 @@ func addWeightToAttrs(weight *int, attrs map[string]string) {
 	attrs[coreauth.AttributeWeight] = strconv.Itoa(normalized)
 }
 
+func addConcurrencyLimitToAttrs(limit *int, attrs map[string]string) {
+	if limit != nil {
+		attrs[credentialconcurrency.Field] = strconv.Itoa(*limit)
+	}
+}
+
 // Synthesize generates Auth entries from config API keys.
 func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, error) {
 	out := make([]*coreauth.Auth, 0, 32)
@@ -39,6 +46,9 @@ func (s *ConfigSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth,
 		return out, nil
 	}
 	if errValidate := ctx.Config.ValidateCredentialWeights(); errValidate != nil {
+		return nil, fmt.Errorf("synthesize config API key auths: %w", errValidate)
+	}
+	if errValidate := ctx.Config.ValidateCredentialConcurrencyLimits(); errValidate != nil {
 		return nil, fmt.Errorf("synthesize config API key auths: %w", errValidate)
 	}
 
@@ -105,6 +115,7 @@ func (s *ConfigSynthesizer) synthesizeGeminiKeyEntries(ctx *SynthesisContext, en
 			attrs["priority"] = strconv.Itoa(entry.Priority)
 		}
 		addWeightToAttrs(entry.Weight, attrs)
+		addConcurrencyLimitToAttrs(entry.ConcurrencyLimit, attrs)
 		if base != "" {
 			attrs["base_url"] = base
 		}
@@ -167,6 +178,7 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*corea
 			attrs["priority"] = strconv.Itoa(ck.Priority)
 		}
 		addWeightToAttrs(ck.Weight, attrs)
+		addConcurrencyLimitToAttrs(ck.ConcurrencyLimit, attrs)
 		if base != "" {
 			attrs["base_url"] = base
 		}
@@ -249,6 +261,7 @@ func (s *ConfigSynthesizer) synthesizeCodexStyleKeys(ctx *SynthesisContext, entr
 			attrs["priority"] = strconv.Itoa(entry.Priority)
 		}
 		addWeightToAttrs(entry.Weight, attrs)
+		addConcurrencyLimitToAttrs(entry.ConcurrencyLimit, attrs)
 		if baseURL != "" {
 			attrs["base_url"] = baseURL
 		}
@@ -329,6 +342,7 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				attrs["priority"] = strconv.Itoa(compat.Priority)
 			}
 			addWeightToAttrs(entry.Weight, attrs)
+			addConcurrencyLimitToAttrs(entry.ConcurrencyLimit, attrs)
 			if key != "" {
 				attrs["api_key"] = key
 			}
@@ -365,6 +379,7 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"provider_key": internalProviderKey,
 				"config_index": strconv.Itoa(i),
 			}
+			addConcurrencyLimitToAttrs(compat.ConcurrencyLimit, attrs)
 			metadata := map[string]any{}
 			if disableCooling != nil {
 				metadata["disable_cooling"] = *disableCooling
@@ -425,6 +440,7 @@ func (s *ConfigSynthesizer) synthesizeVertexCompat(ctx *SynthesisContext) []*cor
 			attrs["priority"] = strconv.Itoa(compat.Priority)
 		}
 		addWeightToAttrs(compat.Weight, attrs)
+		addConcurrencyLimitToAttrs(compat.ConcurrencyLimit, attrs)
 		if key != "" {
 			attrs["api_key"] = key
 		}

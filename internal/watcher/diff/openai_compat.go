@@ -86,6 +86,16 @@ func describeOpenAICompatibilityUpdate(oldEntry, newEntry config.OpenAICompatibi
 	if !optionalBoolEqual(oldEntry.DisableCooling, newEntry.DisableCooling) {
 		details = append(details, fmt.Sprintf("disable-cooling %s -> %s", formatOptionalBool(oldEntry.DisableCooling), formatOptionalBool(newEntry.DisableCooling)))
 	}
+	if !optionalIntEqual(oldEntry.ConcurrencyLimit, newEntry.ConcurrencyLimit) {
+		details = append(details, fmt.Sprintf("concurrency-limit %s -> %s", formatOptionalInt(oldEntry.ConcurrencyLimit), formatOptionalInt(newEntry.ConcurrencyLimit)))
+	}
+	for index := 0; index < len(oldEntry.APIKeyEntries) && index < len(newEntry.APIKeyEntries); index++ {
+		oldLimit := oldEntry.APIKeyEntries[index].ConcurrencyLimit
+		newLimit := newEntry.APIKeyEntries[index].ConcurrencyLimit
+		if !optionalIntEqual(oldLimit, newLimit) {
+			details = append(details, fmt.Sprintf("api-key-entries[%d].concurrency-limit %s -> %s", index, formatOptionalInt(oldLimit), formatOptionalInt(newLimit)))
+		}
+	}
 	if !optionalIntEqual(oldEntry.RequestRetry, newEntry.RequestRetry) {
 		details = append(details, fmt.Sprintf("request-retry %s -> %s", formatOptionalInt(oldEntry.RequestRetry), formatOptionalInt(newEntry.RequestRetry)))
 	}

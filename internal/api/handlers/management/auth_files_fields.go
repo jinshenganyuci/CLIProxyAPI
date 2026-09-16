@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
 	claudeauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
@@ -286,12 +287,31 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		return
 	}
 	delete(req, "name")
+	var authIndex string
+	if rawIndex, present := req["auth_index"]; present {
+		if errIndex := json.Unmarshal(rawIndex, &authIndex); errIndex != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_index must be a string"})
+			return
+		}
+		authIndex = strings.TrimSpace(authIndex)
+		delete(req, "auth_index")
+	}
 	var errNormalize error
 	req, errNormalize = normalizeAuthFilePatchFields(req)
 	if errNormalize != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": errNormalize.Error()})
 		return
 	}
+	concurrencyPatch, errConcurrency := decodeAuthFileConcurrencyPatch(req)
+	if errConcurrency != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errConcurrency.Error()})
+		return
+	}
+	if concurrencyPatch.Set && h.authManager.HomeEnabled() {
+		c.JSON(http.StatusConflict, gin.H{"error": "credential concurrency is managed by Home"})
+		return
+	}
+	delete(req, "concurrency_limit")
 	requestRetryPatch, errRequestRetry := decodeAuthFileRequestRetryPatch(req)
 	if errRequestRetry != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": errRequestRetry.Error()})
@@ -305,19 +325,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Find auth by name or ID
-	var targetAuth *coreauth.Auth
-	if auth, ok := h.authManager.GetByID(name); ok {
-		targetAuth = auth
-	} else {
-		auths := h.authManager.List()
-		for _, auth := range auths {
-			if auth.FileName == name {
-				targetAuth = auth
-				break
-			}
-		}
-	}
+	targetAuth, _ := h.lookupAuthFile(name, authIndex)
 
 	if targetAuth == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
@@ -326,6 +334,33 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	if coreauth.IsPluginVirtualAuth(targetAuth) {
 		c.JSON(http.StatusConflict, gin.H{"error": errPluginVirtualAuth.Error()})
 		return
+	}
+	if concurrencyPatch.Set && targetAuth.AuthSourceKind() == coreauth.AuthSourceConfig {
+		if len(req) != 0 || requestRetryPatch.Set {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "config credential concurrency must be updated separately"})
+			return
+		}
+		h.patchConfigAuthConcurrency(c, targetAuth, concurrencyPatch.Value)
+		return
+	}
+	baseAuth := targetAuth.Clone()
+	if concurrencyPatch.Set {
+		var errClone error
+		baseAuth.Metadata, errClone = baseauth.CloneMetadataForUpdate(targetAuth.Metadata)
+		if errClone != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credential metadata cannot be edited safely"})
+			return
+		}
+		targetAuth.Metadata, errClone = baseauth.CloneMetadataForUpdate(targetAuth.Metadata)
+		if errClone != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credential metadata cannot be edited safely"})
+			return
+		}
+		attributes := make(map[string]string, len(targetAuth.Attributes))
+		for key, value := range targetAuth.Attributes {
+			attributes[key] = value
+		}
+		targetAuth.Attributes = attributes
 	}
 	coreauth.NormalizeCredentialMetadata(targetAuth.Metadata)
 
@@ -386,6 +421,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		}
 		changed = true
 	}
+	if concurrencyPatch.Set {
+		applyAuthFileConcurrencyPatch(targetAuth, concurrencyPatch.Value)
+		changed = true
+	}
 	if changed {
 		syncAuthFileMetadataFields(targetAuth, touchedRoots)
 	}
@@ -397,7 +436,29 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 
 	targetAuth.UpdatedAt = time.Now()
 
-	updatedAuth, err := h.authManager.Update(ctx, targetAuth)
+	var updatedAuth *coreauth.Auth
+	var err error
+	if concurrencyPatch.Set {
+		updatedAuth, err = h.authManager.UpdateAndPersistMetadata(ctx, targetAuth.ID, func(latest *coreauth.Auth) error {
+			if latest.RegistrationEpoch != baseAuth.RegistrationEpoch {
+				return fmt.Errorf("credential changed before concurrency settings could be saved")
+			}
+			merged := coreauth.MergePreparedAuth(baseAuth, latest, targetAuth)
+			latest.Metadata = merged.Metadata
+			latest.Attributes = merged.Attributes
+			latest.ProxyURL = merged.ProxyURL
+			latest.Prefix = merged.Prefix
+			if _, touched := touchedRoots["disabled"]; touched {
+				applyAuthDisabledState(latest, targetAuth.Disabled)
+			}
+			// Executor merges preserve concurrency controls; this explicit user edit
+			// must be applied after merging any concurrent credential refresh.
+			applyAuthFileConcurrencyPatch(latest, concurrencyPatch.Value)
+			return nil
+		})
+	} else {
+		updatedAuth, err = h.authManager.Update(ctx, targetAuth)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
 		return

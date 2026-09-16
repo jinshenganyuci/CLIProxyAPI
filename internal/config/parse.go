@@ -20,6 +20,10 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 		return nil, errValidate
 	}
 
+	if errValidate := validateCredentialConcurrencyLimitYAML(data); errValidate != nil {
+		return nil, errValidate
+	}
+
 	var cfg Config
 	// Keep defaults aligned with LoadConfigOptional.
 	cfg.Host = "" // Default empty: binds to all interfaces (IPv4 + IPv6)
@@ -56,6 +60,9 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 		return nil, errValidate
 	}
 	if errValidate := cfg.ValidateCredentialWeights(); errValidate != nil {
+		return nil, errValidate
+	}
+	if errValidate := cfg.ValidateCredentialConcurrencyLimits(); errValidate != nil {
 		return nil, errValidate
 	}
 	if cfg.Discovery.ServiceType == "" {

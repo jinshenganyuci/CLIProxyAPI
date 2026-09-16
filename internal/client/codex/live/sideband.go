@@ -54,6 +54,7 @@ type liveSession struct {
 	homeSelection         *auth.HomeDispatchSelection
 	media                 mediaRelaySession
 	resources             *liveSessionResources
+	releaseConcurrency    func()
 	token                 uint64
 }
 
@@ -73,6 +74,7 @@ type sessionStore struct {
 	mu       sync.Mutex
 	next     uint64
 	lifetime time.Duration
+	closed   bool
 	sessions map[string]*storedSession
 }
 
@@ -101,6 +103,11 @@ func (s *sessionStore) put(callID string, session liveSession) liveSession {
 		session.resources = &liveSessionResources{}
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		endLiveSession(session, "server_stopped")
+		return liveSession{}
+	}
 	s.next++
 	session.callID = callID
 	session.token = s.next
@@ -126,6 +133,9 @@ func (s *sessionStore) put(callID string, session liveSession) liveSession {
 		}
 		if previous.session.homeSelection != session.homeSelection {
 			endHomeSelection(previous.session, "session_replaced")
+		}
+		if previous.session.releaseConcurrency != nil {
+			previous.session.releaseConcurrency()
 		}
 	}
 	return session
@@ -193,6 +203,7 @@ func (s *sessionStore) closeAll(reason string) {
 		return
 	}
 	s.mu.Lock()
+	s.closed = true
 	entries := make([]*storedSession, 0, len(s.sessions))
 	for callID, entry := range s.sessions {
 		delete(s.sessions, callID)
@@ -249,6 +260,9 @@ func endLiveSession(session liveSession, reason string) {
 		}
 	}
 	endHomeSelection(session, reason)
+	if session.releaseConcurrency != nil {
+		session.releaseConcurrency()
+	}
 }
 
 func endHomeSelection(session liveSession, reason string) {

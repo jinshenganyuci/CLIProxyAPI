@@ -178,6 +178,9 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 		arr = obj.Items
 	}
 	for index := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("gemini-api-key[%d].concurrency-limit", index), arr[index].ConcurrencyLimit) {
+			return
+		}
 		if rejectInvalidCredentialWeight(c, fmt.Sprintf("gemini-api-key[%d].weight", index), arr[index].Weight) {
 			return
 		}
@@ -190,6 +193,7 @@ func (h *Handler) PutGeminiKeys(c *gin.Context) {
 }
 func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	type geminiKeyPatch struct {
+		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
 		Weight              json.RawMessage                  `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
@@ -247,6 +251,9 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.GeminiKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
@@ -380,6 +387,9 @@ func (h *Handler) PutInteractionsKeys(c *gin.Context) {
 		arr = obj.Items
 	}
 	for index := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("interactions-api-key[%d].concurrency-limit", index), arr[index].ConcurrencyLimit) {
+			return
+		}
 		if rejectInvalidCredentialWeight(c, fmt.Sprintf("interactions-api-key[%d].weight", index), arr[index].Weight) {
 			return
 		}
@@ -392,6 +402,7 @@ func (h *Handler) PutInteractionsKeys(c *gin.Context) {
 }
 func (h *Handler) PatchInteractionsKey(c *gin.Context) {
 	type geminiKeyPatch struct {
+		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
 		Weight              json.RawMessage                  `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
@@ -450,6 +461,9 @@ func (h *Handler) PatchInteractionsKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.InteractionsKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
@@ -582,6 +596,9 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 		arr = obj.Items
 	}
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("claude-api-key[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
 		normalizeClaudeKey(&arr[i])
 		if rejectInvalidCredentialWeight(c, fmt.Sprintf("claude-api-key[%d].weight", i), arr[i].Weight) {
 			return
@@ -598,6 +615,7 @@ func (h *Handler) PutClaudeKeys(c *gin.Context) {
 }
 func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	type claudeKeyPatch struct {
+		ConcurrencyLimit        json.RawMessage                  `json:"concurrency-limit"`
 		APIKey                  *string                          `json:"api-key"`
 		FingerprintProfile      *string                          `json:"fingerprint-profile"`
 		Weight                  json.RawMessage                  `json:"weight"`
@@ -643,6 +661,9 @@ func (h *Handler) PatchClaudeKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.ClaudeKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
@@ -772,6 +793,14 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 	}
 	filtered := make([]config.OpenAICompatibility, 0, len(arr))
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("openai-compatibility[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
+		for keyIndex := range arr[i].APIKeyEntries {
+			if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("openai-compatibility[%d].api-key-entries[%d].concurrency-limit", i, keyIndex), arr[i].APIKeyEntries[keyIndex].ConcurrencyLimit) {
+				return
+			}
+		}
 		normalizeOpenAICompatibilityEntry(&arr[i])
 		if strings.TrimSpace(arr[i].BaseURL) == "" {
 			continue
@@ -792,6 +821,7 @@ func (h *Handler) PutOpenAICompat(c *gin.Context) {
 }
 func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	type openAICompatPatch struct {
+		ConcurrencyLimit      json.RawMessage                     `json:"concurrency-limit"`
 		Name                  *string                             `json:"name"`
 		Prefix                *string                             `json:"prefix"`
 		Disabled              *bool                               `json:"disabled"`
@@ -835,6 +865,16 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	}
 
 	entry := h.cfg.OpenAICompatibility[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
+	if body.Value.APIKeyEntries != nil {
+		for keyIndex := range *body.Value.APIKeyEntries {
+			if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("api-key-entries[%d].concurrency-limit", keyIndex), (*body.Value.APIKeyEntries)[keyIndex].ConcurrencyLimit) {
+				return
+			}
+		}
+	}
 	if body.Value.Name != nil {
 		entry.Name = strings.TrimSpace(*body.Value.Name)
 	}
@@ -937,6 +977,9 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 		arr = obj.Items
 	}
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("vertex-api-key[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
 		normalizeVertexCompatKey(&arr[i])
 		if arr[i].APIKey == "" {
 			c.JSON(400, gin.H{"error": fmt.Sprintf("vertex-api-key[%d].api-key is required", i)})
@@ -954,16 +997,17 @@ func (h *Handler) PutVertexCompatKeys(c *gin.Context) {
 }
 func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	type vertexCompatPatch struct {
-		APIKey         *string                     `json:"api-key"`
-		Weight         json.RawMessage             `json:"weight"`
-		Prefix         *string                     `json:"prefix"`
-		BaseURL        *string                     `json:"base-url"`
-		ProxyURL       *string                     `json:"proxy-url"`
-		Headers        *map[string]string          `json:"headers"`
-		Models         *[]config.VertexCompatModel `json:"models"`
-		ExcludedModels *[]string                   `json:"excluded-models"`
-		DisableCooling json.RawMessage             `json:"disable-cooling"`
-		RequestRetry   *int                        `json:"request-retry"`
+		ConcurrencyLimit json.RawMessage             `json:"concurrency-limit"`
+		APIKey           *string                     `json:"api-key"`
+		Weight           json.RawMessage             `json:"weight"`
+		Prefix           *string                     `json:"prefix"`
+		BaseURL          *string                     `json:"base-url"`
+		ProxyURL         *string                     `json:"proxy-url"`
+		Headers          *map[string]string          `json:"headers"`
+		Models           *[]config.VertexCompatModel `json:"models"`
+		ExcludedModels   *[]string                   `json:"excluded-models"`
+		DisableCooling   json.RawMessage             `json:"disable-cooling"`
+		RequestRetry     *int                        `json:"request-retry"`
 	}
 	var body struct {
 		Index *int               `json:"index"`
@@ -998,6 +1042,9 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.VertexCompatAPIKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		trimmed := strings.TrimSpace(*body.Value.APIKey)
 		if trimmed == "" {
@@ -1402,6 +1449,9 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 	// Filter out codex entries with empty base-url (treat as removed)
 	filtered := make([]config.CodexKey, 0, len(arr))
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("codex-api-key[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
 		entry := arr[i]
 		normalizeCodexKey(&entry)
 		if entry.BaseURL == "" {
@@ -1420,6 +1470,7 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 }
 func (h *Handler) PatchCodexKey(c *gin.Context) {
 	type codexKeyPatch struct {
+		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
 		Weight              json.RawMessage                  `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
@@ -1464,6 +1515,9 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.CodexKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
@@ -1595,6 +1649,9 @@ func (h *Handler) PutXAIKeys(c *gin.Context) {
 	}
 	filtered := make([]config.XAIKey, 0, len(arr))
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("xai-api-key[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
 		entry := arr[i]
 		normalizeCodexKey(&entry)
 		if entry.BaseURL == "" {
@@ -1614,6 +1671,7 @@ func (h *Handler) PutXAIKeys(c *gin.Context) {
 
 func (h *Handler) PatchXAIKey(c *gin.Context) {
 	type xaiKeyPatch struct {
+		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
 		Priority            *int                             `json:"priority"`
 		Weight              json.RawMessage                  `json:"weight"`
@@ -1659,6 +1717,9 @@ func (h *Handler) PatchXAIKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.XAIKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}
@@ -1793,6 +1854,9 @@ func (h *Handler) PutMetaKeys(c *gin.Context) {
 	}
 	filtered := make([]config.MetaKey, 0, len(arr))
 	for i := range arr {
+		if rejectInvalidCredentialConcurrencyLimit(c, fmt.Sprintf("meta-api-key[%d].concurrency-limit", i), arr[i].ConcurrencyLimit) {
+			return
+		}
 		entry := arr[i]
 		normalizeCodexKey(&entry)
 		if entry.BaseURL == "" {
@@ -1812,6 +1876,7 @@ func (h *Handler) PutMetaKeys(c *gin.Context) {
 
 func (h *Handler) PatchMetaKey(c *gin.Context) {
 	type metaKeyPatch struct {
+		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
 		Priority            *int                             `json:"priority"`
 		Weight              json.RawMessage                  `json:"weight"`
@@ -1856,6 +1921,9 @@ func (h *Handler) PatchMetaKey(c *gin.Context) {
 	}
 
 	entry := h.cfg.MetaKey[targetIndex]
+	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
 	}

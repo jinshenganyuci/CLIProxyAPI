@@ -56,6 +56,11 @@ func (e rpcError) StatusCode() int {
 	return e.statusCode
 }
 
+// ErrorCode preserves the plugin's machine-readable error without exposing its concrete type.
+func (e rpcError) ErrorCode() string {
+	return e.Code
+}
+
 type rpcResponseNormalizer struct {
 	*rpcPluginAdapter
 	method string

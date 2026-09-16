@@ -25,6 +25,21 @@ authorization uses the browser's own network settings. All four locales are incl
 The official v1.23.1 UI has no dedicated Meta API-key editor; Meta API-key entries
 remain editable through the native YAML configuration editor.
 
+Credential cards, compact rows, details, and quota cards share a small live concurrency badge
+showing occupied requests and the effective limit. Each active page uses one lightweight
+`GET /auth-files/concurrency` poll every two seconds, pauses while hidden, and discards
+cancelled or stale-session responses. Failed or missing observations show unknown occupancy
+instead of zero. Home-managed credentials display `— / Home` and disable local editing.
+
+The credential editor accepts integer limits from 1 through 1,000,000. An empty field sends
+`concurrency_limit: null` to restore the default of 10. Configuration-backed API-key credentials
+use a concurrency-only editor, selected by the server's `concurrency_config` capability; this
+editor writes the limit through the stable `auth_index` without downloading an auth file or
+changing unrelated credential fields. Plugin virtual credentials retain their native controls.
+Provider forms also preserve per-key and OpenAI-compatible fallback limits through normalization,
+editing, and serialization. Saving an older provider form retains the latest stored concurrency
+limit instead of overwriting a value changed through the credential card.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
@@ -41,7 +56,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b56180f5a2ec06c2efe3fa6c56ce0d4facc87121546b17d4f32b70b9684ef545
+a90d7eedc865e72618ec799f6b45ca7c454742922802eff90f0918b805fa0b61
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

@@ -55,6 +55,7 @@ type openAICompatibilityWithAuthIndex struct {
 	SupportPromptCacheKey bool                                     `json:"support-prompt-cache-key,omitempty"`
 	DisableCooling        *bool                                    `json:"disable-cooling,omitempty"`
 	RequestRetry          *int                                     `json:"request-retry,omitempty"`
+	ConcurrencyLimit      *int                                     `json:"concurrency-limit,omitempty"`
 	RequestScopedErrors   []config.RequestScopedErrorRule          `json:"request-scoped-errors,omitempty"`
 	AuthIndex             string                                   `json:"auth-index,omitempty"`
 }
@@ -349,6 +350,7 @@ func (h *Handler) openAICompatibilityWithAuthIndex() []openAICompatibilityWithAu
 			SupportPromptCacheKey: entry.SupportPromptCacheKey,
 			DisableCooling:        entry.DisableCooling,
 			RequestRetry:          entry.RequestRetry,
+			ConcurrencyLimit:      entry.ConcurrencyLimit,
 			RequestScopedErrors:   entry.RequestScopedErrors,
 			AuthIndex:             "",
 		}

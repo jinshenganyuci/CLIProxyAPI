@@ -55,14 +55,21 @@ func (h *Handler) HandleDirectWebsocket(c *gin.Context) {
 		}
 	}
 	ctx := context.WithValue(c.Request.Context(), "gin", c)
+	ctx, cancelExecution := context.WithCancel(ctx)
+	defer cancelExecution()
+	if h.closeContext != nil {
+		stopOnHandlerClose := context.AfterFunc(h.closeContext, cancelExecution)
+		defer stopOnHandlerClose()
+	}
 	ctx = coreexecutor.WithDownstreamWebsocket(ctx)
 	selectionOpts := coreexecutor.Options{Headers: liveSelectionHeaders(c)}
 	ctx = handlers.EnrichContextWithSessionHierarchy(ctx, selectionOpts.Headers, nil, nil)
-	selection, selected, errSelect := h.selectOAuth(ctx, selectionModel, selectionOpts)
+	selection, selected, releaseConcurrency, errSelect := h.selectOAuthWithConcurrency(ctx, selectionModel, selectionOpts)
 	if errSelect != nil {
 		writeSelectionError(c, errSelect)
 		return
 	}
+	defer releaseConcurrency()
 	if selected == nil {
 		if selection != nil {
 			selection.End("missing_auth")
@@ -188,6 +195,8 @@ func (h *Handler) HandleDirectWebsocket(c *gin.Context) {
 	closeHandshakeBody(handshakeResponse, "direct websocket handshake")
 	closeUpstream := websocketCloseFunc("upstream", upstream)
 	defer func() { _ = closeUpstream() }()
+	stopCloseOnCancel := context.AfterFunc(ctx, func() { _ = closeUpstream() })
+	defer stopCloseOnCancel()
 	if len(tokenSession) > 0 {
 		updateSession, errSession := realtimeSessionUpdate(tokenSession)
 		if errSession != nil {

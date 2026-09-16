@@ -68,9 +68,9 @@ discovery:
   #   exclude: []                     # Additional interface patterns to exclude
   # auth-required: true               # Advertise that credentials are required
 
-# Credential concurrency is configured by Home in Home mode. The synthesized Home config is
-# authoritative and local values, including the values below, are ignored. Do not use local
-# configuration to override a Home concurrency policy.
+# The Home credential-concurrency lifecycle block is configured by Home in Home mode.
+# The synthesized Home config is authoritative and local values, including the values below,
+# are ignored. Do not use local configuration to override a Home concurrency policy.
 # credential-concurrency:
 #   lifecycle-config-revision: 1
 #   observation-barrier-revision: 0
@@ -422,10 +422,18 @@ nonstream-keepalive-interval: 0
 # When false (default), only checks R/E prefix + base64 + first byte 0x12.
 # antigravity-signature-bypass-strict: false
 
+# Per-credential active-request limits apply within a single CPA instance outside Home mode.
+# Set concurrency-limit on an API-key entry (including openai-compatibility api-key-entries).
+# Omitted or null uses 10; valid values are integers from 1 to 1,000,000.
+# OAuth authentication files use concurrency_limit instead.
+# Streaming requests keep their slot until completion or cancellation.
+# Home mode skips these local limits and retains its authoritative concurrency policy.
+
 # Gemini API keys
 # gemini-api-key:
 #   - api-key: "AIzaSy...01"
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "test" # optional: require calls like "test/gemini-3-pro-preview" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -468,6 +476,7 @@ nonstream-keepalive-interval: 0
 # interactions-api-key:
 #   - api-key: "AIzaSy...03"
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "native" # optional: require calls like "native/gemini-3-pro-preview" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -498,6 +507,7 @@ nonstream-keepalive-interval: 0
 # codex-api-key:
 #   - api-key: "sk-atSM..."
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "test" # optional: require calls like "test/gpt-5-codex" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -540,6 +550,7 @@ nonstream-keepalive-interval: 0
 # xai-api-key:
 #   - api-key: "xai-..."
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "xai" # optional: require calls like "xai/grok-4.5" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -575,6 +586,7 @@ nonstream-keepalive-interval: 0
 # meta-api-key:
 #   - api-key: "..."
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "meta" # optional: require calls like "meta/muse-spark-1.3" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -591,6 +603,7 @@ nonstream-keepalive-interval: 0
 #   - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url
 #   - api-key: "sk-atSM..."
 #     weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "test" # optional: require calls like "test/claude-sonnet-latest" to target this credential
 #     disable-cooling: false # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3 # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global
@@ -736,6 +749,7 @@ nonstream-keepalive-interval: 0
 # openai-compatibility:
 #   - name: "openrouter" # The name of the provider; it will be used in the user agent and other places.
 #     disabled: false # optional: set to true to disable this provider without removing it
+#     # concurrency-limit: 10 # only for the fallback credential when api-key-entries is empty; not inherited by entries
 #     prefix: "test" # optional: require calls like "test/kimi-k2" to target this provider's credentials
 #     base-url: "https://openrouter.ai/api/v1" # The base URL of the provider.
 #     support-prompt-cache-key: false # optional: derive prompt_cache_key for requests from all input protocols
@@ -758,6 +772,7 @@ nonstream-keepalive-interval: 0
 #     api-key-entries:
 #       - api-key: "sk-or-v1-...b780"
 #         weight: 5 # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#         concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #         proxy-url: "socks5://proxy.example.com:1080" # optional: per-key proxy override
 #         # proxy-url: "direct" # optional: explicit direct connect for this credential
 #       - api-key: "sk-or-v1-...b781" # without proxy-url
@@ -788,6 +803,7 @@ nonstream-keepalive-interval: 0
 # vertex-api-key:
 #   - api-key: "vk-123..."                        # x-goog-api-key header
 #     weight: 5                                    # optional: weighted-round-robin share; omitted defaults to 1; maximum 1,000,000
+#     concurrency-limit: 10 # optional per-credential limit; omitted or null defaults to 10
 #     prefix: "test"                              # optional: require calls like "test/vertex-pro" to target this credential
 #     disable-cooling: false                       # optional override: true disables cooling, false enables it; omit to inherit global
 #     request-retry: 3                             # optional per-auth override; 0 disables additional rounds; omit or set < 0 to inherit global

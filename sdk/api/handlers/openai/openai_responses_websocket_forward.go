@@ -69,6 +69,39 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 		keepAliveC = keepAliveTicker.C
 	}
 
+	forwardError := func(errMsg *interfaces.ErrorMessage) (*interfaces.ErrorMessage, error) {
+		if errMsg == nil {
+			cancel(nil)
+			return nil, nil
+		}
+		h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
+		if opts.suppressError != nil && opts.suppressError(errMsg) {
+			cancel(errMsg.Error)
+			return errMsg, nil
+		}
+		markAPIResponseTimestamp(c)
+		if matched, errClose := writer.closeForUpstreamError(errMsg.Error); matched {
+			cancel(errMsg.Error)
+			if errClose != nil {
+				return errMsg, errClose
+			}
+			return errMsg, websocket.ErrCloseSent
+		}
+
+		errorPayload, wrote, errTerminate := writeResponsesWebsocketTerminalError(writer, wsTimelineLog, errMsg, nil)
+		if wrote {
+			log.Infof(
+				"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
+				sessionID,
+				websocket.TextMessage,
+				websocketPayloadEventType(errorPayload),
+				websocketPayloadPreview(errorPayload),
+			)
+		}
+		cancel(errMsg.Error)
+		return errMsg, errTerminate
+	}
+
 	for {
 		select {
 		case <-c.Request.Context().Done():
@@ -84,39 +117,20 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				errs = nil
 				continue
 			}
-			if errMsg == nil {
-				cancel(nil)
-				return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), nil, nil
-			}
-
-			h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
-			if opts.suppressError != nil && opts.suppressError(errMsg) {
-				cancel(errMsg.Error)
-				return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, nil
-			}
-			markAPIResponseTimestamp(c)
-			if matched, errClose := writer.closeForUpstreamError(errMsg.Error); matched {
-				cancel(errMsg.Error)
-				if errClose != nil {
-					return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, errClose
-				}
-				return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, websocket.ErrCloseSent
-			}
-
-			errorPayload, wrote, errTerminate := writeResponsesWebsocketTerminalError(writer, wsTimelineLog, errMsg, nil)
-			if wrote {
-				log.Infof(
-					"responses websocket: downstream_out id=%s type=%d event=%s payload=%s",
-					sessionID,
-					websocket.TextMessage,
-					websocketPayloadEventType(errorPayload),
-					websocketPayloadPreview(errorPayload),
-				)
-			}
-			cancel(errMsg.Error)
-			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, errTerminate
+			forwardErrMsg, errForward := forwardError(errMsg)
+			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), forwardErrMsg, errForward
 		case chunk, ok := <-data:
 			if !ok {
+				// Producers publish a terminal error before closing data. If both
+				// channels are ready, preserve that error instead of reporting EOF.
+				select {
+				case errMsg, okError := <-errs:
+					if okError && errMsg != nil {
+						forwardErrMsg, errForward := forwardError(errMsg)
+						return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), forwardErrMsg, errForward
+					}
+				default:
+				}
 				if !completed {
 					errMsg := &interfaces.ErrorMessage{
 						StatusCode: http.StatusRequestTimeout,
@@ -223,8 +237,8 @@ func responsesWebsocketErrorStatus(errMsg *interfaces.ErrorMessage) int {
 // shouldExposeResponsesUpstreamError reports whether a terminal upstream error
 // must reach the downstream client.
 //
-// Only request-shape failures are exposed: the client can act on them and no
-// credential rotation or retry can make the request succeed. Credential, quota
+// Request-shape failures, terminal auth failures, and local credential admission
+// rejections are exposed so clients can act on them. Other credential, quota,
 // and transport failures stay silent so the client simply reconnects and retries;
 // a fresh connection carries no server-side transcript, so reconnecting already
 // implies a full context resend.
@@ -232,7 +246,7 @@ func shouldExposeResponsesUpstreamError(errMsg *interfaces.ErrorMessage) bool {
 	if errMsg == nil {
 		return false
 	}
-	if coreauth.IsTerminalAuthError(errMsg.Error) {
+	if coreauth.IsTerminalAuthError(errMsg.Error) || coreauth.IsCredentialConcurrencyError(errMsg.Error) {
 		return true
 	}
 	return clienterror.IsRequestFault(responsesWebsocketErrorStatus(errMsg), errMsg.Error)
@@ -278,6 +292,9 @@ func writeResponsesWebsocketTerminalError(
 }
 
 func shouldReplayResponsesWebsocketPinnedAuthFailure(errMsg *interfaces.ErrorMessage) bool {
+	if errMsg != nil && coreauth.IsCredentialConcurrencyError(errMsg.Error) {
+		return false
+	}
 	switch responsesWebsocketErrorStatus(errMsg) {
 	case http.StatusUnauthorized, http.StatusTooManyRequests:
 		return true

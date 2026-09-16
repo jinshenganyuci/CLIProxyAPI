@@ -110,6 +110,20 @@ func BuildErrorResponseBodyWithError(status int, errText string, err error) []by
 		return payload
 	}
 
+	if coreauth.IsCredentialConcurrencyError(err) {
+		payload, errMarshal := json.Marshal(ErrorResponse{
+			Error: ErrorDetail{
+				Message: errText,
+				Type:    "rate_limit_error",
+				Code:    "credential_concurrency_exceeded",
+			},
+		})
+		if errMarshal != nil {
+			return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"rate_limit_error","code":"credential_concurrency_exceeded"}}`, errText))
+		}
+		return payload
+	}
+
 	if trimmed != "" && json.Valid([]byte(trimmed)) {
 		return []byte(trimmed)
 	}

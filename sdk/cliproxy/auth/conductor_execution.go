@@ -141,7 +141,7 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 		if errExec == nil {
 			return resp, nil
 		}
-		if isRequestTerminatedError(errExec) || isRequestStopError(errExec) {
+		if isRequestTerminatedError(errExec) || isRequestStopError(errExec) || IsCredentialConcurrencyError(errExec) {
 			return cliproxyexecutor.Response{}, unwrapExecutionBoundaryError(errExec)
 		}
 		if hasUpstreamExecutionAttempt(errExec) {
@@ -200,7 +200,7 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 		if errExec == nil {
 			return resp, nil
 		}
-		if isRequestTerminatedError(errExec) || isRequestStopError(errExec) {
+		if isRequestTerminatedError(errExec) || isRequestStopError(errExec) || IsCredentialConcurrencyError(errExec) {
 			return cliproxyexecutor.Response{}, unwrapExecutionBoundaryError(errExec)
 		}
 		if hasUpstreamExecutionAttempt(errExec) {
@@ -274,7 +274,7 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cli
 		}
 		retryRoundPending = false
 		retryRoundWaited = false
-		if isRequestTerminatedError(errStream) || isRequestStopError(errStream) {
+		if isRequestTerminatedError(errStream) || isRequestStopError(errStream) || IsCredentialConcurrencyError(errStream) {
 			return nil, unwrapExecutionBoundaryError(errStream)
 		}
 		lastErr = errStream
@@ -467,6 +467,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
+	if !homeMode {
+		ctx = withCredentialConcurrencyAdmission(ctx)
+	}
 	homeAuthCount := 1
 	tried := make(map[string]struct{})
 	if !homeMode {
@@ -477,7 +480,11 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 	attempted := make(map[string]struct{})
 	var lastErr error
 	var upstreamErr error
+	var concurrencyLease *credentialConcurrencyLease
+	defer func() { concurrencyLease.Release() }()
 	for {
+		concurrencyLease.Release()
+		concurrencyLease = nil
 		if maxRetryCredentials > 0 && len(attempted) >= maxRetryCredentials {
 			if lastErr != nil {
 				return cliproxyexecutor.Response{}, preferredExecutionAttemptError(lastErr, upstreamErr)
@@ -496,6 +503,22 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				return cliproxyexecutor.Response{}, preferredExecutionAttemptError(lastErr, upstreamErr)
 			}
 			return cliproxyexecutor.Response{}, errPick
+		}
+
+		if !homeMode {
+			tried[auth.ID] = struct{}{}
+			var errAdmission error
+			concurrencyLease, errAdmission = m.acquireCredentialConcurrency(ctx, auth)
+			if errAdmission != nil {
+				if ctx != nil && ctx.Err() != nil {
+					return cliproxyexecutor.Response{}, ctx.Err()
+				}
+				if m.hasPluginScheduler() {
+					return cliproxyexecutor.Response{}, errAdmission
+				}
+				lastErr = errAdmission
+				continue
+			}
 		}
 
 		entry := logEntryWithRequestID(ctx)
@@ -680,6 +703,9 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
+	if !homeMode {
+		ctx = withCredentialConcurrencyAdmission(ctx)
+	}
 	homeAuthCount := 1
 	tried := make(map[string]struct{})
 	if !homeMode {
@@ -690,7 +716,11 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 	attempted := make(map[string]struct{})
 	var lastErr error
 	var upstreamErr error
+	var concurrencyLease *credentialConcurrencyLease
+	defer func() { concurrencyLease.Release() }()
 	for {
+		concurrencyLease.Release()
+		concurrencyLease = nil
 		if maxRetryCredentials > 0 && len(attempted) >= maxRetryCredentials {
 			if lastErr != nil {
 				return cliproxyexecutor.Response{}, preferredExecutionAttemptError(lastErr, upstreamErr)
@@ -709,6 +739,22 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 				return cliproxyexecutor.Response{}, preferredExecutionAttemptError(lastErr, upstreamErr)
 			}
 			return cliproxyexecutor.Response{}, errPick
+		}
+
+		if !homeMode {
+			tried[auth.ID] = struct{}{}
+			var errAdmission error
+			concurrencyLease, errAdmission = m.acquireCredentialConcurrency(ctx, auth)
+			if errAdmission != nil {
+				if ctx != nil && ctx.Err() != nil {
+					return cliproxyexecutor.Response{}, ctx.Err()
+				}
+				if m.hasPluginScheduler() {
+					return cliproxyexecutor.Response{}, errAdmission
+				}
+				lastErr = errAdmission
+				continue
+			}
 		}
 
 		entry := logEntryWithRequestID(ctx)
@@ -898,6 +944,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	executionModel, restoreExecutionModel := executionModelForAuthSelection(opts, req.Model)
 	opts = ensureRequestedModelMetadata(opts, routeModel)
 	homeMode := m.HomeEnabled()
+	if !homeMode {
+		ctx = withCredentialConcurrencyAdmission(ctx)
+	}
 	homeAuthCount := 1
 	tried := make(map[string]struct{})
 	if !homeMode {
@@ -912,8 +961,12 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	attempted := make(map[string]struct{})
 	var lastErr error
 	var upstreamErr error
+	var concurrencyLease *credentialConcurrencyLease
+	defer func() { concurrencyLease.Release() }()
 	var roundTiming homeRetryRoundTiming
 	for {
+		concurrencyLease.Release()
+		concurrencyLease = nil
 		allowSameAuthRetry := homeMode && homeSameAuthRetryPending && lastHomeAuthID != "" && homeSameAuthRetries[lastHomeAuthID] == 0
 		if maxRetryCredentials > 0 && len(attempted) >= maxRetryCredentials && !allowSameAuthRetry {
 			if lastErr != nil {
@@ -1013,6 +1066,22 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 		}
 
+		if !homeMode {
+			tried[auth.ID] = struct{}{}
+			var errAdmission error
+			concurrencyLease, errAdmission = m.acquireCredentialConcurrency(ctx, auth)
+			if errAdmission != nil {
+				if ctx != nil && ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if m.hasPluginScheduler() {
+					return nil, errAdmission
+				}
+				lastErr = errAdmission
+				continue
+			}
+		}
+
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, routeModel)
 		if selection != nil {
@@ -1025,6 +1094,10 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		tried[auth.ID] = struct{}{}
 		execCtx := ctx
+		if concurrencyLease != nil {
+			execCtx, concurrencyLease.cancel = context.WithCancel(execCtx)
+			execCtx = context.WithValue(execCtx, credentialConcurrencyLeaseContextKey{}, concurrencyLease)
+		}
 		releaseAttempt := func() {}
 		if selection != nil {
 			var errBind error
@@ -1209,6 +1282,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 			return wrapHomeStream(ctx, streamResult, selection, releaseAttempt), nil
 		}
+		concurrencyLease = nil
 		return streamResult, nil
 	}
 }

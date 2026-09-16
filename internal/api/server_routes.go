@@ -365,13 +365,14 @@ func (s *Server) codexAlphaSearch(c *gin.Context) {
 	selectionOpts := coreexecutor.Options{Headers: selectionHeaders, OriginalRequest: body}
 	var selection *auth.HomeDispatchSelection
 	var selected *auth.Auth
+	var releaseConcurrency func()
 	if s.handlers.AuthManager.HomeEnabled() {
 		selection, err = s.handlers.AuthManager.SelectHomeAuthWithCredentialPolicy(ctx, "codex", selectionModel, auth.CredentialPolicyCodexAlphaSearchV1, selectionOpts)
 		if selection != nil {
 			selected = selection.CloneAuth()
 		}
 	} else {
-		selected, err = s.handlers.AuthManager.SelectAuthWithCredentialPolicy(ctx, "codex", selectionModel, auth.CredentialPolicyCodexAlphaSearchV1, selectionOpts)
+		selected, releaseConcurrency, err = s.handlers.AuthManager.SelectAuthWithCredentialPolicyAndConcurrency(ctx, "codex", selectionModel, auth.CredentialPolicyCodexAlphaSearchV1, selectionOpts)
 	}
 	if err != nil {
 		status := clienterror.HTTPStatusFromErrorOr(err, http.StatusServiceUnavailable)
@@ -380,6 +381,9 @@ func (s *Server) codexAlphaSearch(c *gin.Context) {
 		}
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
+	}
+	if releaseConcurrency != nil {
+		defer releaseConcurrency()
 	}
 	if selected == nil {
 		if selection != nil {

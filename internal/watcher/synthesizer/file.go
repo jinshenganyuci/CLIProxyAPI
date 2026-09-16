@@ -86,6 +86,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	if errWeight := coreauth.ValidateAuthWeight(&coreauth.Auth{Metadata: metadata}); errWeight != nil {
 		return nil, fmt.Errorf("invalid weight in %s: %w", filepath.Base(fullPath), errWeight)
 	}
+	if errLimit := coreauth.ValidateAuthConcurrencyLimit(&coreauth.Auth{Metadata: metadata}); errLimit != nil {
+		return nil, fmt.Errorf("invalid concurrency limit in %s: %w", filepath.Base(fullPath), errLimit)
+	}
 	t, _ := metadata["type"].(string)
 	provider := strings.ToLower(strings.TrimSpace(t))
 	if provider == "gemini" {
@@ -151,6 +154,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 				}
 				if errWeight := coreauth.ApplyAuthWeightMetadata(auth, metadata); errWeight != nil {
 					return nil, fmt.Errorf("invalid plugin auth weight in %s: %w", filepath.Base(fullPath), errWeight)
+				}
+				if errLimit := coreauth.ApplyAuthConcurrencyLimitMetadata(auth, metadata); errLimit != nil {
+					return nil, fmt.Errorf("invalid plugin auth concurrency limit in %s: %w", filepath.Base(fullPath), errLimit)
 				}
 				coreauth.SetOAuthModelAliasesAttribute(auth, perAccountModelAliases)
 				ApplyAuthExcludedModelsMeta(auth, cfg, perAccountExcluded, "oauth")
@@ -234,6 +240,9 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 	if errWeight := coreauth.ApplyAuthWeightMetadata(a, metadata); errWeight != nil {
 		return nil, fmt.Errorf("invalid auth weight in %s: %w", filepath.Base(fullPath), errWeight)
 	}
+	if errLimit := coreauth.ApplyAuthConcurrencyLimitMetadata(a, metadata); errLimit != nil {
+		return nil, fmt.Errorf("invalid auth concurrency limit in %s: %w", filepath.Base(fullPath), errLimit)
+	}
 	// Read note from auth file.
 	if rawNote, ok := metadata["note"]; ok {
 		if note, isStr := rawNote.(string); isStr {
@@ -285,6 +294,9 @@ func compactPluginAuths(auths []*coreauth.Auth) []*coreauth.Auth {
 			continue
 		}
 		if errWeight := coreauth.ValidateAuthWeight(auth); errWeight != nil {
+			continue
+		}
+		if errLimit := coreauth.ValidateAuthConcurrencyLimit(auth); errLimit != nil {
 			continue
 		}
 		out = append(out, auth)

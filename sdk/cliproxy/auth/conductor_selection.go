@@ -903,7 +903,7 @@ func (m *Manager) pickViaBuiltinScheduler(ctx context.Context, strategy schedule
 }
 
 func (m *Manager) pickViaPluginScheduler(ctx context.Context, scheduler PluginScheduler, provider string, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}, candidates []*Auth) (*Auth, bool, error) {
-	if scheduler == nil || len(candidates) == 0 {
+	if scheduler == nil || (len(candidates) == 0 && (ctx == nil || ctx.Value(credentialConcurrencyAdmissionKey{}) != true)) {
 		return nil, false, nil
 	}
 	providerKey := strings.ToLower(strings.TrimSpace(provider))
@@ -933,6 +933,24 @@ func (m *Manager) pickViaPluginScheduler(ctx context.Context, scheduler PluginSc
 	strategy, okStrategy := builtinSchedulerStrategy(resp.DelegateBuiltin)
 	if !okStrategy {
 		return nil, false, nil
+	}
+	if ctx != nil && ctx.Value(credentialConcurrencyAdmissionKey{}) == true {
+		eligible := make(map[string]struct{}, len(candidates))
+		for _, candidate := range candidates {
+			eligible[candidate.ID] = struct{}{}
+		}
+		boundedTried := make(map[string]struct{}, len(tried))
+		for authID := range tried {
+			boundedTried[authID] = struct{}{}
+		}
+		m.mu.RLock()
+		for authID := range m.auths {
+			if _, allowed := eligible[authID]; !allowed {
+				boundedTried[authID] = struct{}{}
+			}
+		}
+		m.mu.RUnlock()
+		tried = boundedTried
 	}
 	return m.pickViaBuiltinScheduler(ctx, strategy, providerKey, providers, model, opts, tried)
 }
@@ -1291,7 +1309,7 @@ func (m *Manager) shouldRetryAfterErrorWithAttempted(ctx context.Context, opts c
 	if status == http.StatusOK {
 		return 0, false
 	}
-	if isRequestInvalidError(err) || isRequestStopError(err) {
+	if isRequestInvalidError(err) || isRequestStopError(err) || IsCredentialConcurrencyError(err) {
 		return 0, false
 	}
 	if m.HomeEnabled() {
@@ -1640,7 +1658,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		m.mu.RUnlock()
 		return nil, nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, time.Now())
+	available, selectorAuths, filteredBusy, errAvailable := m.availableAuthsForConcurrencySelectorLocked(ctx, selector, candidates, provider, model)
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errAvailable)
@@ -1650,8 +1668,12 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 
 	selected, handled, errPick := m.pickViaPluginScheduler(ctx, pluginScheduler, provider, []string{provider}, model, opts, tried, available)
 	if errPick != nil {
+		errPick = credentialConcurrencySelectionError(errPick, filteredBusy)
 		m.warnLogAuthUnavailable(ctx, []string{provider}, model, opts, tried, errPick)
 		return nil, nil, errPick
+	}
+	if len(available) == 0 && filteredBusy {
+		return nil, nil, newCredentialConcurrencyError()
 	}
 	if !handled {
 		selectorCtx := selectorContextForAvailableAuths(ctx, selector, model)
@@ -1973,7 +1995,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		m.mu.RUnlock()
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
-	available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, "mixed", model, time.Now())
+	available, selectorAuths, filteredBusy, errAvailable := m.availableAuthsForConcurrencySelectorLocked(ctx, selector, candidates, "mixed", model)
 	if errAvailable != nil {
 		m.mu.RUnlock()
 		m.warnLogAuthUnavailable(ctx, providers, model, opts, tried, errAvailable)
@@ -1983,8 +2005,12 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 
 	selected, handled, errPick := m.pickViaPluginScheduler(ctx, pluginScheduler, "mixed", providers, model, opts, tried, available)
 	if errPick != nil {
+		errPick = credentialConcurrencySelectionError(errPick, filteredBusy)
 		m.warnLogAuthUnavailable(ctx, providers, model, opts, tried, errPick)
 		return nil, nil, "", errPick
+	}
+	if len(available) == 0 && filteredBusy {
+		return nil, nil, "", newCredentialConcurrencyError()
 	}
 	if !handled {
 		selectorCtx := selectorContextForAvailableAuths(ctx, selector, model)

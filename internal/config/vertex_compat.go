@@ -25,6 +25,10 @@ type VertexCompatKey struct {
 	// An omitted value defaults to 1; non-positive values exclude this credential; maximum 1,000,000.
 	Weight *int `yaml:"weight,omitempty" json:"weight,omitempty"`
 
+	// ConcurrencyLimit caps active requests for this credential in one non-Home CPA instance.
+	// An omitted value defaults to 10; valid values range from 1 to 1,000,000.
+	ConcurrencyLimit *int `yaml:"concurrency-limit,omitempty" json:"concurrency-limit,omitempty"`
+
 	// Prefix optionally namespaces model aliases for this credential (e.g., "teamA/vertex-pro").
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
 

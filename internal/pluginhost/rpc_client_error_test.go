@@ -41,6 +41,10 @@ func TestDecodeEnvelopeResultPreservesPluginHTTPStatus(t *testing.T) {
 	if got := statusProvider.StatusCode(); got != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", got, http.StatusForbidden)
 	}
+	codeProvider, ok := errDecode.(interface{ ErrorCode() string })
+	if !ok || codeProvider.ErrorCode() != "plugin_error" {
+		t.Fatalf("error %T did not preserve plugin machine-readable code", errDecode)
+	}
 }
 
 func TestCallPluginReturnsPluginErrorWithoutMethodWrapper(t *testing.T) {

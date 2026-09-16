@@ -82,6 +82,9 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
 	if errWeight := cliproxyauth.ValidateAuthWeight(auth); errWeight != nil {
 		return "", fmt.Errorf("auth filestore: %w", errWeight)
 	}
+	if errLimit := cliproxyauth.ValidateAuthConcurrencyLimit(auth); errLimit != nil {
+		return "", fmt.Errorf("auth filestore: %w", errLimit)
+	}
 
 	path, err := s.resolveAuthPath(auth)
 	if err != nil {
@@ -141,22 +144,10 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
 			if jsonEqual(existing, raw) {
 				break
 			}
-			file, errOpen := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
-			if errOpen != nil {
-				return "", fmt.Errorf("auth filestore: open existing failed: %w", errOpen)
-			}
-			if _, errWrite := file.Write(raw); errWrite != nil {
-				_ = file.Close()
-				return "", fmt.Errorf("auth filestore: write existing failed: %w", errWrite)
-			}
-			if errClose := file.Close(); errClose != nil {
-				return "", fmt.Errorf("auth filestore: close existing failed: %w", errClose)
-			}
-			break
 		} else if !os.IsNotExist(errRead) {
 			return "", fmt.Errorf("auth filestore: read existing failed: %w", errRead)
 		}
-		if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
+		if errWrite := writeAuthMetadataAtomic(path, raw); errWrite != nil {
 			return "", fmt.Errorf("auth filestore: write file failed: %w", errWrite)
 		}
 	default:
@@ -254,6 +245,9 @@ func (s *FileTokenStore) readAuthFiles(path, baseDir string) ([]*cliproxyauth.Au
 	if errWeight := cliproxyauth.ValidateAuthWeight(&cliproxyauth.Auth{Metadata: metadata}); errWeight != nil {
 		return nil, errWeight
 	}
+	if errLimit := cliproxyauth.ValidateAuthConcurrencyLimit(&cliproxyauth.Auth{Metadata: metadata}); errLimit != nil {
+		return nil, errLimit
+	}
 	provider, _ := metadata["type"].(string)
 	provider = strings.TrimSpace(provider)
 	if strings.EqualFold(provider, "gemini") {
@@ -308,6 +302,9 @@ func (s *FileTokenStore) readAuthFiles(path, baseDir string) ([]*cliproxyauth.Au
 				}
 				if errWeight := cliproxyauth.ApplyAuthWeightMetadata(auth, metadata); errWeight != nil {
 					return nil, errWeight
+				}
+				if errLimit := cliproxyauth.ApplyAuthConcurrencyLimitMetadata(auth, metadata); errLimit != nil {
+					return nil, errLimit
 				}
 				cliproxyauth.ApplyCustomHeadersFromMetadata(auth)
 			}
@@ -398,6 +395,9 @@ func compactPluginAuths(auths []*cliproxyauth.Auth) []*cliproxyauth.Auth {
 			continue
 		}
 		if errWeight := cliproxyauth.ValidateAuthWeight(auth); errWeight != nil {
+			continue
+		}
+		if errLimit := cliproxyauth.ValidateAuthConcurrencyLimit(auth); errLimit != nil {
 			continue
 		}
 		out = append(out, auth)

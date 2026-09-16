@@ -220,6 +220,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("gemini[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("gemini[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("gemini[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("gemini[%d].api-key: updated", i))
 			}
@@ -255,6 +256,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("interactions[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("interactions[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("interactions[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("interactions[%d].api-key: updated", i))
 			}
@@ -292,6 +294,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("claude[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("claude[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("claude[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("claude[%d].api-key: updated", i))
 			}
@@ -352,6 +355,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("codex[%d].alpha-search: %t -> %t", i, o.AlphaSearch, n.AlphaSearch))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("codex[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("codex[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("codex[%d].api-key: updated", i))
 			}
@@ -395,6 +399,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("xai[%d].websockets: %t -> %t", i, o.Websockets, n.Websockets))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("xai[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("xai[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			changes = appendOptionalIntChange(changes, fmt.Sprintf("xai[%d].request-retry", i), o.RequestRetry, n.RequestRetry)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("xai[%d].api-key: updated", i))
@@ -435,6 +440,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("meta[%d].priority: %d -> %d", i, o.Priority, n.Priority))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("meta[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("meta[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			changes = appendOptionalIntChange(changes, fmt.Sprintf("meta[%d].request-retry", i), o.RequestRetry, n.RequestRetry)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("meta[%d].api-key: updated", i))
@@ -516,6 +522,7 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 				changes = append(changes, fmt.Sprintf("vertex[%d].prefix: %s -> %s", i, strings.TrimSpace(o.Prefix), strings.TrimSpace(n.Prefix)))
 			}
 			changes = appendOptionalBoolChange(changes, fmt.Sprintf("vertex[%d].disable-cooling", i), o.DisableCooling, n.DisableCooling)
+			changes = appendOptionalIntChange(changes, fmt.Sprintf("vertex[%d].concurrency-limit", i), o.ConcurrencyLimit, n.ConcurrencyLimit)
 			if strings.TrimSpace(o.APIKey) != strings.TrimSpace(n.APIKey) {
 				changes = append(changes, fmt.Sprintf("vertex[%d].api-key: updated", i))
 			}

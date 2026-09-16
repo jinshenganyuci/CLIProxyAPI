@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
 )
 
 // IsAuthTokenPayloadKey returns true if key is a credential or token lifecycle field
@@ -245,7 +247,7 @@ func mergeAuthContent(base, current, updated *Auth) *Auth {
 	// 1. Three-way merge for Metadata (excluding proxy_url which has dedicated canonical merge)
 	if updated.Metadata != nil {
 		for k, v := range updated.Metadata {
-			if strings.EqualFold(strings.TrimSpace(k), "proxy_url") {
+			if strings.EqualFold(strings.TrimSpace(k), "proxy_url") || k == credentialconcurrency.Field {
 				continue
 			}
 			baseVal, hadInBase := baseMeta[k]
@@ -264,7 +266,7 @@ func mergeAuthContent(base, current, updated *Auth) *Auth {
 		// Deletions by executor: only delete if user didn't modify the field concurrently
 		if baseMeta != nil {
 			for k, baseVal := range baseMeta {
-				if strings.EqualFold(strings.TrimSpace(k), "proxy_url") {
+				if strings.EqualFold(strings.TrimSpace(k), "proxy_url") || k == credentialconcurrency.Field {
 					continue
 				}
 				if _, inUpdated := updated.Metadata[k]; !inUpdated {
@@ -379,6 +381,9 @@ func mergeAuthContent(base, current, updated *Auth) *Auth {
 			baseAttrs = base.Attributes
 		}
 		for k, v := range updated.Attributes {
+			if k == credentialconcurrency.Field {
+				continue
+			}
 			baseVal, hadInBase := baseAttrs[k]
 			currentVal, hadInCurrent := current.Attributes[k]
 
@@ -391,6 +396,9 @@ func mergeAuthContent(base, current, updated *Auth) *Auth {
 		}
 		if baseAttrs != nil {
 			for k, baseVal := range baseAttrs {
+				if k == credentialconcurrency.Field {
+					continue
+				}
 				if _, inUpdated := updated.Attributes[k]; !inUpdated {
 					if currentVal, ok := current.Attributes[k]; ok {
 						if baseVal == currentVal {

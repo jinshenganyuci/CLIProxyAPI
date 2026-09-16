@@ -125,6 +125,17 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 	streamStart := time.Now()
 	go func() {
 		defer close(out)
+		var concurrencyLease *credentialConcurrencyLease
+		if ctx != nil {
+			concurrencyLease, _ = ctx.Value(credentialConcurrencyLeaseContextKey{}).(*credentialConcurrencyLease)
+		}
+		if concurrencyLease != nil {
+			defer concurrencyLease.Release()
+			// Release canceled requests even if an executor is slow to close its channel.
+			// Keep the original output channel so cancellation accounting completes before EOF.
+			stopCancellation := context.AfterFunc(ctx, concurrencyLease.Release)
+			defer stopCancellation()
+		}
 		var failed bool
 		forward := true
 		var rewriter *StreamRewriter
@@ -148,6 +159,9 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 				return false
 			}
 			if chunk.Err != nil {
+				// A consumer may immediately retry this terminal error. Free capacity before
+				// sending it, then stop the old upstream attempt after the error is delivered.
+				concurrencyLease.releaseSlot()
 				if ctx == nil {
 					out <- chunk
 					return true
@@ -157,7 +171,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 					forward = false
 					return false
 				case out <- chunk:
-					return true
+					return concurrencyLease == nil
 				}
 			}
 			if len(chunk.Payload) == 0 {

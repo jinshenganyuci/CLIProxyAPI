@@ -285,6 +285,10 @@ func shouldReturnLastErrorOnPickFailure(homeMode bool, lastErr error, errPick er
 		return false
 	}
 	if !homeMode {
+		if IsCredentialConcurrencyError(lastErr) {
+			var pickErr *Error
+			return errors.As(errPick, &pickErr) && pickErr != nil && (pickErr.Code == "auth_not_found" || pickErr.Code == "auth_unavailable")
+		}
 		return true
 	}
 	if isHomeRequestRetryExceededError(errPick) {
@@ -1330,7 +1334,7 @@ func hasAntigravityProvider(providers []string) bool {
 }
 
 func shouldAttemptAntigravityCreditsFallback(m *Manager, lastErr error, providers []string) bool {
-	if isRequestTerminatedError(lastErr) {
+	if isRequestTerminatedError(lastErr) || IsCredentialConcurrencyError(lastErr) {
 		return false
 	}
 	status := statusCodeFromError(lastErr)
@@ -1376,9 +1380,18 @@ func (m *Manager) tryAntigravityCreditsExecute(ctx context.Context, req cliproxy
 	if errCandidates != nil {
 		return cliproxyexecutor.Response{}, false, errCandidates
 	}
+	var concurrencyLease *credentialConcurrencyLease
+	defer func() { concurrencyLease.Release() }()
 	for _, c := range candidates {
+		concurrencyLease.Release()
+		concurrencyLease = nil
 		if ctx.Err() != nil {
 			return cliproxyexecutor.Response{}, false, nil
+		}
+		var errAdmission error
+		concurrencyLease, errAdmission = m.acquireCredentialConcurrency(ctx, c.auth)
+		if errAdmission != nil {
+			continue
 		}
 		creditsCtx := WithAntigravityCredits(ctx)
 		if rt := m.roundTripperFor(c.auth); rt != nil {
@@ -1439,11 +1452,24 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 	if errCandidates != nil {
 		return nil, false, errCandidates
 	}
+	var concurrencyLease *credentialConcurrencyLease
+	defer func() { concurrencyLease.Release() }()
 	for _, c := range candidates {
+		concurrencyLease.Release()
+		concurrencyLease = nil
 		if ctx.Err() != nil {
 			return nil, false, nil
 		}
+		var errAdmission error
+		concurrencyLease, errAdmission = m.acquireCredentialConcurrency(ctx, c.auth)
+		if errAdmission != nil {
+			continue
+		}
 		creditsCtx := WithAntigravityCredits(ctx)
+		if concurrencyLease != nil {
+			creditsCtx, concurrencyLease.cancel = context.WithCancel(creditsCtx)
+			creditsCtx = context.WithValue(creditsCtx, credentialConcurrencyLeaseContextKey{}, concurrencyLease)
+		}
 		if rt := m.roundTripperFor(c.auth); rt != nil {
 			creditsCtx = context.WithValue(creditsCtx, roundTripperContextKey{}, rt)
 			creditsCtx = context.WithValue(creditsCtx, "cliproxy.roundtripper", rt)
@@ -1464,6 +1490,7 @@ func (m *Manager) tryAntigravityCreditsExecuteStream(ctx context.Context, req cl
 		if errStream != nil {
 			continue
 		}
+		concurrencyLease = nil
 		return result, true, nil
 	}
 	return nil, false, nil

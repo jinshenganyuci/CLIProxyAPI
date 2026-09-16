@@ -35,6 +35,7 @@ const (
 	wsTurnStateHeader                     = "x-codex-turn-state"
 	wsTimelineBodyKey                     = "WEBSOCKET_TIMELINE_OVERRIDE"
 	wsCloseReasonMaxBytes                 = 123
+	wsPendingRequestLimit                 = 32
 	wsHTTPReplayRequiredCloseReason       = "upstream requires HTTP replay"
 	responsesWebsocketUpstreamModeUnknown = ""
 	responsesWebsocketUpstreamModeWS      = "websocket"
@@ -271,6 +272,8 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		return
 	}
 	writer := newResponsesWebsocketWriter(conn)
+	sessionCtx, cancelSession := context.WithCancelCause(c.Request.Context())
+	c.Request = c.Request.WithContext(sessionCtx)
 	passthroughSessionID := uuid.NewString()
 	downstreamSessionKey := websocketDownstreamSessionKey(c.Request)
 	retainResponsesWebsocketToolCaches(downstreamSessionKey)
@@ -310,6 +313,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 
 	var wsTerminateErr error
 	defer func() {
+		cancelSession(wsTerminateErr)
 		releaseResponsesWebsocketToolCaches(downstreamSessionKey)
 		if wsTerminateErr != nil {
 			appendWebsocketTimelineDisconnect(wsTimelineLog, wsTerminateErr, time.Now())
@@ -389,19 +393,24 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		pinnedAuthID = ""
 	}
 
+	// Keep the single WebSocket reader running while a turn is executing so a
+	// disconnected client cancels both bootstrap and a silent upstream stream.
+	// Requests are still executed serially below, preserving continuation state.
+	requests := make(chan []byte, wsPendingRequestLimit)
+	go readResponsesWebsocketRequests(sessionCtx, writer, requests, cancelSession)
+
 	for {
-		msgType, payload, errReadMessage := conn.ReadMessage()
-		if errReadMessage != nil {
-			wsTerminateErr = errReadMessage
-			if websocket.IsCloseError(errReadMessage, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
-				log.Infof("responses websocket: client disconnected id=%s error=%v", passthroughSessionID, errReadMessage)
-			} else {
-				// log.Warnf("responses websocket: read message failed id=%s error=%v", passthroughSessionID, errReadMessage)
+		var payload []byte
+		select {
+		case <-sessionCtx.Done():
+		case payload = <-requests:
+		}
+		if sessionCtx.Err() != nil {
+			wsTerminateErr = context.Cause(sessionCtx)
+			if websocket.IsCloseError(wsTerminateErr, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
+				log.Infof("responses websocket: client disconnected id=%s error=%v", passthroughSessionID, wsTerminateErr)
 			}
 			return
-		}
-		if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
-			continue
 		}
 		// log.Infof(
 		// 	"responses websocket: downstream_in id=%s type=%d event=%s payload=%s",
@@ -794,6 +803,32 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			}
 			lastResponseID = strings.TrimSpace(completedResponseID)
 			lastResponsePendingToolCallIDs = append([]string(nil), completedPendingToolCallIDs...)
+		}
+	}
+}
+
+func readResponsesWebsocketRequests(ctx context.Context, writer *responsesWebsocketWriter, requests chan<- []byte, cancel context.CancelCauseFunc) {
+	defer close(requests)
+	for {
+		msgType, payload, errRead := writer.conn.ReadMessage()
+		if errRead != nil {
+			cancel(errRead)
+			_, _ = writer.closeWithoutError()
+			return
+		}
+		if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case requests <- payload:
+		default:
+			// Never block the reader on queued requests: doing so would hide a
+			// subsequent disconnect again. Bound pipelining and cancel overloads.
+			cancel(errors.New("responses websocket: too many queued requests"))
+			_, _ = writer.closeWithoutError()
+			return
 		}
 	}
 }

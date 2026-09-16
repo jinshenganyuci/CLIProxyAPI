@@ -328,8 +328,9 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 		return nil
 	}
 	auth.EnsureIndex()
-	runtimeOnly := isRuntimeOnlyAuth(auth)
-	if runtimeOnly && (auth.Disabled || auth.Status == coreauth.StatusDisabled) {
+	configCredential := auth.AuthSourceKind() == coreauth.AuthSourceConfig
+	runtimeOnly := isRuntimeOnlyAuth(auth) || configCredential
+	if runtimeOnly && !configCredential && (auth.Disabled || auth.Status == coreauth.StatusDisabled) {
 		return nil
 	}
 	path := strings.TrimSpace(authAttribute(auth, "path"))
@@ -355,6 +356,8 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 		"source":         "memory",
 		"size":           int64(0),
 	}
+	h.addAuthConcurrencyFields(entry, auth)
+	entry["concurrency_config"] = auth.AuthSourceKind() == coreauth.AuthSourceConfig
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())

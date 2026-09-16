@@ -58,16 +58,21 @@ type Handler struct {
 	mediaRelayConfig     config.CodexLiveMediaRelayConfig
 	mediaRelayConfigured bool
 	mediaLimiter         *mediaSessionLimiter
+	closeContext         context.Context
+	cancelClose          context.CancelFunc
 }
 
 // NewHandler creates a Codex live session handler.
 func NewHandler(authManager *auth.Manager, cfg *config.Config) *Handler {
+	closeContext, cancelClose := context.WithCancel(context.Background())
 	handler := &Handler{
 		authManager:        authManager,
 		cfg:                cfg,
 		sessions:           newSessionStore(),
 		clientSecrets:      newClientSecretStore(),
 		sidebandAPIBaseURL: defaultSidebandAPIBaseURL,
+		closeContext:       closeContext,
+		cancelClose:        cancelClose,
 	}
 	if errUpdate := handler.UpdateConfig(cfg); errUpdate != nil {
 		log.WithError(errUpdate).Error("failed to configure Codex Live media relay")
@@ -171,6 +176,9 @@ func (h *Handler) Close() {
 	if h == nil {
 		return
 	}
+	if h.cancelClose != nil {
+		h.cancelClose()
+	}
 	if h.sessions != nil {
 		h.sessions.closeAll("server_stopped")
 	}
@@ -220,11 +228,17 @@ func (h *Handler) Handle(c *gin.Context) {
 		OriginalRequest: body,
 	}
 	ctx = handlers.EnrichContextWithSessionHierarchy(ctx, selectionOpts.Headers, body, nil)
-	selection, selected, errSelect := h.selectOAuth(ctx, model, selectionOpts)
+	selection, selected, releaseConcurrency, errSelect := h.selectOAuthWithConcurrency(ctx, model, selectionOpts)
 	if errSelect != nil {
 		writeSelectionError(c, errSelect)
 		return
 	}
+	concurrencyRetained := false
+	defer func() {
+		if !concurrencyRetained {
+			releaseConcurrency()
+		}
+	}()
 	if selected == nil {
 		if selection != nil {
 			selection.End("missing_auth")
@@ -425,11 +439,12 @@ func (h *Handler) Handle(c *gin.Context) {
 		if callID != "" {
 			clientMeta := logging.GetClientRequestMetadata(ctx)
 			session := liveSession{
-				authID:          selected.ID,
-				model:           model,
-				media:           mediaSession,
-				sessionID:       clientMeta.SessionID,
-				parentSessionID: clientMeta.ParentSessionID,
+				authID:             selected.ID,
+				model:              model,
+				media:              mediaSession,
+				sessionID:          clientMeta.SessionID,
+				parentSessionID:    clientMeta.ParentSessionID,
+				releaseConcurrency: releaseConcurrency,
 			}
 			session.ownerPrincipal, session.ownerProvider = requestOwner(c)
 			if principal, ok := c.Get(ClientSecretPrincipalContextKey); ok {
@@ -459,6 +474,11 @@ func (h *Handler) Handle(c *gin.Context) {
 			}
 			storedSession = h.sessions.put(callID, session)
 			sessionStored = storedSession.callID != ""
+			if !sessionStored {
+				writeLiveError(c, http.StatusServiceUnavailable, "Codex live session service closed")
+				return
+			}
+			concurrencyRetained = true
 			if mediaSession != nil {
 				mediaSession.SetCloseHandler(func(reason string) {
 					h.sessions.complete(storedSession, reason)
@@ -509,6 +529,15 @@ func (h *Handler) selectOAuth(ctx context.Context, model string, opts coreexecut
 		selection.End("selection_failed")
 	}
 	return selection, selected, errSelect
+}
+
+func (h *Handler) selectOAuthWithConcurrency(ctx context.Context, model string, opts coreexecutor.Options) (*auth.HomeDispatchSelection, *auth.Auth, func(), error) {
+	if h.authManager.HomeEnabled() {
+		selection, selected, errSelect := h.selectOAuth(ctx, model, opts)
+		return selection, selected, func() {}, errSelect
+	}
+	selected, release, errSelect := h.authManager.SelectAuthByKindWithConcurrency(ctx, "codex", "", auth.AuthKindOAuth, opts)
+	return nil, selected, release, errSelect
 }
 
 var errBodyTooLarge = errors.New("Codex live request body too large")

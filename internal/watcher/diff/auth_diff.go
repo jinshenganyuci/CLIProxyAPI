@@ -9,7 +9,7 @@ import (
 )
 
 // BuildAuthChangeDetails computes a redacted, human-readable list of auth field changes.
-// Only prefix, proxy_url, and disabled fields are tracked; sensitive data is never printed.
+// Only routing and control fields are tracked; sensitive data is never printed.
 func BuildAuthChangeDetails(oldAuth, newAuth *coreauth.Auth) []string {
 	changes := make([]string, 0, 3)
 
@@ -38,6 +38,11 @@ func BuildAuthChangeDetails(oldAuth, newAuth *coreauth.Auth) []string {
 	// Compare disabled
 	if oldAuth.Disabled != newAuth.Disabled {
 		changes = append(changes, fmt.Sprintf("disabled: %t -> %t", oldAuth.Disabled, newAuth.Disabled))
+	}
+	oldLimit := coreauth.EffectiveConcurrencyLimit(oldAuth)
+	newLimit := coreauth.EffectiveConcurrencyLimit(newAuth)
+	if oldLimit != newLimit {
+		changes = append(changes, fmt.Sprintf("concurrency_limit: %d -> %d", oldLimit, newLimit))
 	}
 
 	return changes
