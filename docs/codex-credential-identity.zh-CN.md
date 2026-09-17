@@ -1,17 +1,35 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.5`（上游提交
-`b681a1e0f7b89d26814f788b60bf84feaf72e912`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.6`（上游提交
+`8c664b2fede5c83b919be1df9b01057ec4e4c950`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.3.5-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.5.1` 和 `latest`。本次完整合并上游 `v7.3.5`，
-保留 `v7.3.4-codex-identity.2` 的单凭据并发限制（未设置默认 10）、占用显示、
+当前修订为 `v7.3.6-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.6.1` 和 `latest`。本次完整合并上游 `v7.3.6`，
+保留 `v7.3.5-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
 Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化并发保护。
 已有身份 schema、namespace 和凭据配置格式不变。
 
-## v7.3.5 原生更新与代理补强
+## v7.3.6 原生更新与兼容处理
+
+- 模型能力元数据随请求传入翻译流水线；Antigravity 网页搜索转换根据模型实际能力
+  选择，CPA 的 Home 分发接收结构支持可选的原生能力字段。当前上游 Home
+  尚未发送该字段，Home 场景继续兼容原有回退，不宣称已完成对端配套。
+- Codex 多代理优化识别 `codex_exec` User-Agent，保留二开凭据身份与出站代理约束。
+- 文本模型移除转发的工具结果图片并保留文字；合并上游 relay 图片测试，继续保留
+  二开对普通用户图片、工具参数和原始请求不变性的回归验证。
+- 工具 Schema 清理不受支持的标识关键字；Devin 过滤不适用的 automation_update
+  工具并清理工具说明，保留既有 128 工具调用上限和错误清理。
+- 修正本次上游的 Devin 工具过滤范围，避免 Gemini Interactions 和普通模型别名
+  被误删工具或改写工具说明；Devin 执行器的实际出站工具过滤继续保留。
+- Meta 测试改用生产 User-Agent 常量；合并 README 社区项目与链接更新，以及
+  Home 集成说明。
+- 单凭据默认 10 并发、实时占用显示、Access Guard 绑定边界、登录前选代理、
+  Token 刷新与 WebSocket 出口检查全部沿用。没有新增必填配置。
+- 管理界面官方版本仍为 `v1.23.1`，内置二开页面与上一版一致。
+
+## v7.3.5 原生更新与代理补强（保留）
 
 - 合并临时不可用凭据的恢复时间与 Retry-After，保留本地并发满额的独立 429；
   并发满额不写成供应商冷却、不触发付费额度回退。
