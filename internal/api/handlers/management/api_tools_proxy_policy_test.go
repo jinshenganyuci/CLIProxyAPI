@@ -54,8 +54,8 @@ func TestAPICallCodexCredentialProxyPolicy(t *testing.T) {
 		{name: "prefer_unbound_request_overrides_invalid_global", policy: "prefer", requestProxy: "credential", invalidGlobal: true, wantStatus: http.StatusOK, wantRoute: "credential"},
 		{name: "other_provider_retains_inheritance", provider: "claude", global: true, wantStatus: http.StatusOK, wantRoute: "global"},
 		{name: "api_key_retains_inheritance", apiKey: true, global: true, wantStatus: http.StatusOK, wantRoute: "global"},
-		{name: "other_provider_retains_override", provider: "claude", credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
-		{name: "api_key_retains_override", apiKey: true, credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusOK, wantRoute: "direct"},
+		{name: "other_provider_rejects_override", provider: "claude", credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusConflict},
+		{name: "api_key_rejects_override", apiKey: true, credentialProxy: "credential", requestProxy: "direct", global: true, wantStatus: http.StatusConflict},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

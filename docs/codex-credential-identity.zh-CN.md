@@ -1,17 +1,46 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.4`（上游提交
-`8335eac731946bd4eff18f500653f93736df53d6`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.5`（上游提交
+`b681a1e0f7b89d26814f788b60bf84feaf72e912`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.3.4-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.4.1` 和 `latest`，两者指向同一份镜像。本次合并上游
-`v7.3.4`，保留 `v7.3.3-codex-identity.1` 的全部修复及此前 Codex 登录前代理选择、凭据身份隔离、
-刷新及持久化并发保护、固定凭据、WebSocket 出口约束、原生及 RPC 插件额度
-请求绑定凭据代理等功能。已有身份 schema、namespace 和凭据配置格式不变。
+当前修订为 `v7.3.5-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.5.1` 和 `latest`。本次完整合并上游 `v7.3.5`，
+保留 `v7.3.4-codex-identity.2` 的单凭据并发限制（未设置默认 10）、占用显示、
+Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化并发保护。
+已有身份 schema、namespace 和凭据配置格式不变。
 
-## 本次原生更新与兼容处理
+## v7.3.5 原生更新与代理补强
+
+- 合并临时不可用凭据的恢复时间与 Retry-After，保留本地并发满额的独立 429；
+  并发满额不写成供应商冷却、不触发付费额度回退。
+- 合并 Gemini Interactions 工具关联、错误标记、结束原因与缓存 token 统计修复，
+  OpenAI/Claude 工具结果名称保留、多种 reasoning 字段兼容，以及会话中途
+  system/developer 消息的 system-reminder 转换。
+- 合并 Responses 工具名的命名空间识别、64 字符限制和重名处理，以及
+  Antigravity Responses 网页搜索、grounding URL 解析、流式搜索引用和 Unicode 位置修复。
+- 合并 Devin swe-1-6-slow、high-demand 临时容量错误的 429 分类、迟到思考签名
+  缓冲与结束原因映射；保留二开 128 工具调用上限和被拒绝工具片段隔离。
+- Claude 收到完成事件后结束上游读取，及时释放凭据并发名额；完成后立即取消
+  不再把已完成的用量记为失败。
+- 通用 HTTP、Chrome uTLS、Claude TLS 和 Codex Live sideband 的显式错误代理
+  现在直接失败，不再悄悄改走默认、环境或上下文网络。该修复也覆盖网页搜索
+  grounding 的辅助 HEAD 请求。
+- 选定凭据的管理 API Call 统一遵守凭据及源 API Key 配置的代理，拒绝临时请求
+  覆盖已有出口；Antigravity 管理刷新也使用同一校验入口。没有选定凭据的通用
+  管理工具保持原有行为。
+- SOCKS5/SOCKS5h 拨号保留调用者的取消信号；不为已建立连接新增超时。
+  标准 HTTP Transport 的共享拨号生命周期仍由 Go 管理，不承诺每次 HTTP
+  请求取消都会立即关闭共享拨号。
+- 内置管理页仍基于官方 `v1.23.1`，沿用上一版已验证的完整二开页面。
+
+显式 `direct`/`none` 仍表示主动直连；空代理仍按原有继承规则处理。
+Codex OAuth 的 require 策略范围不扩大到 API Key。此前依赖错误代理静默回退、
+或在管理 API Call 临时覆盖凭据出口的操作将明确报错，需要修正对应设置。
+CPA 的代理设置约束 CPA 发出的网络请求，独立浏览器的授权网页使用浏览器自身网络。
+
+## v7.3.4 原生更新与兼容处理（保留）
 
 - 新增原生 Meta（Muse Code）提供商、设备 OAuth、DCA 换取 LLM API Key、
   普通和流式调用、模型目录与别名、API Key 管理、请求错误规则及 TUI/CLI 登录。

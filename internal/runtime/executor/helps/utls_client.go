@@ -26,7 +26,8 @@ import (
 // providers that require a browser-like TLS and HTTP/2 transport. Each request
 // gets a dedicated connection that is closed with the response body.
 type utlsRoundTripper struct {
-	dialer proxy.Dialer
+	dialer   proxy.Dialer
+	proxyErr error
 }
 
 type closeConnectionBody struct {
@@ -59,7 +60,7 @@ func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
 	if proxyURL != "" {
 		proxyDialer, mode, errBuild := proxyutil.BuildDialer(proxyURL)
 		if errBuild != nil {
-			log.Errorf("utls: failed to configure proxy dialer for %q: %v", proxyutil.Redact(proxyURL), errBuild)
+			return &utlsRoundTripper{proxyErr: fmt.Errorf("utls: selected proxy dialer could not be initialized")}
 		} else if mode != proxyutil.ModeInherit && proxyDialer != nil {
 			dialer = proxyDialer
 		}
@@ -68,6 +69,9 @@ func newUtlsRoundTripper(proxyURL string) *utlsRoundTripper {
 }
 
 func (t *utlsRoundTripper) createConnection(ctx context.Context, host, addr string) (*http2.ClientConn, error) {
+	if t.proxyErr != nil {
+		return nil, t.proxyErr
+	}
 	contextDialer, ok := t.dialer.(proxy.ContextDialer)
 	if !ok {
 		return nil, fmt.Errorf("utls: dialer does not support context cancellation")
@@ -103,6 +107,9 @@ func (t *utlsRoundTripper) createConnection(ctx context.Context, host, addr stri
 }
 
 func (t *utlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.proxyErr != nil {
+		return proxyConfigurationErrorTransport{err: t.proxyErr}.RoundTrip(req)
+	}
 	hostname := req.URL.Hostname()
 	port := req.URL.Port()
 	if port == "" {
@@ -296,7 +303,7 @@ func newClaudeCodeRoundTripper(proxyURL string) http.RoundTripper {
 	if proxyURL != "" {
 		proxyDialer, mode, errBuild := proxyutil.BuildDialer(proxyURL)
 		if errBuild != nil {
-			log.Errorf("claude tls: failed to configure proxy dialer for %q: %v", proxyutil.Redact(proxyURL), errBuild)
+			return proxyConfigurationErrorTransport{err: fmt.Errorf("claude tls: selected proxy dialer could not be initialized")}
 		} else if mode != proxyutil.ModeInherit && proxyDialer != nil {
 			dialer = proxyDialer
 		}
@@ -374,6 +381,17 @@ func NewUtlsHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyau
 	if proxyURL == "" && cfg != nil {
 		proxyURL = strings.TrimSpace(cfg.ProxyURL)
 	}
+	var selectedTransport *http.Transport
+	if proxyURL != "" {
+		var errBuild error
+		selectedTransport, _, errBuild = proxyutil.BuildHTTPTransport(proxyURL)
+		if errBuild != nil || selectedTransport == nil {
+			return &http.Client{
+				Transport: proxyConfigurationErrorTransport{err: fmt.Errorf("selected proxy transport could not be initialized")},
+				Timeout:   timeout,
+			}
+		}
+	}
 
 	var ctxRoundTripper http.RoundTripper
 	if ctx != nil {
@@ -383,10 +401,8 @@ func NewUtlsHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyau
 	var chromeRT http.RoundTripper = newUtlsRoundTripper(proxyURL)
 	var anthropicRT http.RoundTripper = cachedClaudeCodeRoundTripper(proxyURL)
 	var standardTransport http.RoundTripper = http.DefaultTransport
-	if proxyURL != "" {
-		if transport := buildProxyTransport(proxyURL); transport != nil {
-			standardTransport = transport
-		}
+	if selectedTransport != nil {
+		standardTransport = selectedTransport
 	} else if ctxRoundTripper != nil {
 		chromeRT = ctxRoundTripper
 		anthropicRT = ctxRoundTripper

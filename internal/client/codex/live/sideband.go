@@ -724,8 +724,12 @@ func proxyURLForAuth(cfg *config.Config, selected *auth.Auth) string {
 }
 
 func newSidebandDialer(proxyURL string) *websocket.Dialer {
-	dialer := &websocket.Dialer{Proxy: http.ProxyFromEnvironment}
+	// An explicit proxy must never fall back to the environment or a direct dial.
+	dialer := &websocket.Dialer{Proxy: func(*http.Request) (*url.URL, error) {
+		return nil, errors.New("codex live sideband: invalid proxy configuration")
+	}}
 	if strings.TrimSpace(proxyURL) == "" {
+		dialer.Proxy = http.ProxyFromEnvironment
 		return dialer
 	}
 
@@ -756,13 +760,11 @@ func newSidebandDialer(proxyURL string) *websocket.Dialer {
 			log.Errorf("codex live sideband: create SOCKS5 dialer failed: %v", errSOCKS5)
 			return dialer
 		}
-		dialer.Proxy = nil
 		if contextDialer, ok := socksDialer.(xproxy.ContextDialer); ok {
+			dialer.Proxy = nil
 			dialer.NetDialContext = contextDialer.DialContext
 		} else {
-			dialer.NetDialContext = func(_ context.Context, network, address string) (net.Conn, error) {
-				return socksDialer.Dial(network, address)
-			}
+			log.Error("codex live sideband: SOCKS5 dialer does not support context cancellation")
 		}
 	case "http", "https":
 		dialer.Proxy = http.ProxyURL(setting.URL)

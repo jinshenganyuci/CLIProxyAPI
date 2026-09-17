@@ -249,9 +249,14 @@ func newProxyAwareWebsocketDialer(cfg *config.Config, auth *cliproxyauth.Auth) *
 			return dialer
 		}
 		dialer.Proxy = nil
-		dialer.NetDialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
-			return socksDialer.Dial(network, addr)
+		contextDialer, ok := socksDialer.(proxy.ContextDialer)
+		if !ok {
+			dialer.NetDialContext = func(context.Context, string, string) (net.Conn, error) {
+				return nil, errors.New("SOCKS5 dialer does not support context cancellation")
+			}
+			return dialer
 		}
+		dialer.NetDialContext = contextDialer.DialContext
 	case "http", "https":
 		dialer.Proxy = http.ProxyURL(setting.URL)
 	default:

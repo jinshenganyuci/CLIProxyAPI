@@ -2,6 +2,7 @@ package helps
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -44,21 +45,38 @@ func NewProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *clip
 
 	// If we have a proxy URL configured, set up the transport
 	if proxyURL != "" {
-		transport := buildProxyTransport(proxyURL)
-		if transport != nil {
+		transport, _, errBuild := proxyutil.BuildHTTPTransport(proxyURL)
+		if errBuild != nil || transport == nil {
+			httpClient.Transport = proxyConfigurationErrorTransport{err: fmt.Errorf("selected proxy transport could not be initialized")}
+		} else {
 			httpClient.Transport = transport
-			return httpClient
 		}
-		// If proxy setup failed, log and fall through to context RoundTripper
-		log.Debugf("failed to setup proxy from URL: %s, falling back to context transport", proxyutil.Redact(proxyURL))
+		return httpClient
 	}
 
 	// Priority 3: Use RoundTripper from context (typically from RoundTripperFor)
-	if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
-		httpClient.Transport = rt
+	if ctx != nil {
+		if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
+			httpClient.Transport = rt
+		}
 	}
 
 	return httpClient
+}
+
+// proxyConfigurationErrorTransport prevents an invalid selected route from
+// silently sending a request through an unrelated transport or direct connection.
+type proxyConfigurationErrorTransport struct {
+	err error
+}
+
+func (t proxyConfigurationErrorTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request != nil && request.Body != nil {
+		if errClose := request.Body.Close(); errClose != nil {
+			log.Debug("failed to close request body after rejecting invalid proxy")
+		}
+	}
+	return nil, t.err
 }
 
 // buildProxyTransport creates an HTTP transport configured for the given proxy URL.

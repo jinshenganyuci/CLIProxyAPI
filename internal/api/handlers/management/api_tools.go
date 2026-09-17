@@ -68,8 +68,8 @@ type apiCallResponse struct {
 //   - method (required): HTTP method, e.g. GET, POST, PUT, PATCH, DELETE.
 //   - url (required): Absolute URL including scheme and host, e.g. "https://api.example.com/v1/ping".
 //   - proxy_url (optional): Proxy used for this request. Supports HTTP, HTTPS, SOCKS5, SOCKS5H,
-//     and "direct"/"none" to explicitly bypass proxies. When set, credential and global proxies are ignored.
-//     Codex OAuth credentials under the "require" policy only allow their configured proxy.
+//     and "direct"/"none" to explicitly bypass proxies. A credential's explicit route cannot
+//     be overridden. Credentials without a route may use this override or inherit the global proxy.
 //   - header (optional): Request headers map.
 //     Supports magic variable "$TOKEN$" which is replaced using the selected credential:
 //     1) metadata.access_token
@@ -80,8 +80,8 @@ type apiCallResponse struct {
 //   - data (optional): Raw request body as string (useful for POST/PUT/PATCH).
 //
 // Proxy selection (highest priority first):
-//  1. Request proxy_url (when set, lower-priority proxy settings are ignored)
-//  2. Selected credential proxy_url
+//  1. Selected credential proxy_url, including its source API-key configuration
+//  2. Request proxy_url when the selected credential has no explicit route
 //  3. Global config proxy-url
 //  4. Direct connect (environment proxies are not used)
 //
@@ -350,9 +350,13 @@ func (h *Handler) refreshAntigravityOAuthAccessToken(ctx context.Context, auth *
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	transport, errTransport := h.apiCallRequestTransport(auth, requestProxyURL)
+	if errTransport != nil {
+		return "", errTransport
+	}
 	httpClient := &http.Client{
 		Timeout:   defaultAPICallTimeout,
-		Transport: h.apiCallTransport(auth, requestProxyURL),
+		Transport: transport,
 	}
 	resp, errDo := httpClient.Do(req)
 	if errDo != nil {
@@ -655,24 +659,26 @@ func (h *Handler) apiCallRequestTransport(auth *coreauth.Auth, requestProxyURL s
 		return h.apiCallTransport(auth, requestProxyURL), nil
 	}
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
-	if provider != "devin" && provider != "meta" && (provider != "codex" || auth.AuthKind() == coreauth.AuthKindAPIKey) {
-		return h.apiCallTransport(auth, requestProxyURL), nil
-	}
+	codexOAuth := provider == "codex" && auth.AuthKind() != coreauth.AuthKindAPIKey
+	selectedProxyURL := strings.TrimSpace(auth.ProxyURL)
 	h.mu.Lock()
 	var cfg config.Config
 	if h.cfg != nil {
 		cfg.ProxyURL = h.cfg.ProxyURL
 		cfg.Codex.CredentialProxyPolicy = h.cfg.Codex.CredentialProxyPolicy
+		if selectedProxyURL == "" {
+			selectedProxyURL = strings.TrimSpace(proxyURLFromAPIKeyConfig(h.cfg, auth))
+		}
 	}
 	h.mu.Unlock()
-	require := provider == "codex" && strings.EqualFold(strings.TrimSpace(cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
+	require := codexOAuth && strings.EqualFold(strings.TrimSpace(cfg.Codex.CredentialProxyPolicy), config.CodexCredentialProxyPolicyRequire)
 	var setting proxyutil.Setting
 	var errProxy error
-	if strings.TrimSpace(auth.ProxyURL) != "" || require {
-		if provider == "codex" {
-			setting, errProxy = codexauth.ResolveCredentialProxySetting(&cfg, auth.ProxyURL)
+	if selectedProxyURL != "" || require {
+		if codexOAuth {
+			setting, errProxy = codexauth.ResolveCredentialProxySetting(&cfg, selectedProxyURL)
 		} else {
-			setting, errProxy = codexauth.ResolveProxySetting(auth.ProxyURL, cfg.ProxyURL)
+			setting, errProxy = codexauth.ResolveProxySetting(selectedProxyURL, cfg.ProxyURL)
 		}
 		if errProxy == nil && strings.TrimSpace(requestProxyURL) != "" {
 			requested, errRequested := codexauth.ResolveProxySetting(requestProxyURL, "")
