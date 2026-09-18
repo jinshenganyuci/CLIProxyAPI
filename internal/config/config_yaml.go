@@ -13,6 +13,20 @@ import (
 // and key ordering by loading the original file into a yaml.Node tree and updating values in-place.
 func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 	persistCfg := cfg
+	if cfg != nil && len(cfg.Plugins.Configs) > 0 {
+		copied := *cfg
+		copied.Plugins.Configs = make(map[string]PluginInstanceConfig, len(cfg.Plugins.Configs))
+		for id, item := range cfg.Plugins.Configs {
+			item.Raw = *deepCopyNode(&item.Raw)
+			// Map encoding may move a plugin before an anchor it references. Keep
+			// each raw subtree valid without changing the caller's configuration.
+			if errAliases := materializeMissingYAMLAliases(&item.Raw); errAliases != nil {
+				return fmt.Errorf("prepare plugin %q YAML: %w", id, errAliases)
+			}
+			copied.Plugins.Configs[id] = item
+		}
+		persistCfg = &copied
+	}
 	// Load original YAML as a node tree to preserve comments and ordering.
 	data, err := os.ReadFile(configFile)
 	if err != nil {
@@ -55,10 +69,14 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-excluded-models")
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-model-alias")
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-request-scoped-errors")
-	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "plugins", "configs")
+	replacePluginConfigsSubtree(original.Content[0], generated.Content[0])
 
 	// Merge generated into original in-place, preserving comments/order of existing nodes.
 	mergeMappingPreserve(original.Content[0], generated.Content[0])
+	// A removed plugin may have owned an anchor used by an unrelated setting.
+	if errAliases := materializeMissingYAMLAliases(original.Content[0]); errAliases != nil {
+		return fmt.Errorf("preserve config YAML aliases: %w", errAliases)
+	}
 	normalizeCollectionNodeStyles(original.Content[0])
 
 	// Write back.
@@ -80,6 +98,49 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 	data = NormalizeCommentIndentation(buf.Bytes())
 	_, err = f.Write(data)
 	return err
+}
+
+// materializeMissingYAMLAliases retains aliases whose anchors precede them and
+// replaces orphaned or forward aliases with their original values. This keeps
+// subtrees valid after deletion or reordering without losing unknown settings.
+func materializeMissingYAMLAliases(root *yaml.Node) error {
+	anchors := make(map[string]*yaml.Node)
+	var walk func(*yaml.Node) error
+	walk = func(node *yaml.Node) error {
+		if node == nil {
+			return nil
+		}
+		if node.Kind == yaml.AliasNode {
+			if target := anchors[node.Value]; target != nil {
+				node.Alias = target
+				return nil
+			}
+			if node.Alias == nil || node.Alias.Kind == yaml.AliasNode {
+				return fmt.Errorf("unresolved YAML alias %q", node.Value)
+			}
+			resolved := deepCopyNode(node.Alias)
+			if node.HeadComment != "" {
+				resolved.HeadComment = node.HeadComment
+			}
+			if node.LineComment != "" {
+				resolved.LineComment = node.LineComment
+			}
+			if node.FootComment != "" {
+				resolved.FootComment = node.FootComment
+			}
+			*node = *resolved
+		}
+		if node.Anchor != "" {
+			anchors[node.Anchor] = node
+		}
+		for _, child := range node.Content {
+			if err := walk(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(root)
 }
 
 // SaveConfigPreserveCommentsUpdateNestedScalar updates a nested scalar key path like ["a","b"]
@@ -199,6 +260,9 @@ func mergeMappingPreserve(dst, src *yaml.Node, path ...[]string) {
 		sv := src.Content[i+1]
 		idx := findMapKeyIndex(dst, sk.Value)
 		childPath := appendPath(currentPath, sk.Value)
+		if isPluginConfigsPath(childPath) {
+			continue
+		}
 		if idx >= 0 {
 			// Merge into existing value node (always update, even to zero values)
 			dv := dst.Content[idx+1]
@@ -312,6 +376,19 @@ func appendPath(path []string, key string) []string {
 // represents a known default value that should not be written to the config file.
 // This prevents non-zero defaults from polluting the config.
 func isKnownDefaultValue(path []string, node *yaml.Node) bool {
+	if isPluginConfigsSubtreePath(path) {
+		return false
+	}
+	if len(path) == 1 && path[0] == "plugins" && node != nil && node.Kind == yaml.MappingNode {
+		configsIdx := findMapKeyIndex(node, "configs")
+		if configsIdx >= 0 && configsIdx+1 < len(node.Content) {
+			configsNode := node.Content[configsIdx+1]
+			if configsNode != nil && configsNode.Kind == yaml.MappingNode && len(configsNode.Content) > 0 {
+				return false
+			}
+		}
+	}
+
 	// Weight is pointer-backed, so an explicit zero is meaningful and must be preserved.
 	if len(path) > 0 && path[len(path)-1] == "weight" && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!int" {
 		return false
@@ -357,7 +434,7 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 // pruneKnownDefaultsInNewNode removes default-valued descendants from a new node
 // before it is appended into the destination YAML tree.
 func pruneKnownDefaultsInNewNode(path []string, node *yaml.Node) {
-	if node == nil {
+	if node == nil || isPluginConfigsSubtreePath(path) {
 		return
 	}
 
@@ -818,4 +895,83 @@ func removeLegacyAuthBlock(root *yaml.Node) {
 		return
 	}
 	removeMapKey(root, "auth")
+}
+
+func isPluginConfigsPath(path []string) bool {
+	return len(path) == 2 && path[0] == "plugins" && path[1] == "configs"
+}
+
+func isPluginConfigsSubtreePath(path []string) bool {
+	return len(path) >= 2 && path[0] == "plugins" && path[1] == "configs"
+}
+
+func replacePluginConfigsSubtree(dstRoot, srcRoot *yaml.Node) {
+	if dstRoot == nil || srcRoot == nil || dstRoot.Kind != yaml.MappingNode || srcRoot.Kind != yaml.MappingNode {
+		return
+	}
+
+	srcPluginsIdx := findMapKeyIndex(srcRoot, "plugins")
+	var srcConfigs *yaml.Node
+	if srcPluginsIdx >= 0 && srcPluginsIdx+1 < len(srcRoot.Content) {
+		srcPlugins := srcRoot.Content[srcPluginsIdx+1]
+		if srcPlugins != nil && srcPlugins.Kind == yaml.MappingNode {
+			srcConfigsIdx := findMapKeyIndex(srcPlugins, "configs")
+			if srcConfigsIdx >= 0 && srcConfigsIdx+1 < len(srcPlugins.Content) {
+				srcConfigs = srcPlugins.Content[srcConfigsIdx+1]
+			}
+		}
+	}
+
+	dstPluginsIdx := findMapKeyIndex(dstRoot, "plugins")
+	if srcConfigs == nil || srcConfigs.Kind != yaml.MappingNode || len(srcConfigs.Content) == 0 {
+		if dstPluginsIdx >= 0 && dstPluginsIdx+1 < len(dstRoot.Content) {
+			dstPlugins := dstRoot.Content[dstPluginsIdx+1]
+			if dstPlugins != nil && dstPlugins.Kind == yaml.MappingNode {
+				removeMapKey(dstPlugins, "configs")
+			}
+		}
+		return
+	}
+
+	copiedConfigs := deepCopyNode(srcConfigs)
+	if dstPluginsIdx < 0 {
+		dstPlugins := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		dstPlugins.Content = append(dstPlugins.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "configs"},
+			copiedConfigs,
+		)
+		dstRoot.Content = append(dstRoot.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "plugins"},
+			dstPlugins,
+		)
+		return
+	}
+
+	if dstPluginsIdx+1 >= len(dstRoot.Content) {
+		return
+	}
+	dstPlugins := dstRoot.Content[dstPluginsIdx+1]
+	if dstPlugins == nil || dstPlugins.Kind != yaml.MappingNode {
+		return
+	}
+	dstConfigsIdx := findMapKeyIndex(dstPlugins, "configs")
+	if dstConfigsIdx >= 0 && dstConfigsIdx+1 < len(dstPlugins.Content) {
+		if dstPlugins.Content[dstConfigsIdx+1] != nil {
+			if copiedConfigs.HeadComment == "" {
+				copiedConfigs.HeadComment = dstPlugins.Content[dstConfigsIdx+1].HeadComment
+			}
+			if copiedConfigs.LineComment == "" {
+				copiedConfigs.LineComment = dstPlugins.Content[dstConfigsIdx+1].LineComment
+			}
+			if copiedConfigs.FootComment == "" {
+				copiedConfigs.FootComment = dstPlugins.Content[dstConfigsIdx+1].FootComment
+			}
+		}
+		dstPlugins.Content[dstConfigsIdx+1] = copiedConfigs
+	} else {
+		dstPlugins.Content = append(dstPlugins.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "configs"},
+			copiedConfigs,
+		)
+	}
 }

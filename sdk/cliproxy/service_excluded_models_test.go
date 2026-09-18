@@ -312,6 +312,16 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 		registry.UnregisterClient(auth.ID)
 	})
 
+	// Another local test server may have used the same port while its hints remain cached.
+	cacheKey := strings.Join(antigravityModelBaseURLs(auth), "|") + "#" + service.antigravityModelFetchProxyURL(auth)
+	clearCachedHints := func() {
+		antigravityCapabilityMu.Lock()
+		delete(antigravityCapabilityCache, cacheKey)
+		antigravityCapabilityMu.Unlock()
+	}
+	clearCachedHints()
+	t.Cleanup(clearCachedHints)
+
 	service.registerModelsForAuth(context.Background(), auth)
 	service.WaitAntigravityProbes()
 	if !sawFetch {

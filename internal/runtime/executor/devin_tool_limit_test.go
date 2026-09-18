@@ -117,7 +117,7 @@ func TestStreamDevinFrames_ToolLimitMatchesNonStream(t *testing.T) {
 
 func devinToolLimitFrames() []byte {
 	var body bytes.Buffer
-	appendCall := func(index int, id, arguments string) {
+	appendCall := func(id, arguments string) {
 		var call []byte
 		if id != "" {
 			call = protowire.AppendTag(call, 1, protowire.BytesType)
@@ -127,26 +127,26 @@ func devinToolLimitFrames() []byte {
 		}
 		call = protowire.AppendTag(call, 3, protowire.BytesType)
 		call = protowire.AppendString(call, arguments)
-		call = protowire.AppendTag(call, 4, protowire.VarintType)
-		call = protowire.AppendVarint(call, uint64(index))
 		frame := protowire.AppendTag(nil, 6, protowire.BytesType)
 		frame = protowire.AppendBytes(frame, call)
 		body.Write(helps.WrapConnectEnvelope(frame))
 	}
 
-	// Keep another accepted slot active while index zero exhausts the total limit.
-	appendCall(1, "call_0", `{"keep":`)
+	// Keep an accepted call open while distinct IDs exhaust the total limit.
+	appendCall("call_0", `{"keep":`)
 	for i := 1; i < maxDevinToolCalls; i++ {
-		appendCall(0, fmt.Sprintf("call_%d", i), fmt.Sprintf(`{"accepted":%d}`, i))
+		appendCall(fmt.Sprintf("call_%d", i), fmt.Sprintf(`{"accepted":%d}`, i))
 	}
 	for i := maxDevinToolCalls; i < maxDevinToolCalls+3; i++ {
-		appendCall(0, fmt.Sprintf("call_%d", i), `{"rejected":`)
-		appendCall(0, "", `true}`)
+		appendCall(fmt.Sprintf("call_%d", i), `{"rejected":`)
+		appendCall("", `true}`)
 	}
-	// A rejected new slot must also ignore later unkeyed continuations.
-	appendCall(2, "rejected_new_slot", `{"rejected":`)
-	appendCall(2, "", `true}`)
-	appendCall(1, "", `true}`)
+	// A rejected new ID must also ignore later unkeyed continuations.
+	appendCall("rejected_new_call", `{"rejected":`)
+	appendCall("", `true}`)
+	// An accepted ID can resume after rejection and accept its unkeyed continuation.
+	appendCall("call_0", `tr`)
+	appendCall("", `ue}`)
 	body.Write(helps.WrapConnectEnvelopeWithFlag(helps.ConnectFlagEndStream, []byte(`{}`)))
 	return body.Bytes()
 }

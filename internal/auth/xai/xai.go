@@ -2,6 +2,7 @@ package xai
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 )
@@ -21,6 +22,7 @@ import (
 type XAIAuth struct {
 	httpClient      *http.Client
 	minPollInterval time.Duration
+	refreshRoute    string
 }
 
 var xaiRefreshGroup singleflight.Group
@@ -33,15 +35,32 @@ func NewXAIAuth(cfg *config.Config) *XAIAuth {
 // NewXAIAuthWithProxyURL creates an xAI OAuth helper with an explicit proxy URL.
 func NewXAIAuthWithProxyURL(cfg *config.Config, proxyURL string) *XAIAuth {
 	effectiveProxyURL := strings.TrimSpace(proxyURL)
-	var sdkCfg config.SDKConfig
-	if cfg != nil {
-		sdkCfg = cfg.SDKConfig
-		if effectiveProxyURL == "" {
-			effectiveProxyURL = strings.TrimSpace(cfg.ProxyURL)
-		}
+	if effectiveProxyURL == "" && cfg != nil {
+		effectiveProxyURL = strings.TrimSpace(cfg.ProxyURL)
 	}
-	sdkCfg.ProxyURL = effectiveProxyURL
-	return &XAIAuth{httpClient: util.SetProxy(&sdkCfg, &http.Client{Timeout: httpClientTimeout})}
+	client := &http.Client{Timeout: httpClientTimeout}
+	transport, mode, errTransport := proxyutil.BuildHTTPTransport(effectiveProxyURL)
+	if errTransport != nil || mode == proxyutil.ModeInvalid || (mode != proxyutil.ModeInherit && transport == nil) {
+		// Preserve the constructor signature without sending OAuth material over
+		// a default route when an explicit proxy cannot be initialized.
+		client.Transport = xaiProxyConfigurationErrorTransport{}
+	} else if transport != nil {
+		client.Transport = transport
+	}
+	refreshRoute := effectiveProxyURL
+	if mode == proxyutil.ModeDirect {
+		refreshRoute = "direct"
+	}
+	return &XAIAuth{httpClient: client, refreshRoute: refreshRoute}
+}
+
+type xaiProxyConfigurationErrorTransport struct{}
+
+func (xaiProxyConfigurationErrorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req != nil && req.Body != nil {
+		_ = req.Body.Close()
+	}
+	return nil, fmt.Errorf("invalid xAI OAuth proxy configuration")
 }
 
 // ValidateOAuthEndpoint validates an endpoint returned by xAI discovery.
@@ -357,7 +376,12 @@ func (a *XAIAuth) RefreshTokens(ctx context.Context, refreshToken, tokenEndpoint
 	}
 	tokenEndpoint = strings.TrimSpace(tokenEndpoint)
 
-	result, err, _ := xaiRefreshGroup.Do(refreshToken, func() (interface{}, error) {
+	// A refresh may be shared only by callers using the same endpoint and
+	// credential route. Hash the tuple so tokens and proxy passwords stay out
+	// of the single-flight key.
+	keyData, _ := json.Marshal([3]string{a.refreshRoute, tokenEndpoint, refreshToken})
+	refreshKey := fmt.Sprintf("%x", sha256.Sum256(keyData))
+	result, err, _ := xaiRefreshGroup.Do(refreshKey, func() (interface{}, error) {
 		return a.refreshTokensSingleFlight(context.WithoutCancel(ctx), refreshToken, tokenEndpoint)
 	})
 	if err != nil {

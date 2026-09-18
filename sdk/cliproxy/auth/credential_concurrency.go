@@ -142,10 +142,16 @@ func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context
 	available, filteredBusy := m.filterCredentialConcurrencyCandidatesLocked(ctx, available)
 	available = cloneAuthSlice(available)
 	highest := highestPriorityAuths(available)
-	if _, sessionAffinity := selector.(*SessionAffinitySelector); sessionAffinity {
-		return highest, available, filteredBusy, nil
+	pluginAuths := highest
+	if m.pluginSchedulerWantsAcrossPrioritiesLocked() {
+		// The plugin opt-in applies only after availability and capacity filtering.
+		// Native fallback keeps its existing highest-priority or affinity behavior.
+		pluginAuths = available
 	}
-	return highest, highest, filteredBusy, nil
+	if _, sessionAffinity := selector.(*SessionAffinitySelector); sessionAffinity {
+		return pluginAuths, available, filteredBusy, nil
+	}
+	return pluginAuths, highest, filteredBusy, nil
 }
 
 func (lease *credentialConcurrencyLease) Release() {

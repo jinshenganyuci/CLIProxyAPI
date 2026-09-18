@@ -15,8 +15,7 @@ import (
 
 // claudeFastRequestError marks a Fast request failure as request-scoped. Fast
 // errors must stop at the caller: they do not justify retrying another
-// credential or changing the selected credential's availability, unless the failure
-// is a genuine credential-level rate limit.
+// credential. A classified upstream quota failure retains its credential or model scope.
 type claudeFastRequestError struct {
 	cause      error
 	status     int
@@ -51,7 +50,15 @@ func (e *claudeFastRequestError) IsRequestScoped() bool {
 	if e.IsCredentialScoped() {
 		return false
 	}
+	var quotaError claudeRateLimitError
+	if errors.As(e.cause, &quotaError) {
+		return false
+	}
 	return true
+}
+
+func (e *claudeFastRequestError) IsRequestStop() bool {
+	return e != nil
 }
 
 func (e *claudeFastRequestError) IsCredentialScoped() bool {
@@ -82,6 +89,7 @@ type claudeFastDirectResponseError struct {
 	response         *cliproxyexecutor.RequestTerminatedError
 	retryAfter       *time.Duration
 	credentialScoped bool
+	modelScoped      bool
 }
 
 func (e *claudeFastDirectResponseError) Error() string {
@@ -102,7 +110,7 @@ func (e *claudeFastDirectResponseError) IsRequestScoped() bool {
 	if e == nil {
 		return false
 	}
-	if e.credentialScoped {
+	if e.credentialScoped || e.modelScoped {
 		return false
 	}
 	return true
@@ -133,7 +141,7 @@ func wrapClaudeFastRequestError(fastRequest bool, status int, err error) error {
 	return &claudeFastRequestError{cause: err, status: status, retryAfter: retryAfter}
 }
 
-func newClaudeFastDirectResponseError(resp *http.Response, body []byte) error {
+func newClaudeFastDirectResponseError(resp *http.Response, body []byte, modelLevelCooling bool) error {
 	if resp == nil {
 		return nil
 	}
@@ -145,10 +153,12 @@ func newClaudeFastDirectResponseError(resp *http.Response, body []byte) error {
 
 	var retryAfter *time.Duration
 	credentialScoped := false
+	modelScoped := false
 	if resp.StatusCode == http.StatusTooManyRequests {
 		retryAfter = helps.ParseClaudeRateLimitReset(resp.Header, time.Now())
 		if helps.ClaudeHeadersIndicateUnifiedRateLimitRejection(resp.Header) {
-			credentialScoped = true
+			credentialScoped = !modelLevelCooling
+			modelScoped = modelLevelCooling
 		}
 	}
 
@@ -160,6 +170,7 @@ func newClaudeFastDirectResponseError(resp *http.Response, body []byte) error {
 		},
 		retryAfter:       retryAfter,
 		credentialScoped: credentialScoped,
+		modelScoped:      modelScoped,
 	}
 }
 
