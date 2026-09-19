@@ -134,7 +134,7 @@ func normalizeCodexWebsocketParallelToolCalls(body []byte, headers http.Header) 
 	return body
 }
 
-func buildCodexWebsocketRequestBody(body []byte) []byte {
+func buildCodexWebsocketRequestBody(body []byte, isCompat ...bool) []byte {
 	if len(body) == 0 {
 		return nil
 	}
@@ -142,7 +142,9 @@ func buildCodexWebsocketRequestBody(body []byte) []byte {
 	// Match codex-rs websocket v2 semantics: every request is `response.create`.
 	// Incremental follow-up turns continue on the same websocket using
 	// `previous_response_id` + incremental `input`, not `response.append`.
-	body = helps.SanitizeCodexInputItemIDs(body)
+	if len(isCompat) == 0 || !isCompat[0] {
+		body = helps.SanitizeCodexInputItemIDs(body)
+	}
 	wsReqBody, errSet := sjson.SetBytes(body, "type", "response.create")
 	if errSet == nil && len(wsReqBody) > 0 {
 		return wsReqBody

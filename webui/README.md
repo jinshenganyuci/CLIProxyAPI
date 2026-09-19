@@ -44,6 +44,12 @@ Provider forms also preserve per-key and OpenAI-compatible fallback limits throu
 editing, and serialization. Saving an older provider form retains the latest stored concurrency
 limit instead of overwriting a value changed through the credential card.
 
+Provider model rows preserve the latest backend fields, including the native
+`use-max-completion-tokens` setting. Exact upstream-name and effective-alias matches are
+reserved before resolving a unique remaining alias edit. Reordering or deleting aliases
+cannot move one model row's settings to another; ambiguous edits fail before a write. This
+setting remains editable through the native YAML editor, with the backend default of false.
+
 Model discovery for a selected OpenAI-compatible credential never retries without its auth
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
@@ -64,7 +70,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b14187f18ab2f52234074e1a10d610aa977954b65a050e3d8fefddedc03e84ef
+b0a57dc9b85a22aa3744759b22a479a25e96e10a25e59c30877a636f1b682803
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

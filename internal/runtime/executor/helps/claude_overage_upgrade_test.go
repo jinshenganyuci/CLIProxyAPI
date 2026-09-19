@@ -16,14 +16,12 @@ func TestClaudeUpgradeOverageResetScopeAndDeadlines(t *testing.T) {
 		wantReset   time.Duration
 	}{
 		{
-			name:      "missing-5h-with-healthy-utilization",
-			headers:   http.Header{"Anthropic-Ratelimit-Unified-7d-Status": {"allowed_warning"}, "Anthropic-Ratelimit-Unified-5h-Utilization": {"0.00"}},
-			wantReset: 120 * time.Second,
+			name:    "missing-5h-with-healthy-utilization",
+			headers: http.Header{"Anthropic-Ratelimit-Unified-7d-Status": {"allowed_warning"}, "Anthropic-Ratelimit-Unified-5h-Utilization": {"0.00"}},
 		},
 		{
-			name:      "missing-7d-with-healthy-utilization",
-			headers:   http.Header{"Anthropic-Ratelimit-Unified-5h-Status": {"allowed"}, "Anthropic-Ratelimit-Unified-7d-Utilization": {"0.99"}},
-			wantReset: 120 * time.Second,
+			name:    "missing-7d-with-healthy-utilization",
+			headers: http.Header{"Anthropic-Ratelimit-Unified-5h-Status": {"allowed"}, "Anthropic-Ratelimit-Unified-7d-Utilization": {"0.99"}},
 		},
 		{
 			name:        "explicit-shared-rejection-overrides-healthy-utilization",
@@ -38,9 +36,8 @@ func TestClaudeUpgradeOverageResetScopeAndDeadlines(t *testing.T) {
 			wantReset:   7 * 24 * time.Hour,
 		},
 		{
-			name:      "both-shared-windows-allowed",
-			headers:   http.Header{"Anthropic-Ratelimit-Unified-5h-Status": {"allowed_warning"}, "Anthropic-Ratelimit-Unified-7d-Status": {"allowed"}},
-			wantReset: 120 * time.Second,
+			name:    "both-shared-windows-allowed",
+			headers: http.Header{"Anthropic-Ratelimit-Unified-5h-Status": {"allowed_warning"}, "Anthropic-Ratelimit-Unified-7d-Status": {"allowed"}},
 		},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -55,6 +52,12 @@ func TestClaudeUpgradeOverageResetScopeAndDeadlines(t *testing.T) {
 				t.Fatalf("credential rejection = %t, want %t", got, scenario.wantUnified)
 			}
 			reset := parseClaudeRateLimitResetWithFuzz(headers, now, 0, 0)
+			if scenario.wantReset == 0 {
+				if reset != nil {
+					t.Fatalf("overage-only rejection retained an explicit cooldown: %v", *reset)
+				}
+				return
+			}
 			if reset == nil || *reset != scenario.wantReset {
 				t.Fatalf("cooldown reset = %v, want %v", reset, scenario.wantReset)
 			}

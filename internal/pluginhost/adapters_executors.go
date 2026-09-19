@@ -701,6 +701,7 @@ func (a *executorAdapter) Execute(ctx context.Context, auth *coreauth.Auth, req 
 
 	if reporter != nil {
 		reporter.RecordFirstPacket()
+		reporter.ObserveResponseModel(pluginResp.Payload)
 		detail := helps.ParsePluginExecutorResponseUsage(prepared.outputFormat.String(), pluginResp.Payload)
 		reporter.Publish(ctx, detail)
 		reporter.EnsurePublished(ctx)

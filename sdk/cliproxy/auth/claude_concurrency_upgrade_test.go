@@ -72,7 +72,11 @@ func TestClaudeUpgradeCapacityAndQuotaScopes(t *testing.T) {
 					if scenario.shared {
 						w.Header().Set("Anthropic-Ratelimit-Unified-5h-Status", "rejected")
 					}
-					w.Header().Set("Retry-After", "120")
+					if scenario.shared {
+						w.Header().Set("Retry-After", "120")
+					} else {
+						w.Header().Set("Retry-After", "97273")
+					}
 					w.Header().Set("X-Synthetic-Upgrade", "preserved")
 					if decodeFailure {
 						w.Header().Set("Content-Encoding", "gzip")
@@ -162,6 +166,14 @@ func TestClaudeUpgradeCapacityAndQuotaScopes(t *testing.T) {
 				if errQuota == nil || !errors.As(errQuota, &status) || status.StatusCode() != http.StatusTooManyRequests || cliproxyauth.IsCredentialConcurrencyError(errQuota) {
 					t.Fatalf("upstream quota error = %v, want non-capacity 429", errQuota)
 				}
+				var retry interface{ RetryAfter() *time.Duration }
+				if scenario.shared {
+					if !errors.As(errQuota, &retry) || retry.RetryAfter() == nil || *retry.RetryAfter() < 120*time.Second || *retry.RetryAfter() > 150*time.Second {
+						t.Fatalf("shared quota lost its explicit retry duration: %v", errQuota)
+					}
+				} else if errors.As(errQuota, &retry) && retry.RetryAfter() != nil {
+					t.Fatalf("overage-only quota retained the spend-cap Retry-After: %v", *retry.RetryAfter())
+				}
 				wantAttempts := int32(1)
 				if failover {
 					wantAttempts = 2
@@ -177,6 +189,9 @@ func TestClaudeUpgradeCapacityAndQuotaScopes(t *testing.T) {
 					if !errors.As(errQuota, &direct) || string(direct.Body) != refusalBody || direct.Header.Get("X-Synthetic-Upgrade") != "preserved" {
 						t.Fatalf("fast passthrough lost original response: %v", errQuota)
 					}
+					if !scenario.shared && direct.Header.Get("Retry-After") != "97273" {
+						t.Fatal("ignoring overage Retry-After for admission must not rewrite the original response header")
+					}
 				}
 				state, _ = manager.GetByID(auth.ID)
 				wantCredential := scenario.shared && !scenario.modelLevelCooling
@@ -188,6 +203,9 @@ func TestClaudeUpgradeCapacityAndQuotaScopes(t *testing.T) {
 					modelState := state.ModelStates[failedModel]
 					if modelState == nil || !modelState.Quota.Exceeded || !modelState.Quota.NextRecoverAt.After(time.Now()) {
 						t.Fatalf("missing model quota cooldown: %+v", modelState)
+					}
+					if !scenario.shared && modelState.Quota.NextRecoverAt.After(time.Now().Add(10*time.Minute)) {
+						t.Fatalf("overage model cooldown inherited the long spend cap instead of exponential backoff: %+v", modelState.Quota)
 					}
 				}
 				_, errSibling := manager.Execute(ctx, []string{"claude"}, cliproxyexecutor.Request{Model: siblingModel, Payload: []byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"synthetic sibling"}]}`)}, options)

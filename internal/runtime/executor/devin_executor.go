@@ -252,6 +252,9 @@ func (e *DevinExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if errPrep != nil {
 		return resp, errPrep
 	}
+	if chatModelUID != "" {
+		reporter.SetUpstreamModel(chatModelUID)
+	}
 
 	authID, authLabel, authType, authValue := devinAuthLogFields(auth)
 	helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
@@ -292,6 +295,9 @@ func (e *DevinExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		logRespBody := helps.BuildDevinUpstreamResponseLogBody(respLog, interactionsJSON)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, logRespBody)
 	}
+	if respLog != nil && respLog.Usage != nil && respLog.Usage.ModelName != "" {
+		reporter.SetResponseModel(respLog.Usage.ModelName)
+	}
 	if errConsume != nil {
 		if ctx.Err() == nil {
 			helps.RecordAPIResponseError(ctx, e.cfg, errConsume)
@@ -321,6 +327,9 @@ func (e *DevinExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	httpReq, chatModelUID, logBody, errPrep := e.prepareDevinHTTPRequest(ctx, auth, req, opts)
 	if errPrep != nil {
 		return nil, errPrep
+	}
+	if chatModelUID != "" {
+		reporter.SetUpstreamModel(chatModelUID)
 	}
 
 	authID, authLabel, authType, authValue := devinAuthLogFields(auth)
@@ -466,6 +475,18 @@ func (e *DevinExecutor) streamDevinFrames(
 	reporter *helps.UsageReporter,
 	out chan<- cliproxyexecutor.StreamChunk,
 ) {
+	sawEOS := false
+	if reporter != nil {
+		if chatModelUID != "" {
+			reporter.SetUpstreamModel(chatModelUID)
+		}
+		defer func() {
+			if !sawEOS && ctx.Err() != nil {
+				reporter.PublishFailure(ctx, ctx.Err())
+			}
+			reporter.EnsurePublished(ctx)
+		}()
+	}
 	interactionID := fmt.Sprintf("interaction_%s", uuid.New().String()[:12])
 	stepIndex := 0
 	thoughtStarted := false
@@ -554,7 +575,6 @@ func (e *DevinExecutor) streamDevinFrames(
 	thoughtStepIndex := -1
 	var streamErr error
 	var lastStopReason uint64
-	sawEOS := false
 
 	// Buffer subsequent content/tools while thinking is active so late-arriving or split
 	// thought signatures can be emitted before closing the thinking content block.
@@ -578,14 +598,29 @@ func (e *DevinExecutor) streamDevinFrames(
 		return true
 	}
 
+	// Buffer text content arriving after tool calls have started. In protocols such as
+	// OpenAI Responses / Codex Desktop, all tool activity must be fully completed before
+	// the final assistant response is finalized. Emitting post-tool text eagerly would cause
+	// the assistant message to finalize before the tool items, rendering tool widgets after
+	// the message in client UIs. Post-tool text is flushed immediately upon closing active tools.
+	var postToolBufferedContent []string
+
 	emitContentChunk := func(chunk string) bool {
 		if thoughtStarted {
-			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stepIndex)
+			stopIdx := thoughtStepIndex
+			if stopIdx < 0 {
+				stopIdx = stepIndex
+			}
+			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stopIdx)
 			if !emitInteractionsEvent(stopEvent) {
 				return false
 			}
 			thoughtStarted = false
 			stepIndex++
+		}
+		if toolCallCount > 0 {
+			postToolBufferedContent = append(postToolBufferedContent, chunk)
+			return true
 		}
 		if !contentStarted {
 			startEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.start","index":0,"step":{"type":"model_output"}}`), "index", stepIndex)
@@ -683,14 +718,14 @@ func (e *DevinExecutor) streamDevinFrames(
 		return true
 	}
 
-	closeOpenSteps := func() {
-		if len(pendingActions) > 0 || thoughtStarted {
-			_ = flushPendingActions()
+	closeOpenSteps := func() bool {
+		if ctx.Err() != nil {
+			return false
 		}
-		if contentStarted {
-			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stepIndex)
-			_ = emitInteractionsEvent(stopEvent)
-			contentStarted = false
+		if len(pendingActions) > 0 || thoughtStarted {
+			if !flushPendingActions() {
+				return false
+			}
 		}
 		if len(activeToolSlots) > 0 {
 			sortedIndices := make([]int, 0, len(activeToolSlots))
@@ -703,12 +738,37 @@ func (e *DevinExecutor) streamDevinFrames(
 			sort.Ints(sortedIndices)
 			for _, sIdx := range sortedIndices {
 				stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", sIdx)
-				_ = emitInteractionsEvent(stopEvent)
+				if !emitInteractionsEvent(stopEvent) {
+					return false
+				}
 			}
 			clear(activeToolSlots)
 			clear(activeCallByID)
 			activeCallSlot = nil
 		}
+		if len(postToolBufferedContent) > 0 {
+			startEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.start","index":0,"step":{"type":"model_output"}}`), "index", stepIndex)
+			if !emitInteractionsEvent(startEvent) {
+				return false
+			}
+			contentStarted = true
+			for _, chunk := range postToolBufferedContent {
+				deltaEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.delta","index":0,"delta":{"type":"text","text":""}}`), "index", stepIndex)
+				deltaEvent, _ = sjson.SetBytes(deltaEvent, "delta.text", chunk)
+				if !emitInteractionsEvent(deltaEvent) {
+					return false
+				}
+			}
+			postToolBufferedContent = nil
+		}
+		if contentStarted {
+			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stepIndex)
+			if !emitInteractionsEvent(stopEvent) {
+				return false
+			}
+			contentStarted = false
+		}
+		return true
 	}
 
 	// 2. Consume streaming Connect-proto frames
@@ -728,7 +788,12 @@ func (e *DevinExecutor) streamDevinFrames(
 		if flag&helps.ConnectFlagEndStream != 0 {
 			code, errTrailer := helps.ParseDevinTrailerError(payload)
 			if errTrailer != nil {
-				closeOpenSteps()
+				if reporter != nil {
+					reporter.PublishFailure(ctx, statusErr{code: code, msg: errTrailer.Error()})
+				}
+				if !closeOpenSteps() {
+					return
+				}
 				log.Warnf("devin executor: trailer error (%d): %v", code, errTrailer)
 				helps.RecordAPIResponseError(ctx, e.cfg, errTrailer)
 				failedEvent, _ := sjson.SetBytes([]byte(`{"event_type":"response.failed","error":{"message":"","code":""}}`), "error.message", errTrailer.Error())
@@ -753,6 +818,9 @@ func (e *DevinExecutor) streamDevinFrames(
 		if frameRes.Usage != nil {
 			if finalUsage == nil {
 				finalUsage = frameRes.Usage
+				if reporter != nil && finalUsage.ModelName != "" {
+					reporter.SetResponseModel(finalUsage.ModelName)
+				}
 			} else {
 				if frameRes.Usage.PromptTokens > 0 {
 					finalUsage.PromptTokens = frameRes.Usage.PromptTokens
@@ -771,6 +839,9 @@ func (e *DevinExecutor) streamDevinFrames(
 				}
 				if frameRes.Usage.ModelName != "" {
 					finalUsage.ModelName = frameRes.Usage.ModelName
+					if reporter != nil {
+						reporter.SetResponseModel(frameRes.Usage.ModelName)
+					}
 				}
 				if len(frameRes.Usage.Headers) > 0 {
 					if finalUsage.Headers == nil {
@@ -866,6 +937,20 @@ func (e *DevinExecutor) streamDevinFrames(
 			}
 		}
 
+		// Emit tool call deltas
+		for _, tc := range frameRes.ToolCallDeltas {
+			if thoughtStarted {
+				capturedTC := tc
+				pendingActions = append(pendingActions, func() bool {
+					return emitToolCall(capturedTC)
+				})
+			} else {
+				if !emitToolCall(tc) {
+					return
+				}
+			}
+		}
+
 		// Emit content text delta
 		if frameRes.ContentText != "" {
 			accumulatedContent.WriteString(frameRes.ContentText)
@@ -883,27 +968,21 @@ func (e *DevinExecutor) streamDevinFrames(
 				}
 			}
 		}
-
-		// Emit tool call deltas
-		for _, tc := range frameRes.ToolCallDeltas {
-			if thoughtStarted {
-				capturedTC := tc
-				pendingActions = append(pendingActions, func() bool {
-					return emitToolCall(capturedTC)
-				})
-			} else {
-				if !emitToolCall(tc) {
-					return
-				}
-			}
-		}
 	}
 
 	// 3. Close open steps
-	closeOpenSteps()
+	if !closeOpenSteps() {
+		return
+	}
+	if !sawEOS && ctx.Err() != nil {
+		return
+	}
 
 	// If stream encountered an abnormal read error mid-flight, record failure and emit response.failed
 	if streamErr != nil && ctx.Err() == nil {
+		if reporter != nil {
+			reporter.PublishFailure(ctx, streamErr)
+		}
 		helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 		failedEvent, _ := sjson.SetBytes([]byte(`{"event_type":"response.failed","error":{"message":"","code":"stream_read_error"}}`), "error.message", streamErr.Error())
 		_ = emitInteractionsEvent(failedEvent)
@@ -915,6 +994,9 @@ func (e *DevinExecutor) streamDevinFrames(
 	// If the upstream connection dropped before sending EOS without caller cancellation, reject as truncated.
 	if !sawEOS && ctx.Err() == nil {
 		truncErr := fmt.Errorf("devin stream terminated prematurely before EOS trailer")
+		if reporter != nil {
+			reporter.PublishFailure(ctx, truncErr)
+		}
 		helps.RecordAPIResponseError(ctx, e.cfg, truncErr)
 		failedEvent, _ := sjson.SetBytes([]byte(`{"event_type":"response.failed","error":{"message":"devin stream terminated prematurely before EOS trailer","code":"stream_truncated"}}`), "error.message", truncErr.Error())
 		_ = emitInteractionsEvent(failedEvent)
@@ -958,6 +1040,9 @@ func (e *DevinExecutor) streamDevinFrames(
 		completedEvent, _ = sjson.SetBytes(completedEvent, "interaction.usage.total_tokens", totalTokens)
 		if detail, ok := helps.ParseInteractionsStreamUsage(completedEvent); ok {
 			if reporter != nil {
+				if finalUsage != nil && finalUsage.ModelName != "" {
+					reporter.SetResponseModel(finalUsage.ModelName)
+				}
 				reporter.Publish(ctx, detail)
 			}
 		}
@@ -1008,13 +1093,16 @@ func (e *DevinExecutor) streamDevinFrames(
 
 func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string) ([]byte, *helps.DevinUpstreamResponseLog, error) {
 	interactionID := fmt.Sprintf("interaction_%s", uuid.New().String()[:12])
-	var textParts []string
+	var preToolTextParts []string
+	var postToolTextParts []string
 	var thinkingParts []string
+
 	type devinToolCallBuilder struct {
 		id   string
 		name string
 		args strings.Builder
 	}
+
 	var toolBuilders []*devinToolCallBuilder
 	callIDToBuilderIndex := make(map[string]int)
 	lastBuilderIdx := -1
@@ -1041,6 +1129,17 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 		return res
 	}
 
+	getAllContentText := func() string {
+		var sb strings.Builder
+		for _, s := range preToolTextParts {
+			sb.WriteString(s)
+		}
+		for _, s := range postToolTextParts {
+			sb.WriteString(s)
+		}
+		return sb.String()
+	}
+
 	var finalUsage *helps.DevinUsage
 	var accumulatedSignature []byte
 	var signatureType string
@@ -1059,7 +1158,7 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 			respLog := &helps.DevinUpstreamResponseLog{
 				Status:        fmt.Sprintf("read_error: %v", errRead),
 				FramesCount:   framesCount,
-				Content:       strings.Join(textParts, ""),
+				Content:       getAllContentText(),
 				Thinking:      strings.Join(thinkingParts, ""),
 				Signature:     string(accumulatedSignature),
 				SignatureType: signatureType,
@@ -1077,7 +1176,7 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 				respLog := &helps.DevinUpstreamResponseLog{
 					Status:        fmt.Sprintf("trailer_error(%d): %s", code, errTrailer.Error()),
 					FramesCount:   framesCount,
-					Content:       strings.Join(textParts, ""),
+					Content:       getAllContentText(),
 					Thinking:      strings.Join(thinkingParts, ""),
 					Signature:     string(accumulatedSignature),
 					SignatureType: signatureType,
@@ -1163,9 +1262,6 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 		if frameRes.ThinkingText != "" {
 			thinkingParts = append(thinkingParts, frameRes.ThinkingText)
 		}
-		if frameRes.ContentText != "" {
-			textParts = append(textParts, frameRes.ContentText)
-		}
 		for _, tc := range frameRes.ToolCallDeltas {
 			argsChunk := tc.Arguments
 			if argsChunk == "" {
@@ -1189,10 +1285,11 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 					continue
 				}
 				bIdx = len(toolBuilders)
-				toolBuilders = append(toolBuilders, &devinToolCallBuilder{
+				builder := &devinToolCallBuilder{
 					id:   tc.ID,
 					name: tc.Name,
-				})
+				}
+				toolBuilders = append(toolBuilders, builder)
 				if tc.ID != "" {
 					callIDToBuilderIndex[tc.ID] = bIdx
 				}
@@ -1212,6 +1309,13 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 				toolBuilders[bIdx].args.WriteString(argsChunk)
 			}
 		}
+		if frameRes.ContentText != "" {
+			if len(toolBuilders) > 0 {
+				postToolTextParts = append(postToolTextParts, frameRes.ContentText)
+			} else {
+				preToolTextParts = append(preToolTextParts, frameRes.ContentText)
+			}
+		}
 	}
 
 	toolCalls := getToolCalls()
@@ -1221,7 +1325,7 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 		respLog := &helps.DevinUpstreamResponseLog{
 			Status:        "premature_eof_before_eos",
 			FramesCount:   framesCount,
-			Content:       strings.Join(textParts, ""),
+			Content:       getAllContentText(),
 			Thinking:      strings.Join(thinkingParts, ""),
 			Signature:     string(accumulatedSignature),
 			SignatureType: signatureType,
@@ -1271,9 +1375,9 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 		steps = append(steps, thoughtStep)
 	}
 
-	if len(textParts) > 0 {
+	if len(preToolTextParts) > 0 {
 		modelStep := []byte(`{"type":"model_output","content":[{"type":"text","text":""}]}`)
-		modelStep, _ = sjson.SetBytes(modelStep, "content.0.text", strings.Join(textParts, ""))
+		modelStep, _ = sjson.SetBytes(modelStep, "content.0.text", strings.Join(preToolTextParts, ""))
 		steps = append(steps, modelStep)
 	}
 
@@ -1290,6 +1394,12 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 			}
 		}
 		steps = append(steps, fnStep)
+	}
+
+	if len(postToolTextParts) > 0 {
+		modelStep := []byte(`{"type":"model_output","content":[{"type":"text","text":""}]}`)
+		modelStep, _ = sjson.SetBytes(modelStep, "content.0.text", strings.Join(postToolTextParts, ""))
+		steps = append(steps, modelStep)
 	}
 
 	if len(steps) > 0 {
@@ -1322,7 +1432,7 @@ func consumeDevinFramesToInteractions(body io.Reader, model, chatModelUID string
 	respLog := &helps.DevinUpstreamResponseLog{
 		Status:        "completed",
 		FramesCount:   framesCount,
-		Content:       strings.Join(textParts, ""),
+		Content:       getAllContentText(),
 		Thinking:      strings.Join(thinkingParts, ""),
 		Signature:     string(accumulatedSignature),
 		SignatureType: signatureType,

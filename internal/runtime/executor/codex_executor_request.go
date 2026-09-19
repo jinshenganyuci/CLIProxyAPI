@@ -147,7 +147,11 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	if cache.ID != "" {
 		rawJSON = helps.SetStringIfDifferent(rawJSON, "prompt_cache_key", cache.ID)
 	}
-	rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
+	// Compatible Responses providers own their item IDs; native Codex prefixes and
+	// length limits must not rewrite the IDs retained for their reasoning replay.
+	if !e.resolveCodexModelIsCompat(auth, req, thinking.ParseSuffix(req.Model).ModelName) {
+		rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
+	}
 	var identityState codexIdentityConfuseState
 	rawJSON, identityState, errIdentity := applyCodexIdentityBody(e.cfg, auth, userPayload, rawJSON)
 	if errIdentity != nil {
