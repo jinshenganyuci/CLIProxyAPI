@@ -1,17 +1,40 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.8`（上游提交
-`c93978c4ea2e908255a2a06c37599fda3651554a`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.9`（上游提交
+`61fdfc341b96178a8dcb53f2efc46cbc341d267c`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.3.8-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.8.1` 和 `latest`。本次完整合并上游 `v7.3.8`，
-保留 `v7.3.7-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
+当前修订为 `v7.3.9-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.9.1` 和 `latest`。本次完整合并上游 `v7.3.9`，
+保留 `v7.3.8-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
 Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化并发保护。
 已有身份 schema、namespace 和凭据配置格式不变。
 
-## v7.3.8 更新与兼容处理
+## v7.3.9 更新与兼容处理
+
+- 合入实验性 Codex Responses WebSocket 双向交互。`codex.response-steering` 默认
+  false，可通过现有 YAML 编辑器开启；新连接固定使用同一上游账号、模型和连接，
+  已被上游接受的 steering 不在其他凭据或连接上重放。
+- 双向交互继续执行逐次并发约束：响应完成释放，空闲连接不占位，新请求重新获取；
+  steering 在发送前预占可能产生的后续响应名额，满额返回并发错误且保持当前生成。
+  因此并发设为 1 时，生成中不能再发送 steering；凭据代理、认证内容或命名空间变更后旧连接停止接收
+  后续输入，需要客户端重连。详见 [交互说明](codex-response-steering.md)。
+- 双向连接的新请求和 steering 预留使用固定凭据重新检查插件准入，保留原生 Key
+  绑定、模型与额度约束，不重新选账号；自动后续响应复用预留，不二次调用插件扣次数。
+- OpenAI/Codex 转 Claude 时从输入 token 中扣除独立缓存写入 token，避免重复计费。
+  原请求模型、客户端别名、返回模型记录和 Access Guard 计费接口保持原有职责。
+- 工具选择支持允许列表与 strict 模式映射；Gemini `parametersJsonSchema` 保留
+  标准约束和 additionalProperties。无法表达的限制采用原生拒绝放宽规则。
+- Responses 转 Gemini 补齐音频、视频、文件输入映射。输入引用不由 CPA 在翻译时
+  下载，不因此增加绕过凭据代理的辅助网络请求。
+- 凭据列表显示会恢复已过期的冷却状态；禁用、Token 失效和仍有效的限制不会被
+  显示为正常。此项修正状态投影，不重写凭据配置或并发占用。
+- Claude 凭据 PATCH 支持 priority，包括显式 0；保留既有 cloak、代理与并发配置。
+- 插件回调与 RPC 执行错误保留 HTTP 状态码，不改变插件 ABI 或用量上报次数。
+- 官方管理界面仍为 `v1.24.0`，本次沿用同一二开页面；无需新增必填配置。
+
+## v7.3.8 更新与兼容处理（保留）
 
 - 新增上游返回模型名的观测与限频差异告警，`ResponseModel` 独立于请求模型、别名及
   原有计费字段。没有返回模型名时保留未知，不拿本地翻译后的模型名猜测。

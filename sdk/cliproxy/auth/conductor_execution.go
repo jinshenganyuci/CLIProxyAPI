@@ -1228,6 +1228,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			models = models[:1]
 			pooled = false
 		}
+		execCtx = m.withWebsocketResponseAdmission(execCtx, auth, concurrencyLease, provider, routeModel, execOpts)
 		streamResult, errStream := m.executeStreamWithModelPool(execCtx, executor, auth, provider, execReq, execOpts, routeModel, streamExecutionModel, models, pooled, aliasResult, routing, !homeMode || selection != nil, selection != nil)
 		if errStream != nil {
 			if hasUpstreamExecutionAttempt(errStream) {
@@ -1253,7 +1254,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if errCtx := execCtx.Err(); errCtx != nil && ctx != nil && ctx.Err() != nil {
 				return nil, errCtx
 			}
-			if isRequestTerminatedError(errStream) || isRequestStopError(errStream) {
+			if isRequestTerminatedError(errStream) || isRequestStopError(errStream) || IsCredentialConcurrencyError(errStream) {
 				return nil, errStream
 			}
 			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())

@@ -33,6 +33,7 @@ auths/*
 docs/*
 !docs/codex-credential-identity.zh-CN.md
 !docs/credential-concurrency.md
+!docs/codex-response-steering.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md

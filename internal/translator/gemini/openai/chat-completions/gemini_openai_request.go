@@ -297,10 +297,16 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 	}
 
 	// tools -> tools[].functionDeclarations + tools[].googleSearch/codeExecution/urlContext passthrough
+	allowedToolNames, allowedMode, isAllowedTools := translatorcommon.OpenAIAllowedFunctionTools(gjson.GetBytes(rawJSON, "tool_choice"))
+
+	declaredOriginalToSanitized := make(map[string]string)
+	sanitizedToOriginalCounts := make(map[string]int)
+	var functionDeclarations [][]byte
+	hasStrictTool := false
 	tools := gjson.GetBytes(rawJSON, "tools")
 	toolResults := tools.Array()
 	if tools.IsArray() && len(toolResults) > 0 {
-		functionDeclarations := make([][]byte, 0, len(toolResults))
+		functionDeclarations = make([][]byte, 0, len(toolResults))
 		googleSearchNodes := make([][]byte, 0)
 		codeExecutionNodes := make([][]byte, 0)
 		urlContextNodes := make([][]byte, 0)
@@ -308,6 +314,16 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			if t.Get("type").String() == "function" {
 				fn := t.Get("function")
 				if fn.Exists() && fn.IsObject() {
+					nameResult := fn.Get("name")
+					originalName := nameResult.String()
+					if isAllowedTools {
+						if _, ok := allowedToolNames[originalName]; !ok {
+							continue
+						}
+					}
+					sanitizedName := util.SanitizeFunctionName(originalName)
+					sanitizedToOriginalCounts[sanitizedName]++
+					declaredOriginalToSanitized[originalName] = sanitizedName
 					fnRaw := fn.Raw
 					if fn.Get("parameters").Exists() {
 						renamed, errRename := util.RenameKey(fnRaw, "parameters", "parametersJsonSchema")
@@ -345,20 +361,29 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 						fnRaw = string(fnRawBytes)
 					}
 					fnRawBytes := []byte(fnRaw)
-					nameResult := fn.Get("name")
-					originalName := nameResult.String()
-					sanitizedName := util.SanitizeFunctionName(originalName)
 					if nameResult.Type != gjson.String || sanitizedName != originalName {
 						fnRawBytes, _ = sjson.SetBytes(fnRawBytes, "name", sanitizedName)
 					}
 					if parameters := gjson.GetBytes(fnRawBytes, "parametersJsonSchema"); parameters.Exists() {
-						cleanedParameters := util.CleanJSONSchemaForGemini(parameters.Raw)
+						cleanedParameters := util.CleanJSONSchemaForGeminiJSONSchema(parameters.Raw)
 						if cleanedParameters != parameters.Raw {
 							fnRawBytes, _ = sjson.SetRawBytes(fnRawBytes, "parametersJsonSchema", []byte(cleanedParameters))
 						}
 					}
-					if gjson.GetBytes(fnRawBytes, "strict").Exists() {
-						fnRawBytes, _ = sjson.DeleteBytes(fnRawBytes, "strict")
+					strictVal := gjson.GetBytes(fnRawBytes, "strict")
+					if !strictVal.Exists() {
+						strictVal = fn.Get("strict")
+						if !strictVal.Exists() {
+							strictVal = t.Get("strict")
+						}
+					}
+					if strictVal.Exists() {
+						if strictVal.Type == gjson.True {
+							hasStrictTool = true
+						}
+						if gjson.GetBytes(fnRawBytes, "strict").Exists() {
+							fnRawBytes, _ = sjson.DeleteBytes(fnRawBytes, "strict")
+						}
 					}
 					functionDeclarations = append(functionDeclarations, fnRawBytes)
 				}
@@ -405,6 +430,99 @@ func ConvertOpenAIRequestToGemini(modelName string, inputRawJSON []byte, _ bool)
 			toolItems = append(toolItems, codeExecutionNodes...)
 			toolItems = append(toolItems, urlContextNodes...)
 			out, _ = sjson.SetRawBytes(out, "tools", translatorcommon.JoinRawArray(toolItems))
+		}
+	}
+
+	hasSanitizedCollision := false
+	for _, count := range sanitizedToOriginalCounts {
+		if count > 1 {
+			hasSanitizedCollision = true
+			break
+		}
+	}
+
+	// tool_choice mapping
+	if hasSanitizedCollision {
+		// Ambiguous collision in function names: fail-closed to prevent invoking unintended tools.
+		out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+	} else if isAllowedTools {
+		if len(functionDeclarations) == 0 {
+			// Fail-closed when no allowed tools match or subset is empty.
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+		} else if allowedMode == "required" || allowedMode == "any" {
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
+			allowedList := make([]string, 0, len(functionDeclarations))
+			for _, fnRaw := range functionDeclarations {
+				allowedList = append(allowedList, gjson.GetBytes(fnRaw, "name").String())
+			}
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames", allowedList)
+		} else if hasStrictTool {
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+		} else {
+			// Mode AUTO: functionDeclarations contains only allowed tools, mode is AUTO without allowedFunctionNames.
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "AUTO")
+		}
+	} else if toolChoice := gjson.GetBytes(rawJSON, "tool_choice"); toolChoice.Exists() && toolChoice.Type != gjson.Null {
+		toolChoiceType := ""
+		if toolChoice.Type == gjson.String {
+			toolChoiceType = strings.ToLower(strings.TrimSpace(toolChoice.String()))
+		} else if toolChoice.IsObject() {
+			toolChoiceType = strings.ToLower(strings.TrimSpace(toolChoice.Get("type").String()))
+		}
+
+		switch toolChoiceType {
+		case "auto":
+			if hasStrictTool {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+			} else {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "AUTO")
+			}
+		case "none":
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+		case "required", "any":
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
+		case "function", "tool":
+			fnName := strings.TrimSpace(toolChoice.Get("function.name").String())
+			if fnName == "" {
+				fnName = strings.TrimSpace(toolChoice.Get("name").String())
+			}
+			sanitized, declared := declaredOriginalToSanitized[fnName]
+			if declared && sanitizedToOriginalCounts[sanitized] == 1 {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames", []string{sanitized})
+			} else {
+				// Missing, undeclared, or ambiguous: fail-closed.
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+			}
+		default:
+			// Unrecognized tool_choice type: fail-closed.
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+		}
+	} else if hasStrictTool && len(functionDeclarations) > 0 {
+		out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+	}
+
+	// parallel_tool_calls handling:
+	// Gemini function calling has no parameter to disable parallel tool calls while keeping tools enabled.
+	// As a safe fail-closed measure when explicit restrictions cannot be faithfully expressed,
+	// when parallel_tool_calls is explicitly false, mode is set to NONE.
+	if parallelToolCalls := gjson.GetBytes(rawJSON, "parallel_tool_calls"); parallelToolCalls.Type == gjson.False {
+		out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+		out, _ = sjson.DeleteBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames")
+	}
+
+	// Function restrictions cannot authorize unrelated built-in search, code, or URL tools.
+	if isAllowedTools || gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String() == "NONE" || gjson.GetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames").Exists() {
+		var restrictedTools [][]byte
+		for _, tool := range gjson.GetBytes(out, "tools").Array() {
+			if tool.Get("functionDeclarations").Exists() {
+				restrictedTools = append(restrictedTools, []byte(tool.Raw))
+			}
+		}
+		if len(restrictedTools) > 0 {
+			out, _ = sjson.SetRawBytes(out, "tools", translatorcommon.JoinRawArray(restrictedTools))
+		} else {
+			out, _ = sjson.DeleteBytes(out, "tools")
 		}
 	}
 

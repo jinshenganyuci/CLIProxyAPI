@@ -239,12 +239,18 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 	}
 
 	// tools
+	var toolItems [][]byte
+	declaredNames := make(map[string]string)
+	sanitizedCounts := make(map[string]int)
+	hasStrictTool := false
 	if toolsResult := gjson.GetBytes(rawJSON, "tools"); toolsResult.IsArray() {
-		var toolItems [][]byte
 		toolsResult.ForEach(func(_, toolResult gjson.Result) bool {
+			if toolResult.Get("strict").Type == gjson.True {
+				hasStrictTool = true
+			}
 			inputSchemaResult := toolResult.Get("input_schema")
 			if inputSchemaResult.Exists() && inputSchemaResult.IsObject() {
-				inputSchema := util.CleanJSONSchemaForGemini(inputSchemaResult.Raw)
+				inputSchema := util.CleanJSONSchemaForGeminiJSONSchema(inputSchemaResult.Raw)
 				tool := []byte(toolResult.Raw)
 				var err error
 				tool, err = sjson.DeleteBytes(tool, "input_schema")
@@ -268,6 +274,8 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 				}
 				if gjson.ValidBytes(tool) && gjson.ParseBytes(tool).IsObject() {
 					toolItems = append(toolItems, tool)
+					declaredNames[originalName] = sanitizedName
+					sanitizedCounts[sanitizedName]++
 				}
 			}
 			return true
@@ -281,7 +289,7 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 
 	// tool_choice
 	toolChoiceResult := gjson.GetBytes(rawJSON, "tool_choice")
-	if toolChoiceResult.Exists() {
+	if toolChoiceResult.Exists() && toolChoiceResult.Type != gjson.Null {
 		toolChoiceType := ""
 		toolChoiceName := ""
 		if toolChoiceResult.IsObject() {
@@ -293,17 +301,38 @@ func convertClaudeRequestToGemini(modelName string, inputRawJSON []byte, _ bool,
 
 		switch toolChoiceType {
 		case "auto":
-			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "AUTO")
+			if hasStrictTool {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+			} else {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "AUTO")
+			}
 		case "none":
 			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
 		case "any":
 			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
 		case "tool":
-			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
-			if toolChoiceName != "" {
-				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames", []string{util.SanitizeFunctionName(toolChoiceName)})
+			name, declared := declaredNames[toolChoiceName]
+			if declared && sanitizedCounts[name] == 1 {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "ANY")
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames", []string{name})
+			} else {
+				out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
 			}
+		default:
+			out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
 		}
+	} else if hasStrictTool && len(toolItems) > 0 {
+		out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "VALIDATED")
+	}
+
+	// Gemini cannot express a prohibition on parallel calls while keeping functions enabled.
+	blockFunctions := toolChoiceResult.Get("disable_parallel_tool_use").Type == gjson.True
+	for _, count := range sanitizedCounts {
+		blockFunctions = blockFunctions || count > 1
+	}
+	if blockFunctions {
+		out, _ = sjson.SetBytes(out, "toolConfig.functionCallingConfig.mode", "NONE")
+		out, _ = sjson.DeleteBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames")
 	}
 
 	// Map Anthropic thinking -> Gemini thinking config when enabled
