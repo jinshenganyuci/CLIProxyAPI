@@ -149,6 +149,9 @@ type Manager struct {
 	configCooldownMu          sync.Mutex
 	credentialConcurrencyMu   sync.Mutex
 	credentialConcurrency     map[string]int
+	syncSchedulerMu           sync.Mutex
+	structuralEpoch           atomic.Uint64
+	syncedVersion             atomic.Uint64
 	auths                     map[string]*Auth
 	authEpochs                map[string]uint64
 	scheduler                 *authScheduler

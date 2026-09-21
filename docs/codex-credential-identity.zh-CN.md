@@ -1,17 +1,43 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.9`（上游提交
-`61fdfc341b96178a8dcb53f2efc46cbc341d267c`），目标是让每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.11`（上游提交
+`ffe6ad3c5fcf0a5eedd2198cd2e04b0249dc5063`），目标是让每个 Codex OAuth
 凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
 路由和客户端会话各自原有的职责。
 
-当前修订为 `v7.3.9-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.9.1` 和 `latest`。本次完整合并上游 `v7.3.9`，
-保留 `v7.3.8-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
+当前修订为 `v7.3.11-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.11.1` 和 `latest`。本次完整合并上游 `v7.3.10` 和 `v7.3.11`，
+保留 `v7.3.9-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
 Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化并发保护。
 已有身份 schema、namespace 和凭据配置格式不变。
 
-## v7.3.9 更新与兼容处理
+## v7.3.10 / v7.3.11 与管理页 v1.24.1
+
+- 合入 Kimi.ai OAuth、刷新、运行时、模型目录与提供商别名，保留 Kimi.com 独立入口。
+  登录前指定的代理在设备授权、轮询、保存与以后调用之间保持一致；未填写时固定
+  当时的继承出口，明确直连不会再继承环境代理，错误代理失败返回。
+- 调度器根据认证结构变化决定是否重建，减少不必要工作；保留凭据并发计数、默认 10、
+  动态限额、插件筛选和旧连接代际检查。会话关联补齐 fork/compaction/node kind。
+- Home 请求与 Redis 用量增加可选会话角色字段。当前 Home 对端是否使用新角色需由
+  对端实现决定；本次不声称 Home 远端已具备完整新会话角色展示能力。
+- 插件用量记录新增 ResponseModel、ResponseServiceTier、Stream，原 Model/Alias
+  及 token 计费字段不变。旧插件通过已有 JSON 回调忽略未知字段，新插件可消费这些
+  元数据；返回模型名仍只是上游声明，不代表独立鉴定模型身份。
+- Claude 原生客户端识别支持同 major/minor 的更新 patch；稳定设备指纹仍使用测量
+  基线。fallback-credit beta 仅在相应 token 或显式 fallback 条件下添加。
+- Gemini/Antigravity Interactions 补齐内置工具转换；Responses 转换保留跨工具轮次
+  推理内容，工具结果内容片段的 cache_control 提升到工具结果块。
+- Gemini Schema 的 items 节点规范为数组；保留业务 default/examples 对象里的字段，
+  不把普通数据当成 Schema。工具限制不会因内置工具映射而静默放宽。
+- WebSocket 中途预热保留原生续接语义；SSE 过滤上游私有与遥测事件，同时优先识别
+  真实错误，不能因私有标签丢弃错误或伪造成功。已识别的原生 Responses Lite 请求在
+  实际选择 Codex 后继续保留元数据；双向并发与插件准入继续保留。
+- 管理页升级到 v1.24.1：Codex 续订日期、Business Premium、xAI 用量周期和未知值、
+  Claude Team 优先显示、账号搜索、权重提示及插件页主题更新，并保留二开代理与并发 UI。
+
+没有新增必填配置。Codex 双向交互仍默认关闭，已配置凭据无需重新登录或初始化身份。
+
+## v7.3.9 更新与兼容处理（保留）
 
 - 合入实验性 Codex Responses WebSocket 双向交互。`codex.response-steering` 默认
   false，可通过现有 YAML 编辑器开启；新连接固定使用同一上游账号、模型和连接，

@@ -603,19 +603,53 @@ func (h *Handler) RequestXAIToken(c *gin.Context) {
 }
 
 func (h *Handler) RequestKimiToken(c *gin.Context) {
+	domain := kimi.KimiDefaultDomain
+	if qDomain := strings.TrimSpace(c.Query("domain")); qDomain != "" {
+		domain = qDomain
+	} else if qChan := strings.TrimSpace(c.Query("channel")); qChan != "" {
+		domain = qChan
+	}
+	h.requestKimiTokenWithDomain(c, domain)
+}
+
+func (h *Handler) RequestKimiAIToken(c *gin.Context) {
+	h.requestKimiTokenWithDomain(c, kimi.KimiAIDomain)
+}
+
+func (h *Handler) requestKimiTokenWithDomain(c *gin.Context, domain string) {
+	snapshot, status, errPrepare := h.prepareKimiOAuthSession(c)
+	if errPrepare != nil {
+		c.JSON(status, gin.H{"error": errPrepare.Error()})
+		return
+	}
+	h = snapshot
+	domain = kimi.NormalizeKimiDomain(domain)
 	ctx := context.Background()
 	ctx = PopulateAuthContext(ctx, c)
 
-	fmt.Println("Initializing Kimi authentication...")
+	isAI := kimi.IsKimiAIDomain(domain)
+	displayName := "Kimi"
+	providerName := "kimi"
+	filePrefix := "kimi"
+	statePrefix := "kmi"
+	baseURL := kimi.KimiAPIBaseURL
+	if isAI {
+		displayName = "Kimi.ai"
+		providerName = "kimi-ai"
+		filePrefix = "kimi-ai"
+		statePrefix = "kmi-ai"
+		baseURL = kimi.KimiAIAPIBaseURL
+	}
 
-	state := fmt.Sprintf("kmi-%d", time.Now().UnixNano())
+	fmt.Printf("Initializing %s authentication...\n", displayName)
+
+	state := fmt.Sprintf("%s-%d", statePrefix, time.Now().UnixNano())
 	// Initialize Kimi auth service
-	kimiAuth := kimi.NewKimiAuth(h.cfg)
+	kimiAuth := newKimiOAuthService(h.cfg, domain)
 
 	// Generate authorization URL
 	deviceFlow, errStartDeviceFlow := kimiAuth.StartDeviceFlow(ctx)
-	if errStartDeviceFlow != nil {
-		log.Errorf("Failed to generate authorization URL: %v", errStartDeviceFlow)
+	if errStartDeviceFlow != nil || deviceFlow == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate authorization url"})
 		return
 	}
@@ -624,37 +658,59 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		authURL = deviceFlow.VerificationURI
 	}
 
-	RegisterOAuthSession(state, "kimi")
+	RegisterOAuthSessionWithAuthDir(state, providerName, h.cfg.AuthDir)
+	proxyURL := h.cfg.ProxyURL
+	originalHook := h.postAuthHook
+	h.postAuthHook = func(ctx context.Context, record *coreauth.Auth) error {
+		storage := record.Storage
+		if originalHook != nil {
+			if errHook := originalHook(ctx, record); errHook != nil {
+				return errHook
+			}
+		}
+		if record.Metadata == nil {
+			record.Metadata = make(map[string]any)
+		}
+		record.ProxyURL = proxyURL
+		record.Metadata["proxy_url"] = proxyURL
+		record.Storage = storage
+		return guardOAuthSessionPendingForSave(state, providerName)
+	}
 
 	go func() {
 		pollCtx, cancelPoll := context.WithCancel(ctx)
 		defer cancelPoll()
-		go watchOAuthSessionCancel(pollCtx, cancelPoll, state, "kimi")
+		go watchOAuthSessionCancel(pollCtx, cancelPoll, state, providerName)
 
-		fmt.Println("Waiting for authentication...")
+		fmt.Printf("Waiting for %s authentication...\n", displayName)
 		authBundle, errWaitForAuthorization := kimiAuth.WaitForAuthorization(pollCtx, deviceFlow)
 		if errWaitForAuthorization != nil {
-			if !IsOAuthSessionPending(state, "kimi") {
+			if !IsOAuthSessionPending(state, providerName) {
 				return
 			}
-			SetOAuthSessionError(state, oauthSessionErrorWithCause("Authentication failed", errWaitForAuthorization))
-			fmt.Printf("Authentication failed: %v\n", errWaitForAuthorization)
+			SetOAuthSessionError(state, "Authentication failed")
 			return
 		}
-		if !IsOAuthSessionPending(state, "kimi") {
+		if !IsOAuthSessionPending(state, providerName) {
 			return
 		}
 
 		// Create token storage
 		tokenStorage := kimiAuth.CreateTokenStorage(authBundle)
+		if isAI {
+			tokenStorage.Type = providerName
+		}
 
 		metadata := map[string]any{
-			"type":          "kimi",
+			"type":          providerName,
 			"access_token":  authBundle.TokenData.AccessToken,
 			"refresh_token": authBundle.TokenData.RefreshToken,
 			"token_type":    authBundle.TokenData.TokenType,
 			"scope":         authBundle.TokenData.Scope,
 			"timestamp":     time.Now().UnixMilli(),
+			"domain":        domain,
+			"base_url":      baseURL,
+			"proxy_url":     proxyURL,
 		}
 		if authBundle.TokenData.ExpiresAt > 0 {
 			expired := time.Unix(authBundle.TokenData.ExpiresAt, 0).UTC().Format(time.RFC3339)
@@ -664,16 +720,22 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 			metadata["device_id"] = strings.TrimSpace(authBundle.DeviceID)
 		}
 
-		fileName := fmt.Sprintf("kimi-%d.json", time.Now().UnixMilli())
+		fileName := fmt.Sprintf("%s-%d.json", filePrefix, time.Now().UnixMilli())
 		record := &coreauth.Auth{
 			ID:       fileName,
-			Provider: "kimi",
+			Provider: providerName,
+			ProxyURL: proxyURL,
 			FileName: fileName,
-			Label:    "Kimi User",
+			Label:    fmt.Sprintf("%s User", displayName),
 			Storage:  tokenStorage,
 			Metadata: metadata,
+			Attributes: map[string]string{
+				coreauth.AttributePath: filepath.Join(h.cfg.AuthDir, fileName),
+				"base_url":             baseURL,
+				"domain":               domain,
+			},
 		}
-		if errGuard := guardOAuthSessionPendingForSave(state, "kimi"); errGuard != nil {
+		if errGuard := guardOAuthSessionPendingForSave(state, providerName); errGuard != nil {
 			return
 		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
@@ -684,11 +746,15 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		}
 
 		fmt.Printf("Authentication successful! Token saved to %s\n", savedPath)
-		fmt.Println("You can now use Kimi services through this CLI")
+		fmt.Printf("You can now use %s services through this CLI\n", displayName)
 		CompleteOAuthSession(state)
 	}()
 
-	response := gin.H{"status": "ok", "url": authURL, "state": state, "flow": "device"}
+	proxyMode := "proxy"
+	if proxyURL == "direct" {
+		proxyMode = "direct"
+	}
+	response := gin.H{"status": "ok", "url": authURL, "state": state, "flow": "device", "proxy_mode": proxyMode}
 	if userCode := strings.TrimSpace(deviceFlow.UserCode); userCode != "" {
 		response["user_code"] = userCode
 	}

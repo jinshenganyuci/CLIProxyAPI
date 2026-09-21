@@ -3,17 +3,18 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.24.0`
-- commit: `120d2310921756f3d6434d2f61a772a7c0b9e08a`
-- patch: `management-center-v1.24.0-credential-identity.patch`
+- tag: `v1.24.1`
+- commit: `bbac79d2222a0f345458203a5ab92d859f30ff30`
+- patch: `management-center-v1.24.1-credential-identity.patch`
 
-The patch also adds independent Codex, Devin, and Meta login proxy selectors. Proxy credentials are sent in the
+The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
+login proxy selectors. Proxy credentials are sent in the
 POST body and held only in page memory; successful login and cancellation clear
 the input. The selected egress is saved with the credential for later use. Native Devin OAuth
 callback/cancellation, quota refresh, reset timelines, and cooldown views are
 retained alongside the fork's Codex identity and reauthentication controls. Devin callback
 guidance uses the v7.3.2 HTTP loopback `/callback` URL; validation remains compatible
-with callbacks from earlier releases. The native v1.24.0 Devin quota flow queries
+with callbacks from earlier releases. The native v1.24.1 Devin quota flow queries
 GetUserStatus through the management API with the selected credential index and a
 body token placeholder, retaining request deduplication and stale-session guards.
 It no longer falls back to old auth-file quota observations.
@@ -22,12 +23,27 @@ Meta device login displays the authorization URL, optional device code, expiry g
 and cancellation controls without a callback form. Its selected proxy is sent through
 `POST /meta-auth-url` and stays locked until completion or cancellation. Browser
 authorization uses the browser's own network settings. All four locales are included.
-The native v1.24.0 Meta API-key editor is included. It preserves unknown backend configuration fields and
+The native v1.24.1 Meta API-key editor is included. It preserves unknown backend configuration fields and
 the latest per-credential concurrency limit when saving an older provider form. Meta quota
 queries read the current DCA token from the selected auth file and use its auth index for
 `POST /api-call`; the selected credential proxy remains authoritative. Only projected quota
 fields enter the cache or UI, and stale session/file responses are discarded. Missing usage
 is displayed as unknown. Usage-window and weekly reset timelines are included.
+
+Kimi Code retains its original kimi.com endpoint and registration link. Kimi.ai has a
+separate device-login card and endpoint; it does not replace existing Kimi Code accounts.
+Both use POST JSON bodies for the selected proxy, distinguish inherited global settings
+from explicit direct access, freeze proxy fields during the attempt, and clear secrets on
+success or cancellation. Device codes and optional expiry are displayed without callback
+forms. The native Kimi.ai backend has no dedicated quota adapter in this UI version, so
+its accounts are not silently routed through the Kimi Code quota endpoint.
+
+Native v1.24.1 adds quota search by filename or email, Codex Business Premium entitlement
+recognition and a live renewal-date lookup, Claude Team plan precedence, xAI billing-window
+and unknown-usage corrections, plain credential-weight tooltips, and theme-aware plugin
+resource backgrounds. Codex usage, renewal, and reset-credit requests all keep the selected
+auth index through the management API. Renewal lookup is optional and falls back to the
+credential date when unavailable. Search retains the shared concurrency polling context.
 
 Credential cards, compact rows, details, and quota cards share a small live concurrency badge
 showing occupied requests and the effective limit. Each active page uses one lightweight
@@ -58,9 +74,9 @@ Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 120d2310921756f3d6434d2f61a772a7c0b9e08a
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.24.0-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.24.0 \
+git -C management-center checkout bbac79d2222a0f345458203a5ab92d859f30ff30
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.24.1-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.24.1 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -70,7 +86,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b0a57dc9b85a22aa3744759b22a479a25e96e10a25e59c30877a636f1b682803
+80616ed36fdd7af219f5382aac4dead65ac985fd4bb17107f25f27c22fdb2f6a
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

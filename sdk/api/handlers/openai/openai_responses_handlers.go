@@ -60,6 +60,7 @@ type responsesSSEFramer struct {
 	terminalEvent            string
 	terminalError            *interfaces.ErrorMessage
 	failureEvent             string
+	isCodexClient            bool
 	dataFrames               int
 }
 
@@ -122,8 +123,49 @@ func (f *responsesSSEFramer) writeFrame(w io.Writer, frame []byte) {
 	writeResponsesSSEChunk(w, f.repairFrame(frame))
 }
 
+func (f *responsesSSEFramer) shouldFilterPrivateEvent(streamEvent, payloadType string) bool {
+	check := func(name string) bool {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return false
+		}
+		if responsesSSEErrorEvent(name) {
+			return false
+		}
+
+		// Always filter internal WebSocket timing telemetry from SSE streams.
+		if strings.HasPrefix(name, "responsesapi.") {
+			return true
+		}
+
+		// Native Lite markers are also recognized when the selected provider is
+		// Codex. Preserve their continuation metadata without trusting the marker
+		// alone for requests executed by another provider.
+		if f != nil && (f.isCodexClient || f.preserveCompletionOutput != nil && f.preserveCompletionOutput()) {
+			if name == "codex.rate_limits" {
+				return true
+			}
+			return false
+		}
+
+		// For standard Responses API clients: filter any codex.* private events.
+		if strings.HasPrefix(name, "codex.") {
+			return true
+		}
+
+		return false
+	}
+
+	return check(streamEvent) || check(payloadType)
+}
+
 func (f *responsesSSEFramer) repairFrame(frame []byte) []byte {
 	payload, ok := responsesSSEDataPayload(frame)
+	streamEvent := responsesSSEEventName(frame)
+	validPayload := ok && len(payload) > 0 && json.Valid(payload)
+	if !validPayload && streamEvent != "" && f.shouldFilterPrivateEvent(streamEvent, "") {
+		return nil
+	}
 	if !ok || len(payload) == 0 {
 		return frame
 	}
@@ -131,19 +173,26 @@ func (f *responsesSSEFramer) repairFrame(frame []byte) []byte {
 		f.dataFrames++
 		return frame
 	}
-	if !json.Valid(payload) {
+	if !validPayload {
 		return frame
 	}
-	f.dataFrames++
 
 	payloadType := gjson.GetBytes(payload, "type").String()
-	if responsesSSEErrorEvent(payloadType) || responsesSSEPayloadHasError(payload) {
+	// A private event label must not hide an explicit terminal error. Preserve
+	// the existing error precedence before filtering ordinary telemetry frames.
+	if responsesSSEErrorEvent(streamEvent) || responsesSSEErrorEvent(payloadType) || responsesSSEPayloadHasError(payload) {
+		f.dataFrames++
 		if payloadType != "" {
 			f.lastEvent = sanitizeResponsesStreamEventName(payloadType)
 		}
 		return f.repairErrorPayload(payload)
 	}
-	streamEvent := responsesSSEEventName(frame)
+	if f.shouldFilterPrivateEvent(streamEvent, payloadType) {
+		return nil
+	}
+
+	f.dataFrames++
+
 	eventType := payloadType
 	if responsesSSETerminalEvent(streamEvent) {
 		eventType = streamEvent
@@ -681,11 +730,12 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		c.Header("Connection", "keep-alive")
 		c.Header("Access-Control-Allow-Origin", "*")
 	}
+	isCodexClient := isCodexResponsesClientRequest(c)
 	failureEvent := "error"
-	if isCodexResponsesClientRequest(c) {
+	if isCodexClient {
 		failureEvent = "response.failed"
 	}
-	framer := &responsesSSEFramer{failureEvent: failureEvent, preserveCompletionOutput: preserveNativeOutput.Load}
+	framer := &responsesSSEFramer{failureEvent: failureEvent, isCodexClient: isCodexClient, preserveCompletionOutput: preserveNativeOutput.Load}
 	var initialOutput bytes.Buffer
 
 	// Peek at the first complete SSE data frame.
@@ -981,8 +1031,10 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 	}
 	if isCodexResponsesClientRequest(c) {
 		framer.failureEvent = "response.failed"
+		framer.isCodexClient = true
 	} else {
 		framer.failureEvent = "error"
+		framer.isCodexClient = false
 	}
 	writeTerminalError := func(errMsg *interfaces.ErrorMessage) {
 		framer.Flush(c.Writer)
