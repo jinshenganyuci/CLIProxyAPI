@@ -277,6 +277,11 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			}
 
 			translatedLine = applyCodexIdentityExposeResponsePayload(translatedLine, identityState)
+			// Scanner removes the wire delimiter. Responses consumers must still
+			// distinguish this completed frame from a following event: field.
+			if len(line) == 0 && (responseFormat == sdktranslator.FormatOpenAIResponse || responseFormat == sdktranslator.FormatCodex) {
+				translatedLine = []byte("\n\n")
+			}
 			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, originalPayload, body, translatedLine, &param, claudeInputTokens)
 			if isHandshake && !terminalSuccess {
 				frameBytes := len(line)
@@ -429,6 +434,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			}
 
 			translatedLine = applyCodexIdentityExposeResponsePayload(translatedLine, identityState)
+			if len(line) == 0 && (responseFormat == sdktranslator.FormatOpenAIResponse || responseFormat == sdktranslator.FormatCodex) {
+				translatedLine = []byte("\n\n")
+			}
 			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, originalPayload, body, translatedLine, &param, claudeInputTokens)
 			for i := range chunks {
 				select {

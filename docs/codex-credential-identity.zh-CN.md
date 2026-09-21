@@ -29,6 +29,7 @@ Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化�
   推理内容，工具结果内容片段的 cache_control 提升到工具结果块。
 - Gemini Schema 的 items 节点规范为数组；保留业务 default/examples 对象里的字段，
   不把普通数据当成 Schema。工具限制不会因内置工具映射而静默放宽。
+- Codex HTTP 流保留 SSE 事件分隔，避免错误标签与上一正文拼接而丢掉真正的错误。
 - WebSocket 中途预热保留原生续接语义；SSE 过滤上游私有与遥测事件，同时优先识别
   真实错误，不能因私有标签丢弃错误或伪造成功。已识别的原生 Responses Lite 请求在
   实际选择 Codex 后继续保留元数据；双向并发与插件准入继续保留。
