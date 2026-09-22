@@ -220,6 +220,10 @@ type Options struct {
 	WebSocketResponseObserver WebSocketResponseObserver
 	// ExecutionLifecycle owns Home-dispatched execution resources. Executors must not add it to request metadata.
 	ExecutionLifecycle ExecutionLifecycle
+	// ProxyURL supplies a proxy for this execution when the credential has no explicit route.
+	// A conflicting explicit credential route is rejected.
+	// Credential refresh and token exchange must ignore it.
+	ProxyURL string
 }
 
 // EnsureMetadata initializes and returns Metadata, ensuring it is non-nil.

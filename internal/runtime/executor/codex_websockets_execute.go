@@ -22,7 +22,11 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth, ctx); errProxy != nil {
+		return resp, errProxy
+	}
+	connectionKey, errProxy := helps.CodexWebsocketExecutionConnectionKey(ctx, e.cfg, auth)
+	if errProxy != nil {
 		return resp, errProxy
 	}
 	if opts.Alt == "responses/compact" {
@@ -144,7 +148,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	var errDial error
 	dialCtx := ctx
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
-		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, helps.CodexWebsocketConnectionKey(e.cfg, auth))
+		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, connectionKey)
 		if conn == nil {
 			return resp, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()
 		}

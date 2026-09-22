@@ -22,7 +22,7 @@ import (
 )
 
 func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
-	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth, ctx); errProxy != nil {
 		return nil, errProxy
 	}
 	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
@@ -192,11 +192,11 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		for scanner.Scan() {
 			line := applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
-			translatedLine := bytes.Clone(line)
+			var translatedLine []byte
 			isHandshake := false
 			terminalSuccess := false
 
-			if transformed, ok := grokbuild.TransformKeepaliveSSELine(translatedLine, isGrokClient); ok {
+			if transformed, ok := grokbuild.TransformKeepaliveSSELine(line, isGrokClient); ok {
 				translatedLine = transformed
 				isHandshake = true
 			} else if bytes.HasPrefix(line, dataTag) {
@@ -273,6 +273,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				// Lines that are not data: frames - SSE comments, event:, id:, retry: and the blank
 				// separator - carry no event to check against the allow-list, so they are held with
 				// the frame they belong to. They spend the same budgets.
+				// Non-data lines also need owned storage before translation can retain them.
+				translatedLine = bytes.Clone(line)
 				isHandshake = true
 			}
 
@@ -369,10 +371,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		for scanner.Scan() {
 			line := applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
-			translatedLine := bytes.Clone(line)
+			var translatedLine []byte
 			terminalSuccess := false
 
-			if transformed, ok := grokbuild.TransformKeepaliveSSELine(translatedLine, isGrokClient); ok {
+			if transformed, ok := grokbuild.TransformKeepaliveSSELine(line, isGrokClient); ok {
 				translatedLine = transformed
 			} else if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
@@ -431,6 +433,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 					translatedLine = append([]byte("data: "), data...)
 				}
+			} else {
+				translatedLine = bytes.Clone(line)
 			}
 
 			translatedLine = applyCodexIdentityExposeResponsePayload(translatedLine, identityState)

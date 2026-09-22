@@ -1,6 +1,7 @@
 package helps
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,13 +14,16 @@ import (
 
 // CodexWebsocketConnectionKey binds a retained connection to the proxy and
 // credential identity used for its handshake without exposing proxy credentials.
-func CodexWebsocketConnectionKey(cfg *config.Config, auth *cliproxyauth.Auth) string {
+func CodexWebsocketConnectionKey(cfg *config.Config, auth *cliproxyauth.Auth, executionProxy ...string) string {
 	proxyURL := ""
 	if auth != nil {
 		proxyURL = strings.TrimSpace(auth.ProxyURL)
 	}
 	if proxyURL == "" && cfg != nil {
 		proxyURL = strings.TrimSpace(cfg.ProxyURL)
+	}
+	if len(executionProxy) > 0 {
+		proxyURL = executionProxy[0]
 	}
 	if setting, errParse := proxyutil.Parse(proxyURL); errParse == nil && setting.Mode == proxyutil.ModeDirect {
 		proxyURL = "direct"
@@ -34,4 +38,14 @@ func CodexWebsocketConnectionKey(cfg *config.Config, auth *cliproxyauth.Auth) st
 	}
 	digest := sha256.Sum256([]byte(proxyURL + "\x00" + namespace + "\x00" + version))
 	return hex.EncodeToString(digest[:])
+}
+
+// CodexWebsocketExecutionConnectionKey validates the request route before checking
+// whether a retained credential/namespace connection is eligible for reuse.
+func CodexWebsocketExecutionConnectionKey(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) (string, error) {
+	proxyURL, errProxy := ResolveExecutionProxy(ctx, cfg, auth)
+	if errProxy != nil {
+		return "", errProxy
+	}
+	return CodexWebsocketConnectionKey(cfg, auth, proxyURL), nil
 }

@@ -105,6 +105,10 @@ func (m *Manager) executeHomeOnce(ctx context.Context, providers []string, req c
 			selection.End("missing_execution_target")
 			return cliproxyexecutor.Response{}, &Error{Code: "executor_not_found", Message: "executor not registered"}
 		}
+		if errProxy := m.validateSelectedRequestProxy(ctx, auth); errProxy != nil {
+			selection.End("request_proxy_rejected")
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
+		}
 		m.observeHomeRetryLimit(auth, selection, homeRetryLimit)
 		if _, seen := tried[auth.ID]; seen {
 			if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "repeated_auth"); errEnd != nil {
@@ -167,6 +171,11 @@ func (m *Manager) executeHomeOnce(ctx context.Context, providers []string, req c
 			lastErr = errPrepare
 			roundTiming.Observe(lastErr)
 			continue
+		}
+		if errProxy := m.validateSelectedRequestProxy(execCtx, preparedAuth); errProxy != nil {
+			releaseAttempt()
+			selection.End("request_proxy_rejected")
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
 		}
 		for _, upstreamModel := range models {
 			execCtx = newUpstreamAttemptContext(execCtx)
@@ -252,6 +261,11 @@ func (m *Manager) executeHomeOnce(ctx context.Context, providers []string, req c
 					upstreamErr = errExecute
 				}
 				warnLogUpstreamFailure(execCtx, entry, selection.Provider, upstreamModel, preparedAuth, durationHomeExec, errExecute)
+			}
+			if isExecutionProxyPolicyError(errExecute) {
+				releaseAttempt()
+				selection.End("request_proxy_rejected")
+				return cliproxyexecutor.Response{}, wrapRequestStopError(errExecute)
 			}
 			result := Result{AuthID: preparedAuth.ID, Provider: selection.Provider, Model: resultModel, RouteModel: routeModel, Success: errExecute == nil, Options: execOpts}
 			if errExecute == nil {

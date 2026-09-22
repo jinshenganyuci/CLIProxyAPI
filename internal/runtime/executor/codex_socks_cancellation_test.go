@@ -135,7 +135,7 @@ func TestCodexSOCKSWebsocketCancellationClosesHandshake(t *testing.T) {
 				cfg := &config.Config{}
 				cfg.ProxyURL = globalProxy.URL
 				auth := &cliproxyauth.Auth{ID: "socks-cancellation", ProxyURL: scheme + "://test-user:test-password@" + address}
-				dialer := newProxyAwareWebsocketDialer(cfg, auth)
+				dialer := newProxyAwareWebsocketDialer(context.Background(), cfg, auth)
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				done := make(chan error, 1)

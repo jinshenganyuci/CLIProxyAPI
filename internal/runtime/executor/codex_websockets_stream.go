@@ -20,12 +20,16 @@ import (
 )
 
 func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
-	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth, ctx); errProxy != nil {
 		return nil, errProxy
 	}
 	log.Debugf("Executing Codex Websockets stream request with auth ID: %s, model: %s", auth.ID, req.Model)
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	connectionKey, errProxy := helps.CodexWebsocketExecutionConnectionKey(ctx, e.cfg, auth)
+	if errProxy != nil {
+		return nil, errProxy
 	}
 	if opts.Alt == "responses/compact" {
 		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /responses/compact"}
@@ -101,7 +105,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	var errDial error
 	dialCtx := ctx
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
-		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, helps.CodexWebsocketConnectionKey(e.cfg, auth))
+		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, connectionKey)
 		if conn == nil {
 			unlockStreamSession()
 			return nil, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()

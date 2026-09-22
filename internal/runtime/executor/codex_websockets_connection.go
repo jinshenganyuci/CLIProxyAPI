@@ -29,10 +29,10 @@ const (
 )
 
 func (e *CodexWebsocketsExecutor) dialCodexWebsocket(ctx context.Context, auth *cliproxyauth.Auth, wsURL string, headers http.Header) (*websocket.Conn, *websocketConnectionCloser, *http.Response, error) {
-	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth, ctx); errProxy != nil {
 		return nil, newWebsocketConnectionCloser(nil), nil, errProxy
 	}
-	dialer := newProxyAwareWebsocketDialer(e.cfg, auth)
+	dialer := newProxyAwareWebsocketDialer(ctx, e.cfg, auth)
 	dialer.HandshakeTimeout = codexResponsesWebsocketHandshakeTO
 	dialer.EnableCompression = true
 	if ctx == nil {
@@ -200,7 +200,7 @@ func readCodexWebsocketMessage(ctx context.Context, sess *codexWebsocketSession,
 	}
 }
 
-func newProxyAwareWebsocketDialer(cfg *config.Config, auth *cliproxyauth.Auth) *websocket.Dialer {
+func newProxyAwareWebsocketDialer(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) *websocket.Dialer {
 	dialer := &websocket.Dialer{
 		Proxy:             http.ProxyFromEnvironment,
 		HandshakeTimeout:  codexResponsesWebsocketHandshakeTO,
@@ -211,12 +211,10 @@ func newProxyAwareWebsocketDialer(cfg *config.Config, auth *cliproxyauth.Auth) *
 		}).DialContext,
 	}
 
-	proxyURL := ""
-	if auth != nil {
-		proxyURL = strings.TrimSpace(auth.ProxyURL)
-	}
-	if proxyURL == "" && cfg != nil {
-		proxyURL = strings.TrimSpace(cfg.ProxyURL)
+	proxyURL, errResolve := helps.ResolveExecutionProxy(ctx, cfg, auth)
+	if errResolve != nil {
+		dialer.Proxy = func(*http.Request) (*url.URL, error) { return nil, errResolve }
+		return dialer
 	}
 	if proxyURL == "" {
 		return dialer
@@ -224,7 +222,7 @@ func newProxyAwareWebsocketDialer(cfg *config.Config, auth *cliproxyauth.Auth) *
 
 	setting, errParse := proxyutil.Parse(proxyURL)
 	if errParse != nil {
-		log.Errorf("codex websockets executor: %v", errParse)
+		dialer.Proxy = func(*http.Request) (*url.URL, error) { return nil, errParse }
 		return dialer
 	}
 

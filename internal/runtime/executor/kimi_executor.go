@@ -593,7 +593,9 @@ func (e *KimiExecutor) executeResponsesStream(ctx context.Context, auth *cliprox
 
 		emitTranslatedLine := func(line []byte) bool {
 			if responseFormat == sdktranslator.FormatOpenAIResponse {
-				chunkPayload := append(bytes.Clone(line), '\n')
+				chunkPayload := make([]byte, len(line)+1)
+				copy(chunkPayload, line)
+				chunkPayload[len(line)] = '\n'
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunkPayload}:
 					return true
@@ -924,6 +926,7 @@ func fallbackAssistantReasoning(msg gjson.Result, hasLatest bool, latest string)
 
 // Refresh refreshes the Kimi token using the refresh token.
 func (e *KimiExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	ctx = cliproxyexecutor.WithoutRequestProxyURL(ctx)
 	log.Debugf("kimi executor: refresh called")
 	if refreshed, handled, err := helps.RefreshAuthViaHome(ctx, e.cfg, auth); handled {
 		return refreshed, err

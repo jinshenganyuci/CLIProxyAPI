@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 )
 
 // NewProxyAwareHTTPClient creates an HTTP client with proper proxy configuration priority:
-// 1. Use auth.ProxyURL if configured (highest priority)
-// 2. Use cfg.ProxyURL if auth proxy is not configured
-// 3. Use RoundTripper from context if neither are configured
+// 1. Preserve an explicit credential route and reject a conflicting request override
+// 2. Use a request override when the credential has no configured route
+// 3. Use cfg.ProxyURL, then an injected RoundTripper when no route is configured
 //
 // Parameters:
 //   - ctx: The context containing optional RoundTripper
@@ -32,15 +32,10 @@ func NewProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *clip
 		httpClient.Timeout = timeout
 	}
 
-	// Priority 1: Use auth.ProxyURL if configured
-	var proxyURL string
-	if auth != nil {
-		proxyURL = strings.TrimSpace(auth.ProxyURL)
-	}
-
-	// Priority 2: Use cfg.ProxyURL if auth proxy is not configured
-	if proxyURL == "" && cfg != nil {
-		proxyURL = strings.TrimSpace(cfg.ProxyURL)
+	proxyURL, errResolve := ResolveExecutionProxy(ctx, cfg, auth)
+	if errResolve != nil {
+		httpClient.Transport = proxyConfigurationErrorTransport{err: errResolve}
+		return httpClient
 	}
 
 	// If we have a proxy URL configured, set up the transport
@@ -94,4 +89,16 @@ func buildProxyTransport(proxyURL string) *http.Transport {
 		return nil
 	}
 	return transport
+}
+
+// ResolveExecutionProxy preserves credential egress while supporting unbound request routes.
+func ResolveExecutionProxy(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) (string, error) {
+	credentialProxy, globalProxy := "", ""
+	if auth != nil {
+		credentialProxy = auth.ProxyURL
+	}
+	if cfg != nil {
+		globalProxy = cfg.ProxyURL
+	}
+	return proxyutil.ResolveExecutionProxy(cliproxyexecutor.RequestProxyURL(ctx), credentialProxy, globalProxy)
 }

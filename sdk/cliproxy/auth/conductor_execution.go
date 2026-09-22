@@ -119,6 +119,10 @@ func preferredExecutionAttemptError(fallback, upstream error) error {
 // Execute performs a non-streaming execution using the configured selector and executor.
 // It supports multiple providers for the same model and round-robins the starting provider per model.
 func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
+	if errProxy := m.validateRequestProxyEntry(ctx, opts); errProxy != nil {
+		return cliproxyexecutor.Response{}, errProxy
+	}
 	req, opts = cliproxysession.Enrich(req, opts)
 	normalized := m.normalizeProviders(providers)
 	if len(normalized) == 0 {
@@ -178,6 +182,10 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req cliproxye
 
 // It supports multiple providers for the same model and round-robins the starting provider per model.
 func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
+	if errProxy := m.validateRequestProxyEntry(ctx, opts); errProxy != nil {
+		return cliproxyexecutor.Response{}, errProxy
+	}
 	req, opts = cliproxysession.Enrich(req, opts)
 	normalized := m.normalizeProviders(providers)
 	if len(normalized) == 0 {
@@ -230,6 +238,10 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req clip
 // ExecuteStream performs a streaming execution using the configured selector and executor.
 // It supports multiple providers for the same model and round-robins the starting provider per model.
 func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
+	ctx = cliproxyexecutor.WithRequestProxyURL(ctx, opts.ProxyURL)
+	if errProxy := m.validateRequestProxyEntry(ctx, opts); errProxy != nil {
+		return nil, errProxy
+	}
 	req, opts = cliproxysession.Enrich(req, opts)
 	if m.HomeEnabled() {
 		if unlockSession := m.lockHomeWebsocketSession(ctx, opts); unlockSession != nil {
@@ -505,6 +517,10 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			return cliproxyexecutor.Response{}, errPick
 		}
 
+		if errProxy := m.validateSelectedRequestProxy(ctx, auth); errProxy != nil {
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
+		}
+
 		if !homeMode {
 			tried[auth.ID] = struct{}{}
 			var errAdmission error
@@ -556,6 +572,10 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 		}
 		var authErr error
 		didRefreshOnUnauthorized := false
+		if errProxy := m.validateSelectedRequestProxy(execCtx, auth); errProxy != nil {
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
+		}
+
 		for _, upstreamModel := range models {
 			execCtx = newUpstreamAttemptContext(execCtx)
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
@@ -630,6 +650,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 			}
 			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
 				return cliproxyexecutor.Response{}, errCancel
+			}
+			if isExecutionProxyPolicyError(errExec) {
+				return cliproxyexecutor.Response{}, wrapRequestStopError(errExec)
 			}
 			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts}
 			if errExec != nil {
@@ -744,6 +767,10 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			return cliproxyexecutor.Response{}, errPick
 		}
 
+		if errProxy := m.validateSelectedRequestProxy(ctx, auth); errProxy != nil {
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
+		}
+
 		if !homeMode {
 			tried[auth.ID] = struct{}{}
 			var errAdmission error
@@ -795,6 +822,10 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		}
 		var authErr error
 		didRefreshOnUnauthorized := false
+		if errProxy := m.validateSelectedRequestProxy(execCtx, auth); errProxy != nil {
+			return cliproxyexecutor.Response{}, wrapRequestStopError(errProxy)
+		}
+
 		for _, upstreamModel := range models {
 			execCtx = newUpstreamAttemptContext(execCtx)
 			resultModel := m.stateModelForExecution(auth, routeModel, upstreamModel, pooled)
@@ -869,6 +900,9 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 			}
 			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
 				return cliproxyexecutor.Response{}, errCancel
+			}
+			if isExecutionProxyPolicyError(errExec) {
+				return cliproxyexecutor.Response{}, wrapRequestStopError(errExec)
 			}
 			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true}
 			if errExec != nil {
@@ -1069,6 +1103,13 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			}
 		}
 
+		if errProxy := m.validateSelectedRequestProxy(ctx, auth); errProxy != nil {
+			if selection != nil {
+				selection.End("request_proxy_rejected")
+			}
+			return nil, wrapRequestStopError(errProxy)
+		}
+
 		if !homeMode {
 			tried[auth.ID] = struct{}{}
 			var errAdmission error
@@ -1178,6 +1219,13 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 				}
 			}
 			continue
+		}
+		if errProxy := m.validateSelectedRequestProxy(execCtx, auth); errProxy != nil {
+			if selection != nil {
+				releaseAttempt()
+				selection.End("request_proxy_rejected")
+			}
+			return nil, wrapRequestStopError(errProxy)
 		}
 		execReq := sanitizeDownstreamWebsocketFallbackRequest(execCtx, auth, req)
 		if selection != nil && !restoreExecutionModel {
@@ -1544,6 +1592,7 @@ func (m *Manager) prepareHomeRequestAuth(ctx context.Context, executor ProviderE
 }
 
 func (m *Manager) prepareHomeAuthSnapshot(ctx context.Context, executor ProviderExecutor, auth *Auth) (*Auth, error) {
+	ctx = cliproxyexecutor.WithoutRequestProxyURL(ctx)
 	if m == nil || executor == nil || auth == nil {
 		return auth, nil
 	}
@@ -1596,6 +1645,7 @@ func (m *Manager) prepareRequestAuth(ctx context.Context, executor ProviderExecu
 // PrepareRequestAuth prepares a registered credential using the same serialization
 // and lifecycle checks as normal request execution. Management tools use this path too.
 func (m *Manager) PrepareRequestAuth(ctx context.Context, preparer RequestAuthPreparer, auth *Auth) (*Auth, error) {
+	ctx = cliproxyexecutor.WithoutRequestProxyURL(ctx)
 	if m == nil || preparer == nil || auth == nil || !preparer.ShouldPrepareRequestAuth(auth) {
 		return auth, nil
 	}

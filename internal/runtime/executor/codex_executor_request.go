@@ -72,7 +72,7 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 	if req == nil {
 		return nil, fmt.Errorf("codex executor: request is nil")
 	}
-	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth); errProxy != nil {
+	if errProxy := validateCodexCredentialProxyPolicy(e.cfg, auth, ctx); errProxy != nil {
 		return nil, errProxy
 	}
 	if ctx == nil {

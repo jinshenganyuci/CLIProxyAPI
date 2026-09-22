@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
@@ -23,12 +22,9 @@ var devinTransportCache = NewTransportCache[devinTransportKey](DefaultTransportC
 // automatic gzip. A selected credential or global route takes precedence over
 // injected transports, and an invalid selected route never falls back to direct.
 func NewDevinHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, timeout time.Duration) (*http.Client, error) {
-	proxyURL := ""
-	if auth != nil {
-		proxyURL = strings.TrimSpace(auth.ProxyURL)
-	}
-	if proxyURL == "" && cfg != nil {
-		proxyURL = strings.TrimSpace(cfg.ProxyURL)
+	proxyURL, errResolve := ResolveExecutionProxy(ctx, cfg, auth)
+	if errResolve != nil {
+		return nil, errResolve
 	}
 
 	if proxyURL != "" {

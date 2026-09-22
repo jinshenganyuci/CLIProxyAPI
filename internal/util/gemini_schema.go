@@ -177,7 +177,7 @@ func sanitizeArrayItems(jsonStr string) string {
 		if t == "" {
 			updated, _ := sjson.SetBytes([]byte(jsonStr), typePath, "array")
 			jsonStr = string(updated)
-		} else if t != "array" {
+		} else if !strings.EqualFold(t, "array") {
 			jsonStr, _ = sjson.Delete(jsonStr, p)
 		}
 	}
@@ -375,11 +375,11 @@ func isKnownSchemaKeywordOrExtension(key string) bool {
 
 func isNonObjectDeclaredType(t any) bool {
 	if s, ok := t.(string); ok {
-		return s != "" && s != "object"
+		return s != "" && !strings.EqualFold(s, "object")
 	}
 	if arr, ok := t.([]any); ok {
 		for _, item := range arr {
-			if s, ok := item.(string); ok && s == "object" {
+			if s, ok := item.(string); ok && strings.EqualFold(s, "object") {
 				return false
 			}
 		}
@@ -391,10 +391,10 @@ func isNonObjectDeclaredType(t any) bool {
 func isArrayDeclaredType(t any) bool {
 	switch typeValue := t.(type) {
 	case string:
-		return typeValue == "array"
+		return strings.EqualFold(typeValue, "array")
 	case []any:
 		for _, item := range typeValue {
-			if itemType, ok := item.(string); ok && itemType == "array" {
+			if itemType, ok := item.(string); ok && strings.EqualFold(itemType, "array") {
 				return true
 			}
 		}
@@ -1221,13 +1221,15 @@ func flattenTypeArrays(jsonStr string, preserveNativeNullable bool) string {
 		}
 
 		hasNull := false
+		hasArray := false
 		var nonNullTypes []string
 		for _, item := range res.Array() {
 			s := item.String()
-			if s == "null" {
+			if strings.EqualFold(s, "null") {
 				hasNull = true
 			} else if s != "" {
 				nonNullTypes = append(nonNullTypes, s)
+				hasArray = hasArray || strings.EqualFold(s, "array")
 			}
 		}
 
@@ -1235,7 +1237,7 @@ func flattenTypeArrays(jsonStr string, preserveNativeNullable bool) string {
 
 		firstType := "string"
 		if len(nonNullTypes) > 0 {
-			if gjson.Get(jsonStr, joinPath(parentPath, "items")).Exists() && contains(nonNullTypes, "array") {
+			if gjson.Get(jsonStr, joinPath(parentPath, "items")).Exists() && hasArray {
 				firstType = "array"
 			} else {
 				firstType = nonNullTypes[0]
@@ -1245,7 +1247,7 @@ func flattenTypeArrays(jsonStr string, preserveNativeNullable bool) string {
 		updated, _ := sjson.SetBytes([]byte(jsonStr), p, firstType)
 		jsonStr = string(updated)
 
-		if firstType != "array" && gjson.Get(jsonStr, joinPath(parentPath, "items")).Exists() {
+		if !strings.EqualFold(firstType, "array") && gjson.Get(jsonStr, joinPath(parentPath, "items")).Exists() {
 			jsonStr, _ = sjson.Delete(jsonStr, joinPath(parentPath, "items"))
 		}
 		if len(nonNullTypes) > 1 {

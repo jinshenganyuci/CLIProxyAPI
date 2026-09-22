@@ -108,6 +108,11 @@ func readStreamBootstrap(ctx context.Context, ch <-chan cliproxyexecutor.StreamC
 			chunk, ok = <-ch
 		}
 		if !ok {
+			// Cancellation can close the source while both select cases are ready.
+			// Preserve the caller's cancellation instead of inventing an empty stream.
+			if ctx != nil && ctx.Err() != nil {
+				return nil, false, ctx.Err()
+			}
 			return buffered, true, nil
 		}
 		if chunk.Err != nil {
@@ -143,9 +148,9 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
 			rewriter = NewStreamRewriter(StreamRewriteOptions{RewriteModel: aliasResult.OriginalAlias})
 		}
 		emit := func(chunk cliproxyexecutor.StreamChunk) bool {
-			if chunk.Err != nil && !failed && IsCredentialConcurrencyError(chunk.Err) {
-				// Duplex follow-ups share local admission. Refusing one is not an
-				// upstream quota failure and must not alter credential health.
+			if chunk.Err != nil && !failed && (IsCredentialConcurrencyError(chunk.Err) || isExecutionProxyPolicyError(chunk.Err)) {
+				// Local admission and proxy-policy refusals are not upstream failures
+				// and must not alter credential health.
 				failed = true
 			}
 			if chunk.Err != nil && !failed {
@@ -306,6 +311,9 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		}
 		streamResult, errStream = validateStreamResult(streamResult, errStream)
 		errStream = markUpstreamExecutionAttemptFromContext(ctx, errStream)
+		if isExecutionProxyPolicyError(errStream) {
+			return nil, wrapRequestStopError(errStream)
+		}
 		if IsCredentialConcurrencyError(errStream) {
 			return nil, errStream
 		}
@@ -396,6 +404,10 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				discardStreamChunks(streamResult.Chunks)
 				return nil, errCancel
 			}
+		}
+		if isExecutionProxyPolicyError(bootstrapErr) {
+			discardStreamChunks(streamResult.Chunks)
+			return nil, wrapRequestStopError(bootstrapErr)
 		}
 		if bootstrapErr != nil {
 			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())

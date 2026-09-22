@@ -1,14 +1,26 @@
 package executor
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
 
-func validateCodexCredentialProxyPolicy(cfg *config.Config, auth *cliproxyauth.Auth) error {
+func validateCodexCredentialProxyPolicy(cfg *config.Config, auth *cliproxyauth.Auth, contexts ...context.Context) error {
+	if len(contexts) > 0 && cliproxyexecutor.RequestProxyURL(contexts[0]) != "" {
+		required := cfg != nil && strings.EqualFold(cfg.Codex.CredentialProxyPolicy, config.CodexCredentialProxyPolicyRequire)
+		oauth := auth == nil || !codexAuthUsesAPIKey(auth)
+		if !(required && oauth && (auth == nil || strings.TrimSpace(auth.ProxyURL) == "")) {
+			_, errProxy := helps.ResolveExecutionProxy(contexts[0], cfg, auth)
+			return errProxy
+		}
+	}
 	if auth != nil && codexAuthUsesAPIKey(auth) {
 		return nil
 	}

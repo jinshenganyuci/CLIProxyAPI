@@ -375,7 +375,7 @@ func closeWebsocketAfterBindFailure(sess *codexWebsocketSession, conn *websocket
 	}
 }
 
-func websocketSessionTargetChanged(sess *codexWebsocketSession, authID string, wsURL string) bool {
+func websocketSessionTargetChanged(sess *codexWebsocketSession, authID string, wsURL string, proxyURL string) bool {
 	if sess == nil {
 		return false
 	}
@@ -385,7 +385,13 @@ func websocketSessionTargetChanged(sess *codexWebsocketSession, authID string, w
 	if strings.TrimSpace(sess.authID) == "" && strings.TrimSpace(sess.wsURL) == "" {
 		return false
 	}
-	return strings.TrimSpace(sess.authID) != strings.TrimSpace(authID) || strings.TrimSpace(sess.wsURL) != strings.TrimSpace(wsURL)
+	return !websocketSessionTargetMatches(sess, authID, wsURL, proxyURL)
+}
+
+func websocketSessionTargetMatches(sess *codexWebsocketSession, authID string, wsURL string, connectionKey string) bool {
+	return strings.TrimSpace(sess.authID) == strings.TrimSpace(authID) &&
+		strings.TrimSpace(sess.wsURL) == strings.TrimSpace(wsURL) &&
+		sess.connectionKey == connectionKey
 }
 
 func existingWebsocketSessionConn(sess *codexWebsocketSession, authID string, wsURL string, connectionKeys ...string) (*websocket.Conn, *websocketConnectionCloser) {
@@ -604,7 +610,10 @@ func (e *CodexWebsocketsExecutor) ensureUpstreamConn(ctx context.Context, auth *
 		return conn, closer, resp, err
 	}
 
-	connectionKey := helps.CodexWebsocketConnectionKey(e.cfg, auth)
+	connectionKey, errProxy := helps.CodexWebsocketExecutionConnectionKey(ctx, e.cfg, auth)
+	if errProxy != nil {
+		return nil, nil, nil, errProxy
+	}
 	if staleConn, staleCloser, staleAuthID, staleWSURL, staleLifecycle := detachMismatchedWebsocketSessionConn(sess, authID, wsURL, connectionKey); staleConn != nil {
 		staleLastEvent := sess.getLastEventType(staleConn)
 		logCodexWebsocketDisconnectedWithLastEvent(sess, sess.sessionID, staleAuthID, staleWSURL, "target_changed", staleLastEvent, nil)

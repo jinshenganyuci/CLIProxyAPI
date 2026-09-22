@@ -20,6 +20,14 @@ import (
 )
 
 func TestCodexWebsocketProxyChangeRebuildsConnection(t *testing.T) {
+	testCodexWebsocketProxyChangeRebuildsConnection(t, false)
+}
+
+func TestCodexWebsocketRequestProxyChangeRebuildsConnection(t *testing.T) {
+	testCodexWebsocketProxyChangeRebuildsConnection(t, true)
+}
+
+func testCodexWebsocketProxyChangeRebuildsConnection(t *testing.T, requestOverride bool) {
 	upgrader := websocket.Upgrader{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		conn, errUpgrade := upgrader.Upgrade(writer, request, nil)
@@ -85,16 +93,29 @@ func TestCodexWebsocketProxyChangeRebuildsConnection(t *testing.T) {
 	sess := exec.getOrCreateSession(t.Name())
 	defer exec.CloseExecutionSession(t.Name())
 	auth := &cliproxyauth.Auth{ID: "stable-credential", Provider: "codex", ProxyURL: firstProxy.URL}
+	ctx := context.Background()
+	if requestOverride {
+		auth.ProxyURL = ""
+		ctx = cliproxyexecutor.WithRequestProxyURL(ctx, firstProxy.URL)
+	}
 	const wsURL = "ws://codex-proxy-test.invalid/responses"
-	first, _, _, errFirst := exec.ensureUpstreamConn(context.Background(), auth, sess, auth.ID, wsURL, nil)
+	first, _, _, errFirst := exec.ensureUpstreamConn(ctx, auth, sess, auth.ID, wsURL, nil)
 	if errFirst != nil {
 		t.Fatal(errFirst)
 	}
 	auth.ProxyURL = secondProxy.URL
-	if conn, _ := existingWebsocketSessionConn(sess, auth.ID, wsURL, helps.CodexWebsocketConnectionKey(cfg, auth)); conn != nil {
+	if requestOverride {
+		auth.ProxyURL = ""
+		ctx = cliproxyexecutor.WithRequestProxyURL(ctx, secondProxy.URL)
+	}
+	connectionKey, errKey := helps.CodexWebsocketExecutionConnectionKey(ctx, cfg, auth)
+	if errKey != nil {
+		t.Fatal(errKey)
+	}
+	if conn, _ := existingWebsocketSessionConn(sess, auth.ID, wsURL, connectionKey); conn != nil {
 		t.Fatal("retained connection matched a different proxy")
 	}
-	second, _, _, errSecond := exec.ensureUpstreamConn(context.Background(), auth, sess, auth.ID, wsURL, nil)
+	second, _, _, errSecond := exec.ensureUpstreamConn(ctx, auth, sess, auth.ID, wsURL, nil)
 	if errSecond != nil {
 		t.Fatal(errSecond)
 	}
@@ -102,12 +123,12 @@ func TestCodexWebsocketProxyChangeRebuildsConnection(t *testing.T) {
 		t.Fatalf("proxy switch reused connection: first=%d second=%d", firstHits.Load(), secondHits.Load())
 	}
 	cfg.ProxyURL = "invalid-global-proxy"
-	reused, _, _, errReuse := exec.ensureUpstreamConn(context.Background(), auth, sess, auth.ID, wsURL, nil)
+	reused, _, _, errReuse := exec.ensureUpstreamConn(ctx, auth, sess, auth.ID, wsURL, nil)
 	if errReuse != nil || reused != second || secondHits.Load() != 1 {
 		t.Fatalf("unchanged proxy should reuse connection: %v", errReuse)
 	}
 	auth.ProxyURL = "invalid-proxy"
-	if _, _, _, errInvalid := exec.ensureUpstreamConn(context.Background(), auth, sess, auth.ID, wsURL, nil); errInvalid == nil {
+	if _, _, _, errInvalid := exec.ensureUpstreamConn(ctx, auth, sess, auth.ID, wsURL, nil); errInvalid == nil {
 		t.Fatal("invalid changed proxy reused a connection or fell back")
 	}
 	if firstHits.Load() != 1 || secondHits.Load() != 1 {
