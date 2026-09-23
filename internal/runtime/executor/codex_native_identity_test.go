@@ -123,6 +123,15 @@ func TestCodexNativeCredentialIdentityCompatibilityHeadersUnchanged(t *testing.T
 }
 
 func TestCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T) {
+	testCodexNativeCredentialIdentityWebsocketIntegration(t, false)
+}
+
+func TestCodexPerCredentialCloakingNativeIdentityWebsocketIntegration(t *testing.T) {
+	testCodexNativeCredentialIdentityWebsocketIntegration(t, true)
+}
+
+func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCredential bool) {
+	t.Helper()
 	for _, stream := range []bool{false, true} {
 		for _, identityEnabled := range []bool{false, true} {
 			for _, marker := range []string{"header", "metadata"} {
@@ -162,6 +171,12 @@ func TestCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T) {
 						cfg.Codex.StreamBootstrapBuffering = buffering
 						auth := codexCredentialIdentityTestAuth("native-integration.json", "3cb59d69-5897-49ef-a82b-a4a47115a51e")
 						auth.Attributes = map[string]string{"base_url": server.URL}
+						if perCredential {
+							cfg.Codex.DisableCodexCloaking = false
+							auth.Attributes["codex_disable_cloaking"] = "true"
+							auth.Attributes["header:User-Agent"] = "FixtureCodexClient/1.0"
+							auth.Attributes["header:Originator"] = "fixture-codex"
+						}
 						auth.ProxyURL = "direct"
 						body := []byte(`{"model":"gpt-5.6-sol","input":[],"prompt_cache_key":"body-session"}`)
 						headers := http.Header{"Session-Id": {"session-a", "session-b"}, "Session_id": {"session-c", "session-d"}, "Thread-Id": {"thread-a", "thread-b"}, "X-Codex-Turn-State": {"opaque-client-state"}}
@@ -215,6 +230,9 @@ func TestCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T) {
 							}
 						}
 						upstream := <-capturedHeaders
+						if perCredential && (upstream.Get("User-Agent") != "FixtureCodexClient/1.0" || upstream.Get("Originator") != "fixture-codex") {
+							t.Errorf("per-credential uncloaked headers lost: %v", upstream)
+						}
 						upstreamBody := <-capturedBody
 						namespace, _, _ := internalcodex.ParseCredentialIdentity(auth.Metadata)
 						for _, header := range []string{"Session-Id", "Session_id", "Thread-Id"} {

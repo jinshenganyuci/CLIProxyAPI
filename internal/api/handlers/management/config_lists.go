@@ -195,6 +195,7 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	type geminiKeyPatch struct {
 		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
+		Priority            *int                             `json:"priority"`
 		Weight              json.RawMessage                  `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
 		BaseURL             *string                          `json:"base-url"`
@@ -256,6 +257,9 @@ func (h *Handler) PatchGeminiKey(c *gin.Context) {
 	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if len(body.Value.Weight) > 0 {
 		weight, errWeight := parseCredentialWeightPatch(body.Value.Weight)
@@ -404,6 +408,7 @@ func (h *Handler) PatchInteractionsKey(c *gin.Context) {
 	type geminiKeyPatch struct {
 		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
 		APIKey              *string                          `json:"api-key"`
+		Priority            *int                             `json:"priority"`
 		Weight              json.RawMessage                  `json:"weight"`
 		Prefix              *string                          `json:"prefix"`
 		BaseURL             *string                          `json:"base-url"`
@@ -466,6 +471,9 @@ func (h *Handler) PatchInteractionsKey(c *gin.Context) {
 	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if len(body.Value.Weight) > 0 {
 		weight, errWeight := parseCredentialWeightPatch(body.Value.Weight)
@@ -916,6 +924,7 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	type openAICompatPatch struct {
 		ConcurrencyLimit      json.RawMessage                     `json:"concurrency-limit"`
 		Name                  *string                             `json:"name"`
+		Priority              *int                                `json:"priority"`
 		Prefix                *string                             `json:"prefix"`
 		Disabled              *bool                               `json:"disabled"`
 		DisableCooling        json.RawMessage                     `json:"disable-cooling"`
@@ -970,6 +979,9 @@ func (h *Handler) PatchOpenAICompat(c *gin.Context) {
 	}
 	if body.Value.Name != nil {
 		entry.Name = strings.TrimSpace(*body.Value.Name)
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if body.Value.Prefix != nil {
 		entry.Prefix = strings.TrimSpace(*body.Value.Prefix)
@@ -1092,6 +1104,7 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 	type vertexCompatPatch struct {
 		ConcurrencyLimit json.RawMessage             `json:"concurrency-limit"`
 		APIKey           *string                     `json:"api-key"`
+		Priority         *int                        `json:"priority"`
 		Weight           json.RawMessage             `json:"weight"`
 		Prefix           *string                     `json:"prefix"`
 		BaseURL          *string                     `json:"base-url"`
@@ -1147,6 +1160,9 @@ func (h *Handler) PatchVertexCompatKey(c *gin.Context) {
 			return
 		}
 		entry.APIKey = trimmed
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if len(body.Value.Weight) > 0 {
 		weight, errWeight := parseCredentialWeightPatch(body.Value.Weight)
@@ -1563,19 +1579,21 @@ func (h *Handler) PutCodexKeys(c *gin.Context) {
 }
 func (h *Handler) PatchCodexKey(c *gin.Context) {
 	type codexKeyPatch struct {
-		ConcurrencyLimit    json.RawMessage                  `json:"concurrency-limit"`
-		APIKey              *string                          `json:"api-key"`
-		Weight              json.RawMessage                  `json:"weight"`
-		Prefix              *string                          `json:"prefix"`
-		BaseURL             *string                          `json:"base-url"`
-		ProxyURL            *string                          `json:"proxy-url"`
-		AlphaSearch         *bool                            `json:"alpha-search"`
-		Models              *[]config.CodexModel             `json:"models"`
-		Headers             *map[string]string               `json:"headers"`
-		ExcludedModels      *[]string                        `json:"excluded-models"`
-		DisableCooling      json.RawMessage                  `json:"disable-cooling"`
-		RequestRetry        *int                             `json:"request-retry"`
-		RequestScopedErrors *[]config.RequestScopedErrorRule `json:"request-scoped-errors"`
+		ConcurrencyLimit     json.RawMessage                  `json:"concurrency-limit"`
+		APIKey               *string                          `json:"api-key"`
+		Priority             *int                             `json:"priority"`
+		Weight               json.RawMessage                  `json:"weight"`
+		Prefix               *string                          `json:"prefix"`
+		BaseURL              *string                          `json:"base-url"`
+		ProxyURL             *string                          `json:"proxy-url"`
+		AlphaSearch          *bool                            `json:"alpha-search"`
+		Models               *[]config.CodexModel             `json:"models"`
+		Headers              *map[string]string               `json:"headers"`
+		ExcludedModels       *[]string                        `json:"excluded-models"`
+		DisableCooling       json.RawMessage                  `json:"disable-cooling"`
+		DisableCodexCloaking json.RawMessage                  `json:"disable-codex-cloaking"`
+		RequestRetry         *int                             `json:"request-retry"`
+		RequestScopedErrors  *[]config.RequestScopedErrorRule `json:"request-scoped-errors"`
 	}
 	var body struct {
 		Index *int           `json:"index"`
@@ -1611,8 +1629,14 @@ func (h *Handler) PatchCodexKey(c *gin.Context) {
 	if !applyCredentialConcurrencyLimitPatch(c, body.Value.ConcurrencyLimit, &entry.ConcurrencyLimit) {
 		return
 	}
+	if !applyDisableCodexCloakingPatch(c, body.Value.DisableCodexCloaking, &entry.DisableCodexCloaking) {
+		return
+	}
 	if body.Value.APIKey != nil {
 		entry.APIKey = strings.TrimSpace(*body.Value.APIKey)
+	}
+	if body.Value.Priority != nil {
+		entry.Priority = *body.Value.Priority
 	}
 	if len(body.Value.Weight) > 0 {
 		weight, errWeight := parseCredentialWeightPatch(body.Value.Weight)
@@ -2132,6 +2156,23 @@ func applyDisableCoolingPatch(c *gin.Context, raw json.RawMessage, target **bool
 	var value bool
 	if errUnmarshal := json.Unmarshal(raw, &value); errUnmarshal != nil {
 		c.JSON(400, gin.H{"error": "disable-cooling must be a boolean or null"})
+		return false
+	}
+	*target = &value
+	return true
+}
+
+func applyDisableCodexCloakingPatch(c *gin.Context, raw json.RawMessage, target **bool) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	if strings.TrimSpace(string(raw)) == "null" {
+		*target = nil
+		return true
+	}
+	var value bool
+	if errUnmarshal := json.Unmarshal(raw, &value); errUnmarshal != nil {
+		c.JSON(400, gin.H{"error": "disable-codex-cloaking must be a boolean or null"})
 		return false
 	}
 	*target = &value

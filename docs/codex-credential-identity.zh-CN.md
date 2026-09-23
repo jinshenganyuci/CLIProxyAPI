@@ -1,15 +1,40 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.12`（上游提交
-`2eb8dd11d2480c5fd8bc8f2796cec6af534bc3b6`），目标是让每个 Codex OAuth
-凭据拥有永久、独立的客户端身份命名空间，同时保持 CPA Key、OAuth Token、
-路由和客户端会话各自原有的职责。
+本分支基于 CLIProxyAPI `v7.3.15`（上游提交
+`673131f57484517c3a1eae7e36c4cfa7b9bb4efc`），为每个 Codex OAuth
+凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
+路由和客户端会话各自的职责。
 
-当前修订为 `v7.3.12-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.12.1` 和 `latest`。本次完整合并上游 `v7.3.12`，
-保留 `v7.3.11-codex-identity.1` 的代理严格校验与单凭据并发限制（未设置默认 10）、占用显示、
-Access Guard 兼容、登录前代理选择、身份隔离、刷新及持久化并发保护。
-已有身份 schema、namespace 和凭据配置格式不变。
+当前修订为 `v7.3.15-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.15.1` 和 `latest`。本次完整合并上游 `v7.3.13`、
+`v7.3.14`、`v7.3.15`，保留登录前代理选择、严格单凭据出口、默认10并发、
+占用显示、Access Guard、身份隔离、刷新及持久化并发保护。
+已有身份 schema、namespace 和凭据配置格式兼容，管理页保持官方 v1.24.2。
+
+## v7.3.13 / v7.3.14 / v7.3.15
+
+- Codex 支持按凭据 `disable-codex-cloaking` 三态覆盖：true关闭、false开启、
+  未设置或API补丁null时继承全局。关闭cloaking不关闭独立身份映射、代理验证或并发限制；
+  WebSocket身份处理同步读取有效凭据设置，并保留原始多值会话标头形状。
+- 修复新增cloaking显式false保存丢失的问题；非法cloaking补丁在删除或修改凭据前拒绝。
+  凭据PATCH同时合入priority，显式0有效，原代理与并发字段保持。
+- 新增 `trusted-proxies` 入站转发IP信任列表，支持IP/CIDR，默认空列表不信任
+  `X-Forwarded-For` / `X-Real-IP`。反向代理部署若需要识别原始客户端，应显式设置
+  可信代理地址，修改后重启。该配置不控制凭据的出站代理；本次不自动修改现有部署。
+  用量增加 `resolved_client_ip`，保留原 `client_ip` 直接连接地址及计费字段。
+- Claude客户端基线更新为2.1.280，合入工具变化与按功能启用的beta。
+  缓存驱逐beta检测限定协议cache_control字段，避免普通文本、工具参数或Schema同名词误触发。
+- Responses到Claude支持字符串input，OpenAI兼容转换支持视频输入；媒体引用在翻译阶段
+  不主动下载。Codex工具Schema清理不支持的八进制NUL模式，保留业务数据与大整数约束。
+- 修复同凭据同时存在配额标记和暂停时模型目录重复扣减；只改模型可用性计算，不改变
+  Access Guard准入、凭据并发上限或冷却规则。
+- Codex客户端模型目录压缩JSON并保留客户端必需的显式null字段，减少自定义模型重复指令。
+  模型抓取工具默认client_version更新为0.155.0；执行器默认User-Agent未因此升级。
+- 原生模型目录新增Grok 4.7 Build Fast、Claude Opus 5.5和相应Codex套餐的GPT-6 Luna/Sol，
+  更新Gemini/Meta能力元数据。这是目录声明，不代表所有账号已具备实际调用权限。
+
+没有新增必填配置；需要注意上面的反向代理来源IP识别默认值变化。
+实验性Codex双向交互仍默认关闭，配置好的凭据无需重新登录或重新初始化身份。
 
 ## v7.3.12 与管理页 v1.24.2
 

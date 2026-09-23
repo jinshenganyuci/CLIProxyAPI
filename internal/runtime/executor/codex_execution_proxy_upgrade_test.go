@@ -20,12 +20,24 @@ import (
 )
 
 func TestCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T) {
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false)
+}
+
+func TestCodexPerCredentialUncloakedExecutionKeepsProxyAuthoritative(t *testing.T) {
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, true)
+}
+
+func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCloaking bool) {
+	t.Helper()
 	for _, mode := range []string{"http", "http_stream", "compact", "websocket", "websocket_stream"} {
 		for _, route := range []string{"matching", "conflicting", "direct_conflict", "unbound_override", "unbound_direct", "invalid_override"} {
 			t.Run(mode+"/"+route, func(t *testing.T) {
 				var originHits, selectedHits, requestHits, globalHits atomic.Int32
 				const complete = `{"type":"response.completed","response":{"id":"proxy-test-response","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`
 				respond := func(w http.ResponseWriter, r *http.Request) {
+					if disableCloaking && (r.Header.Get("User-Agent") != "FixtureCodexClient/1.0" || r.Header.Get("Originator") != "fixture-codex") {
+						t.Errorf("uncloaked execution lost credential headers: %v", r.Header)
+					}
 					if websocket.IsWebSocketUpgrade(r) {
 						conn, errUpgrade := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 						if errUpgrade != nil {
@@ -86,6 +98,11 @@ func TestCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T) {
 				cfg := &config.Config{}
 				cfg.ProxyURL = global.URL
 				credential := &coreauth.Auth{ID: "proxy-upgrade-oauth", Provider: "codex", ProxyURL: selected.URL, Attributes: map[string]string{"base_url": origin.URL}, Metadata: map[string]any{"access_token": "synthetic-oauth"}}
+				if disableCloaking {
+					credential.Attributes["codex_disable_cloaking"] = "true"
+					credential.Attributes["header:User-Agent"] = "FixtureCodexClient/1.0"
+					credential.Attributes["header:Originator"] = "fixture-codex"
+				}
 				requestProxy := selected.URL
 				wantFailure := false
 				switch route {

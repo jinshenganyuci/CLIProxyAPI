@@ -832,7 +832,7 @@ func (e *CodexWebsocketsExecutor) prepareCodexWebsocketStream(ctx context.Contex
 	}
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, preserveNativeOutput, opts.Headers)
 	applyModelHeaderOverrides(wsHeaders, baseModel)
-	applyCodexIdentityHeaders(wsHeaders, &identityState, preserveNativeOutput && e.cfg != nil && e.cfg.Codex.DisableCodexCloaking)
+	applyCodexIdentityHeaders(wsHeaders, &identityState, preserveNativeOutput && isCodexCloakingDisabled(e.cfg, auth))
 
 	return &codexWebsocketPrepared{
 		isCompat:             isCompat,

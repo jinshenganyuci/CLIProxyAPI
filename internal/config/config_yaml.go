@@ -401,6 +401,13 @@ func isKnownDefaultValue(path []string, node *yaml.Node) bool {
 	if len(path) > 0 && (path[len(path)-1] == "cache-user-id" || path[len(path)-1] == "disable-cooling") && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!bool" {
 		return false
 	}
+	// Per-key cloaking is also pointer-backed; global cloaking remains an ordinary bool.
+	if len(path) == 2 && path[1] == "disable-codex-cloaking" && node != nil && node.Kind == yaml.ScalarNode && node.Tag == "!!bool" {
+		switch path[0] {
+		case "codex-api-key", "xai-api-key", "meta-api-key":
+			return false
+		}
+	}
 
 	// First check if it's a zero value
 	if isZeroValueNode(node) {
