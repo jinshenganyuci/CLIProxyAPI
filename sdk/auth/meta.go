@@ -118,6 +118,12 @@ func (a MetaAuthenticator) Login(ctx context.Context, cfg *config.Config, opts *
 	if errRecord != nil {
 		return nil, errRecord
 	}
+	if bundle.MintedKey != nil {
+		record.Metadata["subs_tier_name"] = bundle.MintedKey.SubsTierName
+		record.Metadata["subs_tier_id"] = bundle.MintedKey.SubsTierID
+		record.Metadata["is_subs_active"] = bundle.MintedKey.IsSubsActive
+		record.Metadata["has_payment_method"] = bundle.MintedKey.HasPaymentMethod
+	}
 	if errBind := metaauth.BindOAuthProxy(record, proxyURL, explicitProxy, ctx.Err); errBind != nil {
 		return nil, errBind
 	}

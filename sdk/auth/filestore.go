@@ -306,6 +306,12 @@ func (s *FileTokenStore) readAuthFiles(path, baseDir string) ([]*cliproxyauth.Au
 				if errLimit := cliproxyauth.ApplyAuthConcurrencyLimitMetadata(auth, metadata); errLimit != nil {
 					return nil, errLimit
 				}
+				cliproxyauth.ApplyAuthPriorityMetadata(auth, metadata)
+				if _, inherited := auth.Attributes[cliproxyauth.AttributeFilePriority]; inherited {
+					if setter, ok := auth.Storage.(interface{ SetMetadata(map[string]any) }); ok {
+						setter.SetMetadata(auth.Metadata)
+					}
+				}
 				cliproxyauth.ApplyCustomHeadersFromMetadata(auth)
 			}
 			return auths, nil

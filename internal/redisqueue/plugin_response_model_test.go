@@ -28,7 +28,9 @@ func TestUsageQueueResponseModelIsOptionalAndDoesNotChangeAccounting(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			withEnabledQueue(t, func() {
 				record := coreusage.Record{
-					Provider: "codex", Model: tc.model, Alias: "client-alias", AuthID: "credential-a",
+					// Keep execution identity fixed while comparing optional response metadata.
+					RequestID: "73160000-0000-4000-8000-000000000011",
+					Provider:  "codex", Model: tc.model, Alias: "client-alias", AuthID: "credential-a",
 					RequestedAt: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC),
 					Failed:      tc.failed, Stream: true,
 					Detail: coreusage.Detail{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},

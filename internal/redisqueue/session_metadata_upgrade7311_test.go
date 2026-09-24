@@ -27,7 +27,9 @@ func TestUsageQueueSessionRolesRemainOptionalAndPreserveAccounting(t *testing.T)
 					ParentSessionID: "e1fa4dc0-7311-4000-8000-000000000002",
 				}
 				record := coreusage.Record{
-					Provider: "codex", Model: "requested", Alias: "billing-alias", APIKey: "synthetic-key",
+					// Compare role metadata for the same execution, not separately generated UUIDs.
+					RequestID: "73160000-0000-4000-8000-000000000012",
+					Provider:  "codex", Model: "requested", Alias: "billing-alias", APIKey: "synthetic-key",
 					ResponseModel: "served", ServiceTier: "requested-tier", ResponseServiceTier: "reported-tier",
 					RequestedAt: time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC), Stream: true,
 					Detail: coreusage.Detail{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},

@@ -101,7 +101,7 @@ func TestRPCQuotaCallbacksKeepConcurrentCredentialClients(t *testing.T) {
 				scopesMu.Lock()
 				streamIDs = append(streamIDs, stream.StreamID)
 				scopesMu.Unlock()
-				chunk, done, err := host.httpStreams.read(context.Background(), stream.StreamID)
+				chunk, done, err := host.httpStreams.read(context.Background(), "quota-plugin", nil, stream.StreamID)
 				if err != nil || done || string(chunk.Payload) != req.AuthID {
 					return nil, fmt.Errorf("stream route = %q, want credential %q; done=%v, err=%v", chunk.Payload, req.AuthID, done, err)
 				}
@@ -159,7 +159,7 @@ func TestRPCQuotaCallbacksKeepConcurrentCredentialClients(t *testing.T) {
 			}
 			for _, id := range streamIDs {
 				host.httpStreams.mu.Lock()
-				_, exists := host.httpStreams.streams[id]
+				_, exists := host.httpStreams.streams[hostHTTPStreamKey{pluginID: "quota-plugin", streamID: id}]
 				host.httpStreams.mu.Unlock()
 				if exists {
 					t.Error("completed quota scope retained stream")
@@ -298,7 +298,7 @@ func TestRPCQuotaPluginCannotOmitOrBorrowCallbackScope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			host.httpStreams.close(stream.StreamID)
+			host.httpStreams.close("quota-plugin", nil, stream.StreamID)
 		}
 	}
 }

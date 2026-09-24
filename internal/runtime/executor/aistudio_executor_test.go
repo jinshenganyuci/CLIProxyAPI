@@ -301,7 +301,7 @@ func TestAIStudioExecutorExecuteStartsTTFTBeforeRelayWait(t *testing.T) {
 		clientDone <- nil
 	}()
 
-	plugin := &captureAIStudioUsagePlugin{records: make(chan usage.Record, 16)}
+	plugin := &captureAIStudioUsagePlugin{authID: authID, records: make(chan usage.Record, 16)}
 	usage.RegisterPlugin(plugin)
 	exec := NewAIStudioExecutor(&config.Config{}, "aistudio", relay)
 	ctx := cliproxyexecutor.WithUpstreamAttemptTracker(context.Background())
@@ -319,18 +319,30 @@ func TestAIStudioExecutorExecuteStartsTTFTBeforeRelayWait(t *testing.T) {
 		t.Fatal(errClient)
 	}
 
-	record := waitForAIStudioUsageRecord(t, plugin.records, "gemini-3.1-pro-preview")
+	record := waitForAIStudioUsageRecord(t, plugin.records, "gemini-3.1-pro-preview", authID)
 	if record.TTFT < delay {
 		t.Fatalf("ttft = %v, want >= %v", record.TTFT, delay)
 	}
 }
 
 type captureAIStudioUsagePlugin struct {
+	authID  string
 	records chan usage.Record
 }
 
+func TestAIStudioUsageRecordIgnoresForeignAuth(t *testing.T) {
+	const model = "gemini-3.1-pro-preview"
+	const authID = "aistudio-usage-isolation"
+	records := make(chan usage.Record, 2)
+	records <- usage.Record{Provider: "aistudio", Model: model, AuthID: "aistudio-not-connected"}
+	records <- usage.Record{Provider: "aistudio", Model: model, AuthID: authID, TTFT: 40 * time.Millisecond}
+	if got := waitForAIStudioUsageRecord(t, records, model, authID); got.AuthID != authID {
+		t.Fatalf("captured usage for auth %q, want %q", got.AuthID, authID)
+	}
+}
+
 func (p *captureAIStudioUsagePlugin) HandleUsage(_ context.Context, record usage.Record) {
-	if p == nil {
+	if p == nil || record.Provider != "aistudio" || record.AuthID != p.authID {
 		return
 	}
 	select {
@@ -339,13 +351,13 @@ func (p *captureAIStudioUsagePlugin) HandleUsage(_ context.Context, record usage
 	}
 }
 
-func waitForAIStudioUsageRecord(t *testing.T, records <-chan usage.Record, model string) usage.Record {
+func waitForAIStudioUsageRecord(t *testing.T, records <-chan usage.Record, model, authID string) usage.Record {
 	t.Helper()
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
 		case record := <-records:
-			if record.Provider == "aistudio" && record.Model == model {
+			if record.Provider == "aistudio" && record.Model == model && record.AuthID == authID {
 				return record
 			}
 		case <-timeout:
