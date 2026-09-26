@@ -119,6 +119,10 @@ func MergeRefreshedAuth(base, current, updated *Auth) *Auth {
 	if !updated.NextRefreshAfter.IsZero() || (base != nil && !base.NextRefreshAfter.IsZero()) {
 		merged.NextRefreshAfter = updated.NextRefreshAfter
 	}
+	// Successful refresh resets native backoff without discarding a newer failure.
+	if base == nil || current.RefreshFailures == base.RefreshFailures {
+		merged.RefreshFailures = updated.RefreshFailures
+	}
 
 	// 2. Error and Status recovery
 	baseErrMsg := ""

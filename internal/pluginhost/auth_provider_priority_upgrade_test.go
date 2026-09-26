@@ -69,7 +69,7 @@ func TestPluginFilePriorityRefreshPreservesForkControlsUpgrade(t *testing.T) {
 			original := &coreauth.Auth{
 				ID: id, Provider: "codex", FileName: id, ProxyURL: "direct", Status: coreauth.StatusActive,
 				Metadata:   map[string]any{"type": "codex", "access_token": "old-token", "priority": float64(7), "proxy_url": "direct", "codex_identity_version": float64(1), "codex_identity_namespace": namespace},
-				Attributes: map[string]string{coreauth.AttributeSourceBackend: coreauth.AuthSourceFile, coreauth.AttributePath: filepath.Join(dir, id), coreauth.AttributeSource: filepath.Join(dir, id), coreauth.AttributeFilePriority: "true", "priority": "7"},
+				Attributes: map[string]string{coreauth.AttributeSourceBackend: coreauth.AuthSourceFile, coreauth.AttributePath: filepath.Join(dir, id), coreauth.AttributeSource: filepath.Join(dir, id), coreauth.AttributeFilePriority: "true", "priority": "7", "custom_env": "production", "header:X-Credential": "retained"},
 			}
 			registered, errRegister := manager.Register(ctx, original)
 			if errRegister != nil {
@@ -89,6 +89,9 @@ func TestPluginFilePriorityRefreshPreservesForkControlsUpgrade(t *testing.T) {
 			}
 			if refreshed.Metadata["access_token"] != "new-token" || refreshed.ProxyURL != wantProxy || refreshed.Metadata["proxy_url"] != wantProxy || refreshed.Metadata["codex_identity_version"] != float64(1) || refreshed.Metadata["codex_identity_namespace"] != wantNamespace {
 				t.Fatalf("refresh lost token, proxy, or credential identity: proxy=%q identity=%v/%v", refreshed.ProxyURL, refreshed.Metadata["codex_identity_version"], refreshed.Metadata["codex_identity_namespace"])
+			}
+			if refreshed.Attributes[coreauth.AttributePath] != filepath.Join(dir, id) || refreshed.Attributes[coreauth.AttributeSource] != filepath.Join(dir, id) || refreshed.Attributes[coreauth.AttributeSourceBackend] != coreauth.AuthSourceFile || refreshed.Attributes["custom_env"] != "production" || refreshed.Attributes["header:X-Credential"] != "retained" || refreshed.Attributes["plugin_attr"] != "new-value" {
+				t.Fatal("partial plugin refresh lost existing file routing/custom attributes or the new plugin attribute")
 			}
 			if refreshed.Attributes["priority"] != wantPriority || (refreshed.Attributes[coreauth.AttributeFilePriority] == "true") != (mode != "removed") {
 				t.Fatal("refresh lost the latest file priority or ownership marker")

@@ -11,29 +11,58 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	internalcodex "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	"github.com/tidwall/gjson"
 )
 
 func TestCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T) {
-	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false)
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false, false)
 }
 
 func TestCodexPerCredentialUncloakedExecutionKeepsProxyAuthoritative(t *testing.T) {
-	testCodexExecutionProxyKeepsCredentialAuthoritative(t, true)
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, true, false)
 }
 
-func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCloaking bool) {
+func TestCodexRoutingHintKeepsCredentialProxyAndIdentity(t *testing.T) {
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false, true)
+}
+
+func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCloaking, routingHint bool) {
 	t.Helper()
 	for _, mode := range []string{"http", "http_stream", "compact", "websocket", "websocket_stream"} {
 		for _, route := range []string{"matching", "conflicting", "direct_conflict", "unbound_override", "unbound_direct", "invalid_override"} {
 			t.Run(mode+"/"+route, func(t *testing.T) {
 				var originHits, selectedHits, requestHits, globalHits atomic.Int32
 				const complete = `{"type":"response.completed","response":{"id":"proxy-test-response","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`
+				validateHint := func(r *http.Request, body []byte) {
+					if !routingHint {
+						return
+					}
+					if got := r.Header.Get(codexRoutingHintHeader); got != "model=gpt-5.5;tier=priority" {
+						t.Errorf("routing hint = %q, want resolved model and overridden tier", got)
+					}
+					if gjson.GetBytes(body, "model").String() != "gpt-5.5" || gjson.GetBytes(body, "service_tier").String() != "priority" {
+						t.Errorf("upstream body model/tier do not match routing hint: %s", body)
+					}
+					wantSession := internalcodex.DeriveCredentialIdentity(uuid.MustParse("c8775040-a5bc-4bc5-893c-bd631bacd584"), "session", "client-session")
+					wantInstall := internalcodex.DeriveCredentialIdentity(uuid.MustParse("c8775040-a5bc-4bc5-893c-bd631bacd584"), "installation", "client-install")
+					if got := gjson.GetBytes(body, "prompt_cache_key").String(); got != wantSession {
+						t.Errorf("credential session identity = %q, want %q", got, wantSession)
+					}
+					if got := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String(); got != wantInstall {
+						t.Errorf("credential installation identity = %q, want %q", got, wantInstall)
+					}
+					if got := codexSessionHeaderValue(r.Header); got != wantSession {
+						t.Errorf("credential session header = %q, want %q", got, wantSession)
+					}
+				}
 				respond := func(w http.ResponseWriter, r *http.Request) {
 					if disableCloaking && (r.Header.Get("User-Agent") != "FixtureCodexClient/1.0" || r.Header.Get("Originator") != "fixture-codex") {
 						t.Errorf("uncloaked execution lost credential headers: %v", r.Header)
@@ -45,14 +74,21 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 							return
 						}
 						defer func() { _ = conn.Close() }()
-						if _, _, errRead := conn.ReadMessage(); errRead != nil {
+						_, body, errRead := conn.ReadMessage()
+						if errRead != nil {
 							t.Error(errRead)
 							return
 						}
+						validateHint(r, body)
 						_ = conn.WriteMessage(websocket.TextMessage, []byte(complete))
 						return
 					}
-					_, _ = io.Copy(io.Discard, r.Body)
+					body, errRead := io.ReadAll(r.Body)
+					if errRead != nil {
+						t.Error(errRead)
+						return
+					}
+					validateHint(r, body)
 					if strings.HasSuffix(r.URL.Path, "/compact") {
 						w.Header().Set("Content-Type", "application/json")
 						_, _ = io.WriteString(w, `{"object":"response.compaction","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
@@ -103,6 +139,12 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 					credential.Attributes["header:User-Agent"] = "FixtureCodexClient/1.0"
 					credential.Attributes["header:Originator"] = "fixture-codex"
 				}
+				if routingHint {
+					cfg.Codex.CredentialIdentity.Enabled = true
+					cfg.Payload.Override = []config.PayloadRule{{Models: []config.PayloadModelRule{{Name: "gpt-5.5"}}, Params: map[string]any{"service_tier": "priority"}}}
+					credential.Metadata["codex_identity_namespace"] = "c8775040-a5bc-4bc5-893c-bd631bacd584"
+					credential.Metadata["codex_identity_version"] = 1
+				}
 				requestProxy := selected.URL
 				wantFailure := false
 				switch route {
@@ -120,6 +162,10 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 				ctx := coreexecutor.WithRequestProxyURL(t.Context(), requestProxy)
 				req := coreexecutor.Request{Model: "gpt-test", Payload: []byte(`{"model":"gpt-test","input":[]}`)}
 				opts := coreexecutor.Options{SourceFormat: translator.FormatOpenAIResponse}
+				if routingHint {
+					req = coreexecutor.Request{Model: "gpt-5.5(low)", Payload: []byte(`{"model":"client-alias","input":[],"service_tier":"default","prompt_cache_key":"client-session","client_metadata":{"x-codex-installation-id":"client-install"}}`)}
+					opts.Headers = http.Header{codexRoutingHintHeader: {"model=client-alias;tier=default"}}
+				}
 				executor := NewCodexExecutor(cfg)
 				ws := NewCodexWebsocketsExecutor(cfg)
 				ws.store = &codexWebsocketSessionStore{}

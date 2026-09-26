@@ -148,8 +148,8 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, explicit 
 	if guard() != nil {
 		return
 	}
-	record, errRecord := metaauth.CreateAuthRecord(authSvc.CreateTokenStorage(bundle))
-	if errRecord != nil {
+	record := buildMetaAuthRecord(bundle, authSvc.CreateTokenStorage(bundle))
+	if record == nil {
 		SetOAuthSessionError(state, "Failed to create Meta authentication record")
 		return
 	}
@@ -171,4 +171,19 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, explicit 
 	}
 	CompleteOAuthSession(state)
 	log.Info("Meta authentication successful")
+}
+
+// buildMetaAuthRecord includes acquired subscription state before route storage snapshots metadata.
+func buildMetaAuthRecord(bundle *metaauth.MetaAuthBundle, tokenStorage *metaauth.MetaTokenStorage) *coreauth.Auth {
+	record, errRecord := metaauth.CreateAuthRecord(tokenStorage)
+	if errRecord != nil {
+		return nil
+	}
+	if bundle != nil && bundle.MintedKey != nil {
+		record.Metadata["subs_tier_name"] = bundle.MintedKey.SubsTierName
+		record.Metadata["subs_tier_id"] = bundle.MintedKey.SubsTierID
+		record.Metadata["is_subs_active"] = bundle.MintedKey.IsSubsActive
+		record.Metadata["has_payment_method"] = bundle.MintedKey.HasPaymentMethod
+	}
+	return record
 }

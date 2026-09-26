@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -685,89 +686,99 @@ func TestHandleAuthUpdates_StaleDisableRegistrationDoesNotDropNewerEnable(t *tes
 }
 
 func TestHandleAuthUpdates_SameRevisionWaitDoesNotWaitForOtherAuthInBatch(t *testing.T) {
-	reg := internalregistry.GetGlobalRegistry()
-	authAID := "codex-batch-wait-a-auth"
-	authBID := "codex-batch-wait-b-auth"
-	reg.UnregisterClient(authAID)
-	reg.UnregisterClient(authBID)
-	t.Cleanup(func() {
-		reg.UnregisterClient(authAID)
-		reg.UnregisterClient(authBID)
-	})
+	for _, reverse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reverse_input_%t", reverse), func(t *testing.T) {
+			reg := internalregistry.GetGlobalRegistry()
+			authAID := "codex-batch-wait-a-auth"
+			authBID := "codex-batch-wait-b-auth"
+			reg.UnregisterClient(authAID)
+			reg.UnregisterClient(authBID)
+			t.Cleanup(func() {
+				reg.UnregisterClient(authAID)
+				reg.UnregisterClient(authBID)
+			})
 
-	manager := coreauth.NewManager(nil, nil, nil)
-	manager.RegisterExecutor(&syncTestExecutor{})
-	authA := &coreauth.Auth{
-		ID:         authAID,
-		Provider:   "codex",
-		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"plan_type": "pro", "path": "/path/to/codex-batch-wait-a.json"},
-	}
-	authB := &coreauth.Auth{
-		ID:         authBID,
-		Provider:   "codex",
-		Status:     coreauth.StatusActive,
-		Attributes: map[string]string{"plan_type": "pro", "path": "/path/to/codex-batch-wait-b.json"},
-	}
-	for _, auth := range []*coreauth.Auth{authA, authB} {
-		if _, errRegister := manager.Register(context.Background(), auth); errRegister != nil {
-			t.Fatalf("register auth %s: %v", auth.ID, errRegister)
-		}
-	}
+			manager := coreauth.NewManager(nil, nil, nil)
+			manager.RegisterExecutor(&syncTestExecutor{})
+			authA := &coreauth.Auth{
+				ID:         authAID,
+				Provider:   "codex",
+				Status:     coreauth.StatusActive,
+				Attributes: map[string]string{"plan_type": "pro", "path": "/path/to/codex-batch-wait-a.json"},
+			}
+			authB := &coreauth.Auth{
+				ID:         authBID,
+				Provider:   "codex",
+				Status:     coreauth.StatusActive,
+				Attributes: map[string]string{"plan_type": "pro", "path": "/path/to/codex-batch-wait-b.json"},
+			}
+			for _, auth := range []*coreauth.Auth{authA, authB} {
+				if _, errRegister := manager.Register(context.Background(), auth); errRegister != nil {
+					t.Fatalf("register auth %s: %v", auth.ID, errRegister)
+				}
+			}
+			service := &Service{cfg: &config.Config{}, coreManager: manager, pluginHost: pluginhost.New()}
+			bStarted := make(chan struct{})
+			bBlock := make(chan struct{})
+			finishedBatch := make(chan struct{})
+			var blockOnce, releaseOnce sync.Once
+			oldPluginModels := pluginModelsForAuth
+			// Worker start order is arbitrary; block the intended credential by ID.
+			pluginModelsForAuth = func(_ context.Context, _ *pluginhost.Host, auth *coreauth.Auth) pluginhost.AuthModelResult {
+				if auth.ID == authBID {
+					blockOnce.Do(func() { close(bStarted) })
+					<-bBlock
+				}
+				return pluginhost.AuthModelResult{}
+			}
+			t.Cleanup(func() {
+				releaseOnce.Do(func() { close(bBlock) })
+				select {
+				case <-finishedBatch:
+				case <-time.After(2 * time.Second):
+					t.Error("batch registration did not finish during cleanup")
+				}
+				pluginModelsForAuth = oldPluginModels
+			})
 
-	service := &Service{cfg: &config.Config{}, coreManager: manager}
+			updateA := watcher.AuthUpdate{Action: watcher.AuthUpdateActionModify, ID: authAID, Auth: authA}
+			updateA.SetRevision(1)
+			updateB := watcher.AuthUpdate{Action: watcher.AuthUpdateActionModify, ID: authBID, Auth: authB}
+			updateB.SetRevision(1)
+			updates := []watcher.AuthUpdate{updateA, updateB}
+			if reverse {
+				updates = []watcher.AuthUpdate{updateB, updateA}
+			}
+			go func() {
+				defer close(finishedBatch)
+				service.handleAuthUpdates(context.Background(), updates)
+			}()
 
-	bStarted := make(chan struct{})
-	bBlock := make(chan struct{})
-	var started atomic.Int32
-	modelRegistrationTaskHook = func() {
-		if started.Add(1) == 2 {
-			close(bStarted)
-			<-bBlock
-		}
-	}
-	t.Cleanup(func() {
-		modelRegistrationTaskHook = nil
-		select {
-		case <-bBlock:
-		default:
-			close(bBlock)
-		}
-	})
-
-	updateA := watcher.AuthUpdate{Action: watcher.AuthUpdateActionModify, ID: authAID, Auth: authA}
-	updateA.SetRevision(1)
-	updateB := watcher.AuthUpdate{Action: watcher.AuthUpdateActionModify, ID: authBID, Auth: authB}
-	updateB.SetRevision(1)
-
-	finishedBatch := make(chan struct{})
-	go func() {
-		defer close(finishedBatch)
-		service.handleAuthUpdates(context.Background(), []watcher.AuthUpdate{updateA, updateB})
-	}()
-
-	select {
-	case <-bStarted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("second auth registration in batch did not start")
-	}
-
-	doneA := make(chan struct{})
-	go func() {
-		service.handleAuthUpdate(context.Background(), updateA)
-		close(doneA)
-	}()
-	select {
-	case <-doneA:
-	case <-time.After(2 * time.Second):
-		t.Fatal("auth A hook wait blocked on unrelated auth B registration")
-	}
-
-	close(bBlock)
-	select {
-	case <-finishedBatch:
-	case <-time.After(2 * time.Second):
-		t.Fatal("batch auth update did not finish")
+			select {
+			case <-bStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("auth B registration in batch did not start")
+			}
+			doneA := make(chan struct{})
+			go func() {
+				service.handleAuthUpdate(context.Background(), updateA)
+				close(doneA)
+			}()
+			select {
+			case <-doneA:
+			case <-time.After(2 * time.Second):
+				t.Fatal("auth A hook wait blocked on unrelated auth B registration")
+			}
+			if len(reg.GetModelsForClient(authAID)) == 0 {
+				t.Fatal("auth A wait returned before its models were registered")
+			}
+			releaseOnce.Do(func() { close(bBlock) })
+			select {
+			case <-finishedBatch:
+			case <-time.After(2 * time.Second):
+				t.Fatal("batch auth update did not finish")
+			}
+		})
 	}
 }
 

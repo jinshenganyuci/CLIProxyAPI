@@ -1,14 +1,51 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.16`（上游提交
-`c404af96ebacedf8168b3c2bdbf4449a21cd1c1e`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v7.3.18`（上游提交
+`ed980be34b9981735eaa16941956b1e8d9abfb7c`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v7.3.16-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.16.1` 和 `latest`。本次完整合并上游 `v7.3.16`，
-保留登录前代理选择、严格单凭据出口、默认10并发、占用显示、Access Guard、
-身份隔离、刷新和持久化并发保护。管理页保持官方 v1.24.2 的同一二开资产。
+当前修订为 `v7.3.18-codex-identity.1`，Docker 同时发布固定标签
+`codex-identity-v7.3.18.1` 和 `latest`。本次完整合并上游 `v7.3.17` 与
+`v7.3.18` 的 24 个提交（20 个非 merge、4 个 merge），保留登录前代理选择、
+严格单凭据出口、默认 10 并发、占用显示、Access Guard、身份隔离和并发持久化保护。
+管理页继续以官方 v1.24.2 为基线。
+
+## v7.3.17 / v7.3.18
+
+- Codex OAuth 的 HTTP/WebSocket Responses 请求增加 `X-Codex-Routing-Hint`，
+  使用实际基础模型与最终请求体的 `service_tier`；有效自定义头和模型覆盖仍有优先级。
+  API Key 不自动添加该头。WebSocket 头仅在握手发送，复用连接后的新 tier 由帧正文携带。
+  它不配置网络代理，也不保证获得 priority 权限或更快速度。
+- 执行、流式、令牌计数和 Home 分发按实际选中模型保留能力；Responses
+  `configuration_update` 按目标能力透传或转为规范化思考设置，模型后缀仍优先，
+  插件已修改或删除的更新不会从旧原文恢复。它是请求条目，不是服务器配置热更新。
+- Codex API Key 模型新增可选 `support-configuration-update`，未设置为 false，
+  独立于 OAuth 目录。xAI 移除末端重复 reasoning 校验，仍按 Responses 协议删除 `stop`。
+- Claude 对齐 2.1.280 的 UTF-16 指纹采样、Opus 5.5 fallback、beta 和原生 helper
+  识别；思考显示与摘要显隐跨协议保留，尊重调用方显式值。v7.3.18 撤回 v7.3.17
+  对 direct Messages OAuth 的默认 passthrough 豁免，最终仍遵循原有 cloaking 策略。
+- Claude 工具名中的非法字符与长度规范化，无参数工具补对象 Schema；Gemini 普通
+  文本没有有效签名时不再附加虚构 bypass，工具调用保留原生兼容处理。
+- Antigravity 回放支持 `Session_id` 和 `Session-Id`；重复签名清理、上下文指纹拒绝
+  和流式模型重写日志按请求汇总，减少 debug 日志量，不改变持久缓存保留策略。
+- Devin Grok 目录归属修正为 xai；`devin/swe-1-6-slow` 恢复为固定内建条目，
+  不因远程或嵌入目录遗漏而消失。目录抓取在正文读完关闭后再取消 context。
+- Meta 修正 `X-Client-Id` 请求头，管理登录和刷新同步订阅级别、活跃和付款信息。
+  Meta 404 优先采用上游重置时间，没有该值时冷却 5 分钟，调度尊重明确 RetryAfter。
+- 插件刷新补回未返回的属性和凭据存储路径，保留明确的存储后端；文件监听短暂重试
+  已知凭据的原子替换窗口，降低误判删除。原代理、优先级、并发和身份保护继续保留。
+- 已禁用且 invalid_grant 的凭据退出后台刷新调度；启用凭据按 1 分钟开始、上限
+  30 分钟指数退避，有效 access token 维持原可用性；成功刷新清零内存中的失败计数。
+- 只读插件拦截减少整份正文的重复复制；会话提取为顶层字段建索引并共享只读原文，
+  减少大型请求的重复扫描与临时分配。插件输入隔离和实际正文替换语义保留。
+- HTTP 服务停止改为立即关闭监听与活动 HTTP 连接；停止或重启时正在执行的 HTTP
+  请求可能中断。此行为不等于所有 hijacked WebSocket 或外部连接的统一关闭保证。
+
+没有新增必填配置，已有凭据无需普遍重新登录或初始化身份，Codex 双向交互仍默认关闭。
+本轮原生分配优化不构成此前内存增长问题已修复的证据：三个 replay cache、usage
+Manager 及 Codex WebSocket session/duplex 缓冲实现相较 v7.3.16 未变，不另行改动
+其保留策略，也不将普通升级回归表述成内存压力复测。
 
 ## v7.3.16
 
