@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	antigravity "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/interactions"
-	gemini "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/interactions"
+	antigravity "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/interactions"
+	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/interactions"
 	"github.com/tidwall/gjson"
 )
 

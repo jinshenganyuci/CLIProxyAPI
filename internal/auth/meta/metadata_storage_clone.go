@@ -3,7 +3,7 @@ package meta
 import (
 	"fmt"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 // CloneForMetadataUpdate preserves native tokens and isolates mutable metadata.

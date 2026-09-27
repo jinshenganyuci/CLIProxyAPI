@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 // CloneForMetadataUpdate retains provider data without sharing mutable metadata.

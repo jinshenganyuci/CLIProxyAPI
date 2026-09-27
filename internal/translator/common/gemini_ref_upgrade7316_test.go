@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"testing"
 
-	agclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/claude"
-	aginteractions "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/interactions"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/translator/common"
-	geminiclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/claude"
-	geminiinteractions "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/interactions"
-	geminiresponses "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/openai/responses"
+	agclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
+	aginteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/interactions"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
+	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
+	geminiinteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/interactions"
+	geminiresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	"github.com/tidwall/gjson"
 )
 

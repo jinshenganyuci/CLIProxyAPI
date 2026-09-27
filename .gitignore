@@ -34,6 +34,7 @@ docs/*
 !docs/codex-credential-identity.zh-CN.md
 !docs/credential-concurrency.md
 !docs/codex-response-steering.md
+!docs/management-api-v8.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md

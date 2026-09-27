@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/proxyutil"
+	codexauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 )
 
 func (h *Host) newQuotaHTTPClient(auth *coreauth.Auth, provider string) (pluginapi.HostHTTPClient, error) {

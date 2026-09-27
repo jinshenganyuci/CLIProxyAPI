@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 )
 
 // IsAuthTokenPayloadKey returns true if key is a credential or token lifecycle field

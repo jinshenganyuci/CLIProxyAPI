@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	log "github.com/sirupsen/logrus"
 )
 

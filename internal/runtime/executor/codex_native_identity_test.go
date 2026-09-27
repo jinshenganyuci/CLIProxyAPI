@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
-	internalcodex "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	"github.com/tidwall/gjson"
 )
 

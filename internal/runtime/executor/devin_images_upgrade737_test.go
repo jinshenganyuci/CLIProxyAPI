@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	interactionsclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/interactions/claude"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	interactionsclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/interactions/claude"
 )
 
 func devinImagesUpgrade737Parse(t *testing.T, original string, dropUserImages bool) []helps.DevinPrompt {

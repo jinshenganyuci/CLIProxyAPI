@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 )
 
 // metadataTokenStorage retains Devin's complete credential payload after login.

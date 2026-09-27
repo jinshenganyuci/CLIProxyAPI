@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 // UpdateAndPersistMetadata applies operator edits to the latest credential and

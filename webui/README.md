@@ -77,6 +77,16 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
+The v8 backend keeps the v0 JSON management contract used by provider forms.
+The visual YAML editor additionally understands v8 nested paths and mixed legacy
+layouts. It reads nested values by presence, including false, zero, and empty
+values, then applies only edited fields to the latest YAML tree. Client keys under
+`access.api-keys` cannot overwrite upstream groups under top-level `api-keys`.
+Unchanged provider groups, credential proxies and concurrency settings, Codex
+identity, plugin data, and unknown fields are preserved. Legacy-only files retain
+their layout. The raw YAML editor still replaces the complete supplied document;
+these visual edits do not provide atomic compare-and-swap against later writes.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
@@ -93,7 +103,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b61ef2e2186c34bd46477f7340e97bdd9709f9c63732dd25d644f6486034450f
+84a0481ea0c8da5ac58c5efed7a348543cf326dbe6ba804e19338eed4d49f42c
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

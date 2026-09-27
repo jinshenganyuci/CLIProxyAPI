@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	codexclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/codex/claude"
-	openaiclaude "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/openai/claude"
+	codexclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/claude"
+	openaiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
 	"github.com/tidwall/gjson"
 )
 

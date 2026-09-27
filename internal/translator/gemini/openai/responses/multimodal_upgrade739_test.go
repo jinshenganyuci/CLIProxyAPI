@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	antigravity "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/antigravity/openai/responses"
-	gemini "github.com/router-for-me/CLIProxyAPI/v7/internal/translator/gemini/openai/responses"
+	antigravity "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/openai/responses"
+	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	"github.com/tidwall/gjson"
 )
 

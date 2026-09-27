@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
 
 // SelectAuthByKindWithConcurrency selects and reserves one local credential for a new execution.

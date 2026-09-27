@@ -3,8 +3,8 @@ package watcher
 import (
 	"strings"
 
-	internalcodex "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 func markCodexCredentialIdentityConflicts(auths []*coreauth.Auth) {

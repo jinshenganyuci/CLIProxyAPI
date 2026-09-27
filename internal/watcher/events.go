@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	log "github.com/sirupsen/logrus"
 )
 

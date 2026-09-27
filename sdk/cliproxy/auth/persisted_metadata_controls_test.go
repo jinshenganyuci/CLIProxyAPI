@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 )
 
 type metadataControlsStorage struct {

@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,9 +20,20 @@ func validateCredentialConcurrencyLimitYAML(data []byte) error {
 	// Decode into native values before the typed config: decoding directly into int
 	// can truncate YAML floats. Native decoding also resolves aliases and merge keys
 	// with YAML precedence, including aliases on the root and credential sequences.
-	var document any
-	if errUnmarshal := yaml.Unmarshal(data, &document); errUnmarshal != nil {
+	var node yaml.Node
+	if errUnmarshal := yaml.Unmarshal(data, &node); errUnmarshal != nil {
 		return errUnmarshal
+	}
+	if len(node.Content) == 0 {
+		return nil
+	}
+	flat, errFlatten := flattenV8(node.Content[0])
+	if errFlatten != nil {
+		return errFlatten
+	}
+	var document any
+	if errDecode := flat.Decode(&document); errDecode != nil {
+		return errDecode
 	}
 	for _, family := range []string{
 		"gemini-api-key", "interactions-api-key", "claude-api-key", "vertex-api-key",

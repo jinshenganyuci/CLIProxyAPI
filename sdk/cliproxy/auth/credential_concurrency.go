@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/credentialconcurrency"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 )
 
 // EffectiveConcurrencyLimit returns the local credential limit shared by all keys and models.

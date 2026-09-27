@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	metaauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/meta"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	metaauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/meta"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 type metaSubscriptionUpgradeService struct {

@@ -3,7 +3,7 @@ package meta
 import (
 	"encoding/json"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 // MetaCredentialTokens exposes native credential identity without a provider import.

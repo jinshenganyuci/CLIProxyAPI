@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/credentialfile"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 )
 
 // ErrOAuthProxyMismatch prevents implicit relogin from replacing a selected account route.

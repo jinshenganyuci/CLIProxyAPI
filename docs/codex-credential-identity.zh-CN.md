@@ -1,15 +1,123 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v7.3.18`（上游提交
-`ed980be34b9981735eaa16941956b1e8d9abfb7c`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.2`（上游提交
+`4a2c81864f31f39308e946c4c65e72147855da6e`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v7.3.18-codex-identity.1`，Docker 同时发布固定标签
-`codex-identity-v7.3.18.1` 和 `latest`。本次完整合并上游 `v7.3.17` 与
-`v7.3.18` 的 24 个提交（20 个非 merge、4 个 merge），保留登录前代理选择、
-严格单凭据出口、默认 10 并发、占用显示、Access Guard、身份隔离和并发持久化保护。
-管理页继续以官方 v1.24.2 为基线。
+当前修订为 `v8.0.2-codex-identity.1`，Docker 固定标签为
+`codex-identity-v8.0.2.1`。本轮仅发布固定版本，**不移动 Docker latest，GitHub
+Release 不标记 Latest**。完整合并上游 v7.3.19、v7.3.20、v8.0.0、v8.0.1、v8.0.2
+的 16 个提交（15 个非 merge、1 个 merge），保留单凭据代理、独立身份、默认 10
+并发与 Access Guard 边界。管理页继续以官方 v1.24.2 为基线。
+
+## v8.0.2 迁移与回退
+
+旧布局配置继续受支持；v8 配置 GET 只是渲染新布局视图，不迁移磁盘文件。
+`config-version: 8` 本身也不强制迁移；成功的 v8 配置写入才整体迁移布局。
+新旧同字段并存时新字段优先，包括 false、0 和空列表，冲突旧字段可在加载/保存
+清理；明文管理密钥启动哈希属于既有行为，不能理解为启动绝不写文件。
+
+| 旧配置 | v8 配置 |
+| --- | --- |
+| `host` / `port` / `tls` | `server.host` / `server.port` / `server.tls` |
+| `remote-management` | `management` |
+| 客户端 `api-keys` 列表 | `access.api-keys` |
+| `codex-api-key` 等上游列表 | `api-keys.codex` 等分组，内部 `keys` |
+| `proxy-url` / `payload` / `streaming` | `requests.proxy-url` / `.payload` / `.streaming` |
+| `auth-dir` | `oauth.auth-dir` |
+| `codex` / `claude` / `devin` | `oauth.providers.codex` / `.claude` / `.devin` |
+| `request-retry` / `disable-cooling` | `routing.retry.request-retry` / `routing.cooldown.disable-cooling` |
+| `credential-concurrency` / `credential-in-flight` | `credentials.concurrency` / `credentials.in-flight` |
+| `debug` / `usage-statistics-enabled` | `observability.logs.debug` / `observability.usage.usage-statistics-enabled` |
+
+新上游分组的 `base-url` 放在组上；迁移不会仅因地址相同而合并原先不同的凭据策略。
+可继承的 Key 选项为 null 时继承组配置。凭据文件中原有代理、并发与身份元数据不按
+这张 YAML 路径表重命名。`/v0/management` 继续兼容；`/v8/management/config/api-keys`
+表示上游，客户端访问 Key 则是 `/v8/management/config/access/api-keys`。
+
+v8 配置 PUT 替换目标，PATCH 合并对象但替换列表/标量，DELETE 删除字段；JSON
+直接传值，不使用旧 value 包装。路径只定位映射键，不是数组下标。拒绝的写请求
+不改磁盘文件；完整 PUT 不应提交不完整示例，否则未提交的设置可能被删除。
+
+v8.0.1 曾直接删除废弃的 `home` 和 `enable-gemini-cli-endpoint` 根配置；最终
+v8.0.2 把这些旧字段和未知根节转为尾部注释，保留文本但不再作为活动设置。
+新 v8 写入仍严格拒绝非法活动根节与旧拼写。注释保留不能替代原始配置备份。
+
+Go SDK/源码依赖改为 `github.com/router-for-me/CLIProxyAPI/v8`，需更新依赖和
+import 并重编译测试；v7/v8 类型不能混用。这不表示所有公共推理 API 前缀改为 v8。
+已发布外部插件的二进制兼容需按实际版本测试，不能仅凭 SDK 主版本或 ABI 名称推断。
+
+**提供商设置作用域需要检查。** 迁移到 `oauth.providers.*` 的设置只对 OAuth 生效，
+不再是 API Key 的提供商全局默认。若 API Key 原依赖这些 cloak/请求头/优化等配置，
+请把支持的选项显式放在相应 API Key 组/Key。全局 `requests.proxy-url` 和每 Key
+明确代理继续按各自作用域生效，不因该变化丢失。
+
+**Devin 模型名称需要单独检查。** 原 135 条嵌入目录聚合为 56 个基础条目，另加
+内建 SWE-1.6 Slow，共 57 条有效目录。81 个旧变体名不再自动路由；客户端、alias
+来源和精确 exclusions/allowlist 应同步改为当前基础模型及标准 effort 写法。
+旧 fast/priority 变体的服务等级不能保证与基础模型等价，不自动添加旧别名掩盖差异。
+
+升级前保留当前固定 v7 镜像/摘要，并保存同一时间点的原始 config.yaml、auth 目录、
+插件二进制与插件持久化状态/数据库，特别是 Access Guard 绑定和额度数据。使用隔离
+数据副本验收，不让测试与生产共享可写 auth/pluginstate。本次发布任务不实际复制
+真实密钥或改现有部署。
+
+需要回退时停止 v8 写入，再恢复固定 v7 镜像和对应的升级前配置、凭据及插件状态；
+不能只换旧镜像继续喂迁移后的 v8 YAML。恢复旧数据库前核对升级期间新增的计费/额度
+记录；token 已轮换时旧凭据备份也可能失效，不能保证所有账号都无需重新授权。
+完整新管理接口见 [v8 管理 API](management-api-v8.md)。
+
+## v7.3.19 至 v8.0.2 原生更新
+
+- 原生 Responses 记录有效 effort 与顶层 baseline，仅加 debug 可观测性，不重写透传正文。
+- Claude 转 Antigravity 保持工具结果紧邻调用轮次，将文本和提醒单独安排；Responses
+  摘要显隐遵循统一配置，显式关闭有效，effort 未指定 summary 时保留该提供方原默认。
+- 插件调度新增显式拒绝字段，Handled 的拒绝结束该次选择，不悄悄委托内建调度。
+  这是新增插件表达能力，不等于旧插件自动开始拒绝，也不是全局并发配置。
+- `is-compat` 多代理转换清理 author/recipient 等内部字段；Chat Completions→Codex
+  保留 fast/priority→priority 与 ultrafast，不保证上游账号权限或性能提升。
+- Devin 目录聚合 effort/fast 变体并规范 UID，旧变体迁移注意事项见上节。
+- TUI 支持 `--management-base-url`，优先于 `management.base-url` 和默认本机地址；
+  只改变 TUI 客户端连接目标，不是监听配置或凭据代理。
+- v8 配置/管理 API 按功能分组，OAuth 使用统一 provider 查询参数；v0 兼容保留。
+  Home 所有权 revision 不可编辑，JSON 配置 GET 隐藏 TURN 凭据，YAML GET 仍可含完整值。
+- 删除过时原生说明，本分支的 steering、代理与 Devin 登录边界保留于当前文档。
+
+本轮不另行修复此前内存增长问题。三个 replay cache、usage Manager 和 Codex
+WebSocket session/duplex 实现仅有 `/v7/`→`/v8/` import 前缀变化；规范化该前缀后
+与原生/上一轮二开对应实现相同。模块迁移与普通回归不构成内存问题已修复的证据。
+
+## Devin 登录与代理边界（保留的二开说明）
+
+二开管理登录可用 `POST /v0/management/devin-auth-url`，JSON 指定 `is_webui`
+及 `proxy_url`，在发起登录前确定出口。省略代理表示冻结当前继承出口，`direct`
+明确绕过全局和环境代理；不要把代理密码放入 URL 查询。v8 统一入口的二开 POST
+使用 `/v8/management/oauth/auth-url?provider=devin`，代理仍放 JSON body。
+回调、状态和取消采用相同版本的管理路径，成功接收回调不等于已保存凭据，应等状态 ok。
+
+CPA 的 token 交换、资料/状态请求使用登录时冻结的出口，成功保存为凭据 `proxy_url`；
+随后调用和刷新继续遵守该出口，错误代理失败而不回退。外部浏览器打开授权页面仍使用
+浏览器自己的网络。登录过程中修改全局代理或 auth 目录，不改变待完成会话的出口、
+回调目录和保存目标；保存前复核取消与最新用户控制字段。隐式重登录若会覆盖已有不同
+代理则拒绝，明确选代理才允许有意更改。
+
+远程浏览器无法访问 loopback 页面时，可提交完整 callback URL。旧 `/devin/callback`
+仍供既有客户端使用；服务器 TLS 不额外开明文 listener。`--devin-login --no-browser`
+使用上游手动输入流程且不绑定 callback 端口，冻结出口后接受代码、支持的 URL 或 session
+输入，两分支都走受保护的保存流程。
+
+管理 APICall 的 `$TOKEN$` 替换包含 Devin 请求 JSON body，且调用使用显式选择凭据的
+代理。所选 authIndex 失效时在出站前返回 404；不能回退成无凭据请求。未指定凭据的通用
+管理调用维持原语义。管理页准确基线及构建说明以 [webui/README.md](../webui/README.md)
+为准，不保留旧 v1.23.1 页面版本描述。
+
+## Codex steering 文档整理
+
+完整二开边界见 [Codex Responses WebSocket steering](codex-response-steering.md)：
+连接绑定凭据/模型/出口，每次 create 与 steering 预留共用并发限制，自动后续响应复用
+预留，固定凭据重新检查调度插件的 Key/额度准入。它不会让每一帧重新进入所有通用请求
+拦截器；已被上游接受的输入不跨连接或凭据重放。功能仍实验性且默认关闭。
 
 ## v7.3.17 / v7.3.18
 

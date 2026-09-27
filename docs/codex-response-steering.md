@@ -4,9 +4,15 @@ Codex full-duplex Responses WebSocket steering is experimental and disabled by d
 Enable it through the existing configuration YAML editor:
 
 ```yaml
-codex:
-  response-steering: true
+oauth:
+  providers:
+    codex:
+      response-steering: true
 ```
+
+Existing legacy `codex.response-steering` remains accepted. Successful v8 configuration
+writes migrate it to the path above; read-only v8 configuration requests do not migrate
+the persisted file.
 
 The feature lets a client send `response.steer` while a response is running. The upstream
 service decides whether to accept, reject, defer, or create a successor response. CPA

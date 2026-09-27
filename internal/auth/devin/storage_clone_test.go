@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 func TestDevinCloneForMetadataUpdateDropsLoginGuardAndFrozenProxy(t *testing.T) {

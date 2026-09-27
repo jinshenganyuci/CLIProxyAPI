@@ -3,7 +3,7 @@ package codex
 import (
 	"fmt"
 
-	baseauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth"
+	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 
 // CloneForMetadataUpdate preserves native credential fields in independent storage.
