@@ -203,18 +203,24 @@ func (options *codexOAuthSessionOptions) record(service codexOAuthService, bundl
 		return nil, fmt.Errorf("authenticated account does not match the selected credential")
 	}
 	claims, _ := codex.ParseJWTToken(bundle.TokenData.IDToken)
-	planType, hashAccountID := "", ""
+	planType, hashAccountID := strings.TrimSpace(bundle.TokenData.PlanType), ""
 	if claims != nil {
-		planType = strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType)
+		if claimPlan := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); claimPlan != "" {
+			planType = claimPlan
+		}
 		if accountID := claims.GetAccountID(); accountID != "" {
 			digest := sha256.Sum256([]byte(accountID))
 			hashAccountID = hex.EncodeToString(digest[:])[:8]
 		}
 	}
+	if planType == "" {
+		planType = codex.DefaultPlanType
+	}
 	tokenStorage := service.CreateTokenStorage(bundle)
 	if tokenStorage == nil {
 		return nil, fmt.Errorf("OAuth token storage unavailable")
 	}
+	tokenStorage.PlanType = planType
 	fileName := codex.CredentialFileName(tokenStorage.Email, planType, hashAccountID, true)
 	authID := fileName
 	if options.target != nil {
@@ -226,7 +232,8 @@ func (options *codexOAuthSessionOptions) record(service codexOAuthService, bundl
 	}
 	record := &coreauth.Auth{
 		ID: authID, Provider: "codex", FileName: fileName, Storage: tokenStorage, ProxyURL: options.proxyURL,
-		Metadata: map[string]any{"email": tokenStorage.Email, "account_id": tokenStorage.AccountID, "proxy_url": options.proxyURL},
+		Metadata:   map[string]any{"email": tokenStorage.Email, "account_id": tokenStorage.AccountID, "proxy_url": options.proxyURL, "plan_type": planType},
+		Attributes: map[string]string{"plan_type": planType},
 	}
 	if options.target != nil {
 		copyCodexIdentityFields(record.Metadata, options.target.Metadata)

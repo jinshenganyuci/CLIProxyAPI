@@ -42,7 +42,9 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 	if auth.Metadata == nil {
 		auth.Metadata = make(map[string]any)
 	}
-	auth.Metadata["id_token"] = td.IDToken
+	if td.IDToken != "" {
+		auth.Metadata["id_token"] = td.IDToken
+	}
 	auth.Metadata["access_token"] = td.AccessToken
 	if td.RefreshToken != "" {
 		auth.Metadata["refresh_token"] = td.RefreshToken
@@ -50,12 +52,37 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
 	if td.AccountID != "" {
 		auth.Metadata["account_id"] = td.AccountID
 	}
-	auth.Metadata["email"] = td.Email
+	if td.Email != "" {
+		auth.Metadata["email"] = td.Email
+	}
 	// Use unified key in files
 	auth.Metadata["expired"] = td.Expire
 	auth.Metadata["type"] = "codex"
 	now := time.Now().Format(time.RFC3339)
 	auth.Metadata["last_refresh"] = now
+
+	planType := strings.TrimSpace(td.PlanType)
+	if planType == "" && td.IDToken != "" {
+		if claims, errParse := codexauth.ParseJWTToken(td.IDToken); errParse == nil && claims != nil {
+			planType = claims.GetPlanType()
+		}
+	}
+	if planType == "" {
+		planType = codexauth.DefaultPlanType
+	}
+	auth.Metadata["plan_type"] = planType
+	clonedAttributes := make(map[string]string, len(auth.Attributes)+1)
+	for k, v := range auth.Attributes {
+		clonedAttributes[k] = v
+	}
+	clonedAttributes["plan_type"] = planType
+	auth.Attributes = clonedAttributes
+	if storage, ok := auth.Storage.(*codexauth.CodexTokenStorage); ok && storage != nil {
+		clonedStorage := *storage
+		svc.UpdateTokenStorage(&clonedStorage, td)
+		clonedStorage.PlanType = planType
+		auth.Storage = &clonedStorage
+	}
 	return auth, nil
 }
 

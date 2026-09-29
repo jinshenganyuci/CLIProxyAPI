@@ -39,6 +39,8 @@ type CodexTokenStorage struct {
 	IdentityVersion int `json:"codex_identity_version,omitempty"`
 	// IdentityNamespace is the UUID namespace owned by this OAuth credential.
 	IdentityNamespace string `json:"codex_identity_namespace,omitempty"`
+	// PlanType indicates the ChatGPT subscription plan type, defaults to "free" if not present.
+	PlanType string `json:"plan_type,omitempty"`
 
 	// Metadata holds arbitrary key-value pairs injected via hooks.
 	// It is not exported to JSON directly to allow flattening during serialization.

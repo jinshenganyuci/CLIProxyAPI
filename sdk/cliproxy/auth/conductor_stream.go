@@ -255,7 +255,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 		execReq = attachResolvedExecutionModelInfo(routing, execReq, auth, routeModel, execModel, executionModel != "")
 		if selection, ok := execOpts.ExecutionLifecycle.(*HomeDispatchSelection); ok && selection != nil && executionModel == "" {
 			// Legacy Home dispatches inherit the selected credential's capability.
-			execReq = attachResolvedHomeModelInfo(execReq, selection.modelInfo, selection.configurationUpdateSupport)
+			execReq = attachResolvedHomeModelInfo(execReq, auth, routeModel, selection.modelInfo, selection.configurationUpdateSupport)
 		}
 		if errCtx := ctx.Err(); errCtx != nil {
 			return nil, errCtx

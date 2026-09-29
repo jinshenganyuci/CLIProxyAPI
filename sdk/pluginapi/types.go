@@ -1468,7 +1468,7 @@ type ManagementResponse struct {
 type UsageRecord struct {
 	// RequestID uniquely identifies this specific model execution instance (UUID v4).
 	RequestID string
-	// TraceID identifies the parent inbound HTTP request when available (8-character hex).
+	// TraceID identifies the parent inbound HTTP request when available (UUID v7 for new requests, or a legacy/custom value).
 	TraceID string
 	// Provider identifies the upstream provider.
 	Provider string

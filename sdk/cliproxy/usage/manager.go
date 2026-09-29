@@ -24,7 +24,7 @@ const AutoServiceTier = "auto"
 type Record struct {
 	// RequestID uniquely identifies this specific model execution instance (UUID v4).
 	RequestID string
-	// TraceID identifies the parent inbound HTTP request when available (8-character hex).
+	// TraceID identifies the parent inbound HTTP request (UUIDv7 for new requests, or a legacy/custom ID).
 	TraceID  string
 	Provider string
 	// BaseURL stores the configured upstream base URL when available.

@@ -850,10 +850,8 @@ oauth:
       # Experimental full-duplex Codex Responses WebSocket steering (default: false).
       # Keeps one upstream account/model per socket; accepted input is never replayed.
       response-steering: false
-      # When true, and routing.strategy is fill-first or routing.session-affinity is true,
-      # remap Codex prompt_cache_key and installation identity per selected auth.
-      # Some superstitious users believe request tracking identifiers can be used
-      # as evidence for TOS enforcement bans; this option only satisfies those odd concerns.
+      # Legacy compatibility retained by this fork after its upstream removal.
+      # Remaps identity with fill-first or session affinity; mutually exclusive with credential-identity.
       identity-confuse: false
       # Stable identity mapping for Codex OAuth credentials. Mutually exclusive with identity-confuse.
       # Initialize existing credentials from /management.html before enabling.

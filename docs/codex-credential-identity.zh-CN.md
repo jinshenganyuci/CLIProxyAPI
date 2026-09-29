@@ -1,17 +1,58 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.2`（上游提交
-`4a2c81864f31f39308e946c4c65e72147855da6e`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.4`（上游提交
+`d33f63f8e3d98428440ebca5a5b6a981a61ff71e`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.2-codex-identity.1`，Docker 固定标签为
-`codex-identity-v8.0.2.1`。本轮仅发布固定版本，**不移动 Docker latest，GitHub
-Release 不标记 Latest**。完整合并上游 v7.3.19、v7.3.20、v8.0.0、v8.0.1、v8.0.2
-的 16 个提交（15 个非 merge、1 个 merge），保留单凭据代理、独立身份、默认 10
-并发与 Access Guard 边界。管理页继续以官方 v1.24.2 为基线。
+当前修订为 `v8.0.4-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.4.1` 和 `latest`，指向同一验证镜像。合并官方 v8.0.3/v8.0.4
+的 18 个提交（16 个非 merge、2 个 merge），管理页升级到官方 v1.25.0 基线并保留二开。
+上轮 v8.0.2 初次只发固定标签，随后已按明确授权提升 latest；本轮继续固定版加 latest。
 
-## v8.0.2 迁移与回退
+## v8.0.3 / v8.0.4 更新
+
+- 配置迁移从未知根节扩展到已知结构中的未知嵌套字段，按完整路径保留为根末尾注释，
+  并发出警告。注释保留不代表字段继续生效；用户拥有的插件自由配置不能被当成未知结构
+  删除。v8 GET 仍只返回视图，不能仅凭出现迁移警告判定磁盘已改写。
+- 原生在同一提交中移除了旧 `identity-confuse` 开关及映射。本二开为兼容历史配置，
+  明确保留该默认 false 开关和共享映射链，与稳定凭据命名空间模式仍互斥；稳定命名空间、
+  严格凭据代理及响应还原不因上游删除而取消。这是二开有意保留的差异。
+- Codex 从 JWT 提取 `plan_type`，在授权/刷新、存储和认证属性中同步，缺失值默认 free。
+  旧文件继续可读，不要求为该字段批量重新登录；套餐值来自 token/元数据，不是独立验证
+  付费权益的结果。Auth.Clone 对已有空 map 也复制，避免克隆后写入共享空 map。
+- Home 以实际选定凭据的 `credential_options.models` 为模型兼容依据，显式 false、
+  空列表和未匹配模型具有相应默认语义；按实际路由匹配 `is-compat`、工具结果图片处理、
+  max-completion-tokens 和 prompt-cache-key。Codex 多代理转换使用已解析兼容能力。
+  SDK 新增配额提供方列举、查询与重置入口；不等于本地自动启用 Home 或任何插件新增配额。
+- 入站请求 ID 由 8 位自增值改成 UUIDv7；上下文及相关用量/Redis 入站标识可保留全 ID，
+  控制台和日志文件仍显示最后 8 位。管理日志查询接收全 ID 后也按尾 8 位查最新匹配，
+  短 ID 仍可能碰撞。独立执行 UUID 与父请求 trace ID 的职责不变，不宣称所有 ID 改为 v7。
+- 插件宿主从磁盘列出/保存凭据时保留 disabled/status，避免禁用凭据被错误显示或注册为启用。
+- Meta web_search 工具移除不支持的 search_content_types；xAI 图片生成/编辑支持 quality
+  参数（JSON 与 multipart）；不保证任意 quality 值上游都接受或自动改善图片质量。
+- Responses 工具 namespace 匹配限定精确名或明确分隔符，避免普通名称前缀误判。
+  Codex 历史 function_call 的空白 arguments 字符串规范成 "{}"，不改非空错误值或 custom_tool_call。
+- SSEEventData 每帧带完整空行结束符，避免拼接粘帧；Gemini/Antigravity 的 Interactions
+  请求与响应保留思考签名和工具轮次；Claude tool_addition/tool_removal 同步 MCP 别名，
+  服务端工具定义与连接器引用保留其原有命名边界。
+- 局域网发现识别 bond 网卡，并在错误与配置不变时抑制重复构建告警；不启用额外公网服务。
+
+管理页 v1.25.0 改用原生 v8 API/嵌套配置与局部 PATCH/DELETE，增加保存恢复、连接
+切换保护、凭据冷却重置和新日志模块；二开 POST 登录代理、并发占用与身份控制继续保留。
+前轮临时 v0 可视适配由新 v8 codec 替代，不继续并存。身份控制的查询/保存/初始化/轮换
+同步补到 v8 管理路由，沿用原鉴权和所有权检查。
+
+本轮补修局部刷新返回字段省略时的凭据保留：不因缺少可选 id_token、refresh_token、
+account_id 或 email 而擦除旧值，仍更新 access token、到期时间及原生 plan/free 回退。
+
+本轮保留原代理、默认 10 并发、占用 UI、Access Guard、刷新及旧 v8 迁移边界。
+如外部日志脚本假定请求 ID 固定 8 位，应兼容完整 UUID，同时区分日志尾 8 位与执行 ID。
+未知或废弃配置在迁移时可变成不生效注释，升级前继续保留配置/凭据/插件状态快照。
+本轮不额外修复此前 replay cache/usage queue 的内存保留问题，也不把协议/身份代码合并
+或普通回归验收当作该问题已解决的证明。
+
+## v8.0.2 已有迁移与回退边界（继续适用）
 
 旧布局配置继续受支持；v8 配置 GET 只是渲染新布局视图，不迁移磁盘文件。
 `config-version: 8` 本身也不强制迁移；成功的 v8 配置写入才整体迁移布局。

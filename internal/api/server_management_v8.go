@@ -46,6 +46,10 @@ func (s *Server) registerManagementV8Routes() {
 
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
 	v8.GET("/credentials/concurrency", s.mgmt.GetAuthFilesConcurrency)
+	v8.GET("/credentials/codex-identity", s.mgmt.GetCodexCredentialIdentity)
+	v8.PUT("/credentials/codex-identity", s.mgmt.PutCodexCredentialIdentity)
+	v8.POST("/credentials/codex-identity/initialize", s.mgmt.InitializeCodexCredentialIdentity)
+	v8.POST("/credentials/codex-identity/rotate", s.mgmt.RotateCodexCredentialIdentity)
 	v8.POST("/credentials", s.mgmt.UploadAuthFile)
 	v8.DELETE("/credentials", s.mgmt.DeleteAuthFile)
 	v8.GET("/credentials/models", s.mgmt.GetAuthFileModels)

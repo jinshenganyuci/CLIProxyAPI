@@ -180,6 +180,7 @@ type AntigravityConnectionPoolConfig struct {
 
 // CodexConfig configures provider-wide Codex request behavior.
 type CodexConfig struct {
+	// IdentityConfuse retains the legacy opt-in mapping for existing fork configurations.
 	IdentityConfuse bool `yaml:"identity-confuse" json:"identity-confuse"`
 	// CredentialIdentity scopes Codex client and session identifiers to the selected
 	// OAuth credential while preserving stable identifiers for each downstream client.
