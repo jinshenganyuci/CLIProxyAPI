@@ -905,8 +905,10 @@ func TestHostModelExecuteRejectsInvalidProxyURL(t *testing.T) {
 	}
 }
 
-func TestHostModelExecuteForwardsProxyURL(t *testing.T) {
+func TestHostModelExecuteForwardsProxyURLAndImagePath(t *testing.T) {
 	host := New()
+	callbackID, closeCallback := host.openCallbackContextForPlugin(context.Background(), "image-router")
+	defer closeCallback()
 	var got handlers.ModelExecutionRequest
 	host.SetModelExecutor(&fakeHostModelExecutor{
 		executeModel: func(ctx context.Context, req handlers.ModelExecutionRequest) (handlers.ModelExecutionResponse, *interfaces.ErrorMessage) {
@@ -924,13 +926,16 @@ func TestHostModelExecuteForwardsProxyURL(t *testing.T) {
 		stream := method == pluginabi.MethodHostModelExecuteStream
 		rawReq, errMarshal := json.Marshal(rpcHostModelExecutionRequest{
 			HostModelExecutionRequest: pluginapi.HostModelExecutionRequest{
-				EntryProtocol: "openai",
-				ExitProtocol:  "openai",
+				EntryProtocol: "openai-image",
+				ExitProtocol:  "openai-image",
 				Model:         "model-1",
 				Stream:        stream,
 				ProxyURL:      "socks5h://user:pass@127.0.0.1:1080",
+				Path:          " /v1/images/edits ",
+				AuthID:        "bound-image-credential",
 				Body:          []byte(`{"request":true}`),
 			},
+			HostCallbackID: callbackID,
 		})
 		if errMarshal != nil {
 			t.Fatalf("marshal request: %v", errMarshal)
@@ -940,6 +945,12 @@ func TestHostModelExecuteForwardsProxyURL(t *testing.T) {
 		}
 		if got.ProxyURL != "socks5h://user:pass@127.0.0.1:1080" {
 			t.Fatalf("%s proxy_url = %q", method, got.ProxyURL)
+		}
+		if got.Path != "/v1/images/edits" || got.AuthID != "bound-image-credential" || got.EntryProtocol != "openai-image" || got.ExitProtocol != "openai-image" || got.Stream != stream {
+			t.Fatalf("%s lost image path/protocol or pinned auth", method)
+		}
+		if got.SkipInterceptorPluginID != "image-router" || got.SkipRouterPluginID != "image-router" {
+			t.Fatalf("%s lost caller skip identity", method)
 		}
 	}
 }

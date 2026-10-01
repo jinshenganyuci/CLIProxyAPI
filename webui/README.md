@@ -3,9 +3,9 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.25.0`
-- commit: `b87b9487f63e08ad97b1fb4e7c17b4adb811b922`
-- patch: `management-center-v1.25.0-credential-identity.patch`
+- tag: `v1.25.1`
+- commit: `a7ec312fbbb0a13f3a580ee0c7e29228a07c8867`
+- patch: `management-center-v1.25.1-credential-identity.patch`
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login proxy selectors. Proxy credentials are sent in the
@@ -36,8 +36,11 @@ separate device-login card and provider parameter; it does not replace existing 
 Both use POST JSON bodies for the selected proxy, distinguish inherited global settings
 from explicit direct access, freeze proxy fields during the attempt, and clear secrets on
 success or cancellation. Device codes and optional expiry are displayed without callback
-forms. The native Kimi.ai backend has no dedicated quota adapter in this UI version, so
-its accounts are not silently routed through the Kimi Code quota endpoint.
+forms. The native quota adapter now recognizes both Kimi domains and monthly limits. Each refresh
+reads the selected credential only in memory, follows the backend domain/base URL/type
+precedence, and chooses an allowlisted kimi.com or kimi.ai usage endpoint. The request retains
+the selected auth index and a token placeholder. Download/parse failures do not trigger a
+guessed host or direct retry; connection and credential changes invalidate pending results.
 
 The native UI includes quota search by filename or email, Codex Business Premium entitlement
 recognition and a live renewal-date lookup, Claude Team plan precedence, xAI billing-window
@@ -73,13 +76,16 @@ Provider model rows preserve backend fields, including `use-max-completion-token
 and `support-configuration-update`, through the native persisted row identity. Reordering,
 renaming, or deleting rows cannot move one row's settings to another. Invalid or repeated
 row identities fail before a write. New rows retain their default capability settings.
-These options remain available in the native YAML editor.
+The native advanced model editor now exposes these options, along with display names,
+context lengths, supported modalities, compatibility behavior, and thinking budgets/levels.
+A rejected stale snapshot must be refreshed before editing; the refreshed native form reads
+the current options instead of treating those fields as opaque backend-only metadata.
 
 Model discovery for a selected OpenAI-compatible credential never retries without its auth
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.25.0 UI uses `/v8/management` and the native nested configuration editor.
+The v1.25.1 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -102,13 +108,29 @@ download request retain complete UUIDs as well as historical eight-hex-digit IDs
 filenames still use the final eight hex digits, and backend downloads select the latest
 matching suffix: preserving a full ID in the UI does not make that lookup globally unique.
 
+The v1.25.1 credential editor adds request retry, model aliases, and request-scoped error
+policies. These edits compose with the fork's narrow concurrency patch; configuration-backed
+concurrency-only editors remain restricted to that field. Native single and bulk credential
+refreshes show per-credential results and invalidate affected quota caches. Provider forms
+expose runtime policy inheritance, explicit zero/false overrides, structured error rules, and
+provider-specific request behavior without overwriting per-key proxy or concurrency settings.
+
+Client API keys can have browser-local names and be searched by name. Name mappings are keyed
+by a SHA-256 fingerprint scoped to the server and key, rather than persisting the original key
+as the mapping identifier. This is local UI metadata, not a change to server authentication.
+The native configuration editor also exposes OAuth behavior, Codex Live ICE servers, trusted
+proxies and discovery settings, and preserves untouched duration fallback values and backend
+YAML boolean semantics. Quota cards include Codex credit balances/unlimited credits and xAI
+Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
+and accessible-label behavior.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout b87b9487f63e08ad97b1fb4e7c17b4adb811b922
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.0-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.0 \
+git -C management-center checkout a7ec312fbbb0a13f3a580ee0c7e29228a07c8867
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.1-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.1 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -118,7 +140,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-2053fecee8a72f9338e6ff125b73f855467deb907b8b9334eb16046baf82f238
+1d4f248d33afeed1d6d2c3e853250f0ac54255cf7cc4cafe7a2cc01df06ece61
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

@@ -1,16 +1,80 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.4`（上游提交
-`d33f63f8e3d98428440ebca5a5b6a981a61ff71e`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.8`（上游提交
+`fd48ea6840f5572deb53aeb5657740937ac9daaa`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.4-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.4.1` 和 `latest`，指向同一验证镜像。合并官方 v8.0.3/v8.0.4
-的 18 个提交（16 个非 merge、2 个 merge），管理页升级到官方 v1.25.0 基线并保留二开。
-上轮 v8.0.2 初次只发固定标签，随后已按明确授权提升 latest；本轮继续固定版加 latest。
+当前修订为 `v8.0.8-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.8.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.4.1
+合并官方 v8.0.5 至 v8.0.8 的 32 个提交（30 个非 merge、2 个 merge），管理页
+升级到官方 v1.25.1 基线并保留二开。发布不替换或重启既有部署。
 
-## v8.0.3 / v8.0.4 更新
+## v8.0.5 至 v8.0.8 更新
+
+- Codex 客户端发往第三方执行器时，对指定内置工具的参数 Schema 做 number→integer
+  兼容处理；最终规则按实际目标执行器判断，不按协议名猜测。真正 Codex HTTP/WS
+  执行及令牌计数保留原工具 Schema，xAI 即使用 Codex 格式仍按第三方处理。
+  这不是把所有数值字段转整数，也不对实际工具调用参数做舍入。
+- `is-compat` 启用时，即使未启用多代理优化，也将 `agent_message` 转为可移植的
+  user 消息并清理内部元数据，减少第三方 Responses 接口拒绝。
+- Codex 上游在任何有效 payload 发出前断流，执行器记录 502，并可按原生规则切换
+  下一凭据；全部耗尽时调度层 empty_stream 包装实际对外返回 500/server_error，不能
+  保证最终 HTTP 状态为 502。已经开始输出后不借此重复请求。HTTP 408 的错误体类型
+  改为 server_error/request_timeout；凭据绑定、Access Guard 和并发准入继续约束选择。
+- uTLS 使用实际 TLS ALPN 协商结果选择 HTTP/2 或 HTTP/1.1；空 ALPN 使用 HTTP/1.1，
+  复用已经握手的同一连接，结束或失败后释放连接。二开单凭据代理、direct 和无效代理
+  拒绝回退继续生效，不为协议降级另外拨号绕过代理。
+- 自动刷新任务绑定凭据注册代际，防止重新注册/循环重启后旧任务遗留 pending 状态或
+  覆盖新结果；刷新队列满时不阻塞调度。Antigravity token/project 凭据获取限定 30 秒，
+  余额任务跟随生命周期和代际。该限制不是推理流超时；注册/更新/刷新落盘失败会警告，
+  内存更新成功仍不等于凭据已可靠保存。
+- 新增 OAuth 渠道模型设置 `oauth.settings`（旧布局 `oauth-settings`），目前用于覆盖
+  展示给客户端的 max-context-length，支持按模型/别名匹配和热重载；不是扩大真实上游
+  上下文或账号权限。它与 `oauth.providers.codex` 的身份/代理设置各自独立，API Key
+  应使用其组/Key 的模型配置。
+- v8 配置 DELETE 直接保存已校验 YAML 树，保留无关字段的缺失、null、空 map 及插件
+  自由配置，避免通用配置保存器补回默认值。PUT/PATCH 的已有替换/合并规则继续适用。
+- v0 管理接口被官方标记为废弃且不再维护，但本次没有删除既有 v0 路由；新增管理功能
+  使用 v8。原生删除 `/v8/management/credentials/quota/providers`、`/fetch`、`/reset`，
+  调用这些端点的外部工具需调整；现有 `/v8/management/plugins/:id/quota` 按插件配额
+  入口及宿主 SDK 仍保留，并非删除凭据并发、供应商配额或 Access Guard 额度。
+- 内部模型执行与插件拦截器支持可选 Path，并允许 openai-image 入口/出口协议调用图片
+  模型；该能力不等于全部公开推理接口都新增任意 URL 改写参数。
+- Claude enabled thinking 在没有 budget_tokens 时保留显式 output_config.effort，继续
+  经过统一思考配置处理。Responses→Claude 在搜索结果与后续工具调用之间重放已有
+  思考块；工具名按 64 字符上限和确定性哈希防碰撞，并在响应中还原。无法匹配的 OAuth
+  MCP 别名警告后原样透传，已有但歧义的映射仍拒绝；布尔子 Schema true 转 {}，false
+  与 additionalProperties 保留。
+- Interactions 失败事件在 Claude/Gemini/Chat/Responses 之间保留错误语义；Devin 延迟
+  发出合成 created 事件，让首内容前失败仍能返回正常 HTTP 错误码。Kimi 在同批工具
+  结果齐全时把夹在中间的普通消息后移，保持并行结果相邻，不凭空补造缺失结果。
+- Home 插件加载结果在状态汇报阶段确认，失败配置重试可被队列中最新配置替换；
+  此项不代表运行中的外部 Home 服务已部署升级。
+- 源码目录新增 claude-sonnet-5-5 与 gpt-6.1-sol，更新已有 Codex 模型元数据；Sonnet
+  5.5 不再误命中 Sonnet 5 前缀。抓取工具默认客户端从 0.155.0 升为 0.159.0，不能
+  据此说执行器默认 User-Agent 也升级。目录存在不证明真实供应商/账号可调用。
+- xAI OAuth chat-proxy 的版本头及派生 User-Agent 升为 Grok 1.0.44，处理记录中的
+  旧版本 HTTP 426；每凭据自定义头仍优先。README 同步赞助说明及图片。
+
+管理页 v1.25.1 合入 23 个原生提交（21 个非 merge、2 个 merge）：凭据策略编辑、
+单个/批量刷新与结果列表，提供商运行策略和高级模型字段，结构化错误规则、本地 Key
+昵称与搜索、OAuth/Codex live ICE/trusted proxies/discovery 可视配置，Kimi.ai 月额度、
+Grok 订阅和 Codex 余额/无限额度显示，以及 YAML 布尔值和未修改 duration 保真。
+本地昵称按服务端与 Key 的 SHA256 指纹索引，不将原 Key 作为昵称索引明文保存。
+二开登录 POST 代理、稳定身份、默认 10 并发、占用 UI 与过期保存保护继续保留。
+
+二开合并补齐新空流返回分支的身份响应头还原，避免上游 Session-Id 映射值直接泄漏给
+客户端；保留 Responses/compact 中插件对 configuration_update 的修改/删除权威，
+以及 Kimi 委托 Claude 时克隆凭据、保持代理/并发并避免修改共享属性的原保护。
+
+本轮无新增必填配置，不要求现有凭据普遍重登或重建身份；v8 已有迁移/回退边界见下文。
+此前 replay-cache/usage queue 内存保留问题仍不另行修复或声明压力复测。三个 replay
+cache、usage Manager 和 WS session/duplex 六个保留策略文件与上一轮二开字节相同；
+WS execute/stream 的 Schema 处理有变化，不能说全部 WebSocket 文件都没有变化。
+刷新任务和 uTLS 生命周期修复也不等于此前问题已经解决。
+
+## v8.0.3 / v8.0.4 更新（历史）
 
 - 配置迁移从未知根节扩展到已知结构中的未知嵌套字段，按完整路径保留为根末尾注释，
   并发出警告。注释保留不代表字段继续生效；用户拥有的插件自由配置不能被当成未知结构

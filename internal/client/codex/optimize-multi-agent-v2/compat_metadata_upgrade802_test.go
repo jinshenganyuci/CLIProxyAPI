@@ -19,8 +19,13 @@ func TestUpgrade802CompatMetadataStrippingDoesNotRequireOptimization(t *testing.
 				t.Fatalf("compat metadata %s survived without optimization: %s", field, out)
 			}
 		}
-		if gjson.GetBytes(out, "input.0.type").String() != "agent_message" {
-			t.Fatalf("disabled optimization unexpectedly rewrote the message type: %s", out)
+		// Issue #6233 requires portable message/user input in compatibility mode,
+		// even when multi-agent optimization is disabled or the config is absent.
+		if gjson.GetBytes(out, "input.0.type").String() != "message" {
+			t.Fatalf("compatibility mode did not convert the agent message: %s", out)
+		}
+		if gjson.GetBytes(out, "input.0.role").String() != "user" {
+			t.Fatalf("converted compatibility message did not retain the user role: %s", out)
 		}
 		for _, path := range []string{"metadata", "input.0.content", "input.1", "input.2", "input.3"} {
 			if gjson.GetBytes(out, path).Raw != gjson.GetBytes(payload, path).Raw {

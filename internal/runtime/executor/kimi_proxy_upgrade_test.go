@@ -14,6 +14,7 @@ import (
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
+	"github.com/tidwall/gjson"
 )
 
 func TestKimiAISelectedProxyCoversRuntimeProtocols(t *testing.T) {
@@ -43,6 +44,10 @@ func TestKimiAISelectedProxyCoversRuntimeProtocols(t *testing.T) {
 				_, _ = io.WriteString(w, `{"id":"chat","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 			}
 		case "/coding/v1/responses":
+			items := gjson.GetBytes(body, "input").Array()
+			if len(items) != 5 || items[2].Get("call_id").String() != "first" || items[2].Get("output").String() != "one" || items[3].Get("call_id").String() != "second" || items[3].Get("output").String() != "two" || items[4].Get("role").String() != "developer" {
+				t.Errorf("parallel tool outputs were not normalized on the selected proxy: %s", body)
+			}
 			if stream {
 				_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp\",\"object\":\"response\",\"model\":\"k3\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
 			} else {
@@ -72,7 +77,7 @@ func TestKimiAISelectedProxyCoversRuntimeProtocols(t *testing.T) {
 			t.Run(source.String()+map[bool]string{false: "", true: "_stream"}[stream], func(t *testing.T) {
 				payload := []byte(`{"model":"kimi-k3","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`)
 				if source == sdktranslator.FormatOpenAIResponse {
-					payload = []byte(`{"model":"kimi-k3","input":"hello"}`)
+					payload = []byte(`{"model":"kimi-k3","input":[{"type":"function_call","call_id":"first","name":"lookup","arguments":"{}"},{"type":"function_call","call_id":"second","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"first","output":"one"},{"type":"message","role":"developer","content":[{"type":"input_text","text":"keep instructions"}]},{"type":"function_call_output","call_id":"second","output":"two"}]}`)
 				}
 				req := cliproxyexecutor.Request{Model: "kimi-k3", Payload: payload}
 				opts := cliproxyexecutor.Options{SourceFormat: source, Stream: stream}

@@ -40,10 +40,6 @@ func (s *Server) registerManagementV8Routes() {
 	v8.GET("/observability/usage/api-keys", s.mgmt.GetAPIKeyUsage)
 	v8.GET("/observability/usage/queue", s.mgmt.GetUsageQueue)
 
-	v8.GET("/credentials/quota/providers", s.mgmt.GetQuotaProviders)
-	v8.POST("/credentials/quota/fetch", s.mgmt.FetchCredentialQuota)
-	v8.POST("/credentials/quota/reset", s.mgmt.ResetCredentialQuota)
-
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
 	v8.GET("/credentials/concurrency", s.mgmt.GetAuthFilesConcurrency)
 	v8.GET("/credentials/codex-identity", s.mgmt.GetCodexCredentialIdentity)
