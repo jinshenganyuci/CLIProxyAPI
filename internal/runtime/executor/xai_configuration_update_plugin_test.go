@@ -24,14 +24,14 @@ func (h *updateNormalizingHooks) NormalizeRequest(_ context.Context, _, _ sdktra
 func (*updateNormalizingHooks) TranslateRequest(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, bool) ([]byte, bool) {
 	return nil, false
 }
-func (*updateNormalizingHooks) NormalizeResponseBefore(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) []byte {
-	return nil
+func (*updateNormalizingHooks) NormalizeResponseBefore(_ context.Context, _, _ sdktranslator.Format, _ string, _, _ []byte, response []byte, _ bool) []byte {
+	return response
 }
 func (*updateNormalizingHooks) TranslateResponse(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) ([]byte, bool) {
 	return nil, false
 }
-func (*updateNormalizingHooks) NormalizeResponseAfter(context.Context, sdktranslator.Format, sdktranslator.Format, string, []byte, []byte, []byte, bool) []byte {
-	return nil
+func (*updateNormalizingHooks) NormalizeResponseAfter(_ context.Context, _, _ sdktranslator.Format, _ string, _, _ []byte, response []byte, _ bool) []byte {
+	return response
 }
 
 func TestXAIResponsesPluginNormalizationOverridesOldSourceUpdate(t *testing.T) {

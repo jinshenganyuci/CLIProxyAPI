@@ -714,6 +714,25 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 			}
 		}
 
+		var streamUsage helps.StreamUsageBuffer
+		defer func() {
+			if ctx.Err() != nil {
+				streamUsage.PublishFailure(ctx, reporter, ctx.Err())
+				return
+			}
+			streamUsage.Publish(ctx, reporter)
+		}()
+
+		// Validation ends the upstream attempt before downstream delivery or session reuse.
+		invalidatePatchAttempt := func() {
+			terminateReason = "invalid_tool_arguments"
+			terminateErr = statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+			if sess != nil {
+				e.invalidateUpstreamConnWithoutDisconnectNotify(sess, conn, terminateReason, terminateErr)
+			}
+			streamUsage.PublishFailure(ctx, reporter, terminateErr)
+		}
+
 		claudeInputTokens := helps.NewClaudeInputTokenState(prepared.from, prepared.to, prepared.responseFormat, prepared.originalPayload)
 		var param any
 		outputItemsByIndex := make(map[int64][]byte)
@@ -736,11 +755,27 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 					_ = send(cliproxyexecutor.StreamChunk{Err: ctx.Err()})
 					return
 				}
+				if ctx == nil || ctx.Err() == nil {
+					if errFinish := prepared.applyPatch.Finish(); errFinish != nil {
+						events, errBridge := prepared.applyPatch.Bridge.Fail(errFinish)
+						errBridge = statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+						invalidatePatchAttempt()
+						for _, event := range events {
+							if cliproxyexecutor.DownstreamWebsocket(ctx) {
+								_ = send(cliproxyexecutor.StreamChunk{Payload: event})
+							} else {
+								_ = send(cliproxyexecutor.StreamChunk{Payload: encodeCodexWebsocketAsSSE(event)})
+							}
+						}
+						_ = send(cliproxyexecutor.StreamChunk{Err: errBridge})
+						return
+					}
+				}
 				mappedErr := mapXAIWebsocketReadError(errRead)
 				terminateReason = "read_error"
 				terminateErr = mappedErr
 				helps.RecordAPIWebsocketError(ctx, e.cfg, "read", mappedErr)
-				reporter.PublishFailure(ctx, mappedErr)
+				streamUsage.PublishFailure(ctx, reporter, mappedErr)
 				_ = send(cliproxyexecutor.StreamChunk{Err: mappedErr})
 				return
 			}
@@ -750,7 +785,7 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 					terminateReason = "unexpected_binary"
 					terminateErr = errBinary
 					helps.RecordAPIWebsocketError(ctx, e.cfg, "unexpected_binary", errBinary)
-					reporter.PublishFailure(ctx, errBinary)
+					streamUsage.PublishFailure(ctx, reporter, errBinary)
 					if sess != nil {
 						e.invalidateUpstreamConn(sess, conn, "unexpected_binary", errBinary)
 					}
@@ -772,7 +807,7 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 				terminateReason = "upstream_error"
 				terminateErr = wsErr
 				helps.RecordAPIWebsocketError(ctx, e.cfg, "upstream_error", wsErr)
-				reporter.PublishFailure(ctx, wsErr)
+				streamUsage.PublishFailure(ctx, reporter, wsErr)
 				if sess != nil {
 					e.invalidateUpstreamConnWithoutDisconnectNotify(sess, conn, "upstream_error", wsErr)
 				}
@@ -781,6 +816,7 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 			}
 
 			for _, payload := range xaiNormalizeReasoningSummaryDataEvents(payload) {
+				prepared.applyPatch.RememberDispatcherEvent(payload)
 				payload = namespaceRestorer.restore(payload)
 				if prepared.webSearchAlias != "" {
 					payload = restoreXAIClientWebSearchName(payload, prepared.webSearchAlias)
@@ -789,86 +825,99 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 				if len(payload) == 0 {
 					continue
 				}
-				eventType := gjson.GetBytes(payload, "type").String()
-				isTerminalEvent := eventType == "response.completed" || eventType == "response.done" || eventType == "error"
-				reporter.ObserveResponseModel(payload)
-				warmupCompletedPayload := []byte(nil)
-				switch eventType {
-				case "response.created":
-					if warmupRequest {
-						warmupCompletedPayload = buildXAIWebsocketWarmupCompletedPayload(payload)
-						if idMapper != nil && idMapper.state != nil && !recordedTranscript {
-							idMapper.state.recordTranscriptTurn(wsReqBody, warmupCompletedPayload, transcriptReset)
+				if detail, ok := helps.ParseCodexUsage(payload); ok {
+					streamUsage.Observe(detail, true)
+				}
+				events, errBridge := prepared.applyPatch.Transform(payload)
+				if errBridge != nil {
+					errBridge = statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+					invalidatePatchAttempt()
+					for _, event := range events {
+						if cliproxyexecutor.DownstreamWebsocket(ctx) {
+							_ = send(cliproxyexecutor.StreamChunk{Payload: event})
+						} else {
+							_ = send(cliproxyexecutor.StreamChunk{Payload: encodeCodexWebsocketAsSSE(event)})
+						}
+					}
+					streamUsage.PublishFailure(ctx, reporter, errBridge)
+					_ = send(cliproxyexecutor.StreamChunk{Err: errBridge})
+					return
+				}
+				for _, payload := range events {
+					eventType := gjson.GetBytes(payload, "type").String()
+					patchTerminal := prepared.applyPatch.Active() && (eventType == "response.incomplete" || eventType == "response.failed")
+					isTerminalEvent := eventType == "response.completed" || eventType == "response.done" || eventType == "error" || patchTerminal
+					reporter.ObserveResponseModel(payload)
+					warmupCompletedPayload := []byte(nil)
+					switch eventType {
+					case "response.created":
+						if warmupRequest {
+							warmupCompletedPayload = buildXAIWebsocketWarmupCompletedPayload(payload)
+							if idMapper != nil && idMapper.state != nil && !recordedTranscript {
+								idMapper.state.recordTranscriptTurn(wsReqBody, warmupCompletedPayload, transcriptReset)
+								recordedTranscript = true
+							}
+							logXAIWebsocketWarmupCompleted(executionSessionID, authID, wsURL, payload)
+						}
+					case "response.output_item.done":
+						xaiCollectOutputItemDone(payload, outputItemsByIndex, &outputItemsFallback)
+					case "response.completed":
+						logXAIWebsocketTerminalResponse(executionSessionID, authID, wsURL, eventType, payload)
+						if detail, ok := helps.ParseCodexUsage(payload); ok {
+							streamUsage.Observe(detail, true)
+						}
+						payload = xaiPatchCompletedOutput(payload, outputItemsByIndex, outputItemsFallback)
+						payload = xaiNormalizeReasoningSummaryData(payload)
+						cacheXAIReasoningReplayFromCompleted(ctx, prepared.replayScope, payload)
+						if !warmupRequest && idMapper != nil && idMapper.state != nil && !recordedTranscript {
+							idMapper.state.recordTranscriptTurn(wsReqBody, payload, transcriptReset)
 							recordedTranscript = true
 						}
-						logXAIWebsocketWarmupCompleted(executionSessionID, authID, wsURL, payload)
-					}
-				case "response.output_item.done":
-					xaiCollectOutputItemDone(payload, outputItemsByIndex, &outputItemsFallback)
-				case "response.completed":
-					logXAIWebsocketTerminalResponse(executionSessionID, authID, wsURL, eventType, payload)
-					if detail, ok := helps.ParseCodexUsage(payload); ok {
-						reporter.Publish(ctx, detail)
-					}
-					payload = xaiPatchCompletedOutput(payload, outputItemsByIndex, outputItemsFallback)
-					payload = xaiNormalizeReasoningSummaryData(payload)
-					cacheXAIReasoningReplayFromCompleted(ctx, prepared.replayScope, payload)
-					if !warmupRequest && idMapper != nil && idMapper.state != nil && !recordedTranscript {
-						idMapper.state.recordTranscriptTurn(wsReqBody, payload, transcriptReset)
-						recordedTranscript = true
-					}
-				case "response.done":
-					logXAIWebsocketTerminalResponse(executionSessionID, authID, wsURL, eventType, payload)
-					if detail, ok := helps.ParseCodexUsage(payload); ok {
-						reporter.Publish(ctx, detail)
-					}
-					if !warmupRequest && idMapper != nil && idMapper.state != nil && !recordedTranscript {
-						idMapper.state.recordTranscriptTurn(wsReqBody, payload, transcriptReset)
-						recordedTranscript = true
-					}
-				}
-
-				if cliproxyexecutor.DownstreamWebsocket(ctx) {
-					downstreamPayload := helps.EnsureResponsesUsageDetails(payload)
-					downstreamWarmupCompletedPayload := helps.EnsureResponsesUsageDetails(warmupCompletedPayload)
-					if idMapper != nil {
-						downstreamPayload = idMapper.downstreamResponsePayload(downstreamPayload)
-						if len(warmupCompletedPayload) > 0 {
-							downstreamWarmupCompletedPayload = idMapper.downstreamResponsePayload(downstreamWarmupCompletedPayload)
+					case "response.done":
+						logXAIWebsocketTerminalResponse(executionSessionID, authID, wsURL, eventType, payload)
+						if detail, ok := helps.ParseCodexUsage(payload); ok {
+							streamUsage.Observe(detail, true)
+						}
+						if !warmupRequest && idMapper != nil && idMapper.state != nil && !recordedTranscript {
+							idMapper.state.recordTranscriptTurn(wsReqBody, payload, transcriptReset)
+							recordedTranscript = true
 						}
 					}
-					if !send(cliproxyexecutor.StreamChunk{Payload: downstreamPayload}) {
-						terminateReason = "context_done"
-						terminateErr = ctx.Err()
-						return
-					}
-					if len(downstreamWarmupCompletedPayload) > 0 {
-						if !send(cliproxyexecutor.StreamChunk{Payload: downstreamWarmupCompletedPayload}) {
+
+					if cliproxyexecutor.DownstreamWebsocket(ctx) {
+						downstreamPayload := helps.EnsureResponsesUsageDetails(payload)
+						downstreamWarmupCompletedPayload := helps.EnsureResponsesUsageDetails(warmupCompletedPayload)
+						if idMapper != nil {
+							downstreamPayload = idMapper.downstreamResponsePayload(downstreamPayload)
+							if len(warmupCompletedPayload) > 0 {
+								downstreamWarmupCompletedPayload = idMapper.downstreamResponsePayload(downstreamWarmupCompletedPayload)
+							}
+						}
+						if !send(cliproxyexecutor.StreamChunk{Payload: downstreamPayload}) {
 							terminateReason = "context_done"
 							terminateErr = ctx.Err()
 							return
 						}
-						return
+						if len(downstreamWarmupCompletedPayload) > 0 {
+							if !send(cliproxyexecutor.StreamChunk{Payload: downstreamWarmupCompletedPayload}) {
+								terminateReason = "context_done"
+								terminateErr = ctx.Err()
+								return
+							}
+							return
+						}
+						if isTerminalEvent {
+							return
+						}
+						continue
 					}
-					if isTerminalEvent {
-						return
-					}
-					continue
-				}
 
-				payload = normalizeCodexWebsocketCompletion(payload)
-				line := encodeCodexWebsocketAsSSE(payload)
-				chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, prepared.to, prepared.responseFormat, req.Model, prepared.originalPayload, prepared.body, line, &param, claudeInputTokens)
-				for i := range chunks {
-					if !send(cliproxyexecutor.StreamChunk{Payload: chunks[i]}) {
-						terminateReason = "context_done"
-						terminateErr = ctx.Err()
-						return
+					payload = normalizeCodexWebsocketCompletion(payload)
+					line := encodeCodexWebsocketAsSSE(payload)
+					chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, prepared.to, prepared.responseFormat, req.Model, prepared.originalPayload, prepared.body, line, &param, claudeInputTokens)
+					if helps.RecordApplyPatchStreamFailure(ctx, param, reporter, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage) {
+						invalidatePatchAttempt()
 					}
-				}
-				if len(warmupCompletedPayload) > 0 {
-					line = encodeCodexWebsocketAsSSE(warmupCompletedPayload)
-					chunks = helps.TranslateStreamWithClaudeInputTokens(ctx, prepared.to, prepared.responseFormat, req.Model, prepared.originalPayload, prepared.body, line, &param, claudeInputTokens)
 					for i := range chunks {
 						if !send(cliproxyexecutor.StreamChunk{Payload: chunks[i]}) {
 							terminateReason = "context_done"
@@ -876,10 +925,30 @@ func (e *XAIWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 							return
 						}
 					}
-					return
-				}
-				if eventType == "response.completed" || eventType == "response.done" {
-					return
+					if helps.StopApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage) {
+						terminateReason = "invalid_tool_arguments"
+						terminateErr = statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+						return
+					}
+					if len(warmupCompletedPayload) > 0 {
+						line = encodeCodexWebsocketAsSSE(warmupCompletedPayload)
+						chunks = helps.TranslateStreamWithClaudeInputTokens(ctx, prepared.to, prepared.responseFormat, req.Model, prepared.originalPayload, prepared.body, line, &param, claudeInputTokens)
+						if helps.RecordApplyPatchStreamFailure(ctx, param, reporter, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage) {
+							invalidatePatchAttempt()
+						}
+						for i := range chunks {
+							if !send(cliproxyexecutor.StreamChunk{Payload: chunks[i]}) {
+								terminateReason = "context_done"
+								terminateErr = ctx.Err()
+								return
+							}
+						}
+						helps.StopApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage)
+						return
+					}
+					if eventType == "response.completed" || eventType == "response.done" || patchTerminal {
+						return
+					}
 				}
 			}
 		}
@@ -941,15 +1010,17 @@ func (e *XAIWebsocketsExecutor) executeCompactionTriggerFromWebsocketContext(ctx
 	compactReq := req
 	compactReq.Payload = compactPayload
 
-	prepared, data, headers, err := e.XAIExecutor.executeCompactRequest(ctx, auth, compactReq, opts)
-	if err != nil {
-		return nil, err
+	prepared, data, headers, reporter, errCompactRequest := e.XAIExecutor.executeCompactRequest(ctx, auth, compactReq, opts)
+	if errCompactRequest != nil {
+		return nil, errCompactRequest
 	}
 
 	responseID, compactionItem, errValidate := validateXAIWebsocketCompactionResponse(data)
 	if errValidate != nil {
+		reporter.PublishFailure(ctx, errValidate)
 		return nil, errValidate
 	}
+	reporter.Publish(ctx, helps.ParseOpenAIUsage(data))
 	idMapper.state.replaceTranscriptWithItems(compactionItem)
 	idMapper.state.mapDownstreamToUpstream(responseID, "")
 
@@ -1833,4 +1904,9 @@ func xaiWebsocketsEnabled(auth *cliproxyauth.Auth) bool {
 	default:
 	}
 	return false
+}
+
+// SupportsApplyPatch requires both selectable transports to support the tool.
+func (e *XAIAutoExecutor) SupportsApplyPatch() bool {
+	return e != nil && e.httpExec != nil && e.wsExec != nil && e.httpExec.SupportsApplyPatch() && e.wsExec.SupportsApplyPatch()
 }

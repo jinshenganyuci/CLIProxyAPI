@@ -1,16 +1,77 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.8`（上游提交
-`fd48ea6840f5572deb53aeb5657740937ac9daaa`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.10`（上游提交
+`6fecc6e5567912661654a4eaf9b8f5436facd1c2`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.8-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.8.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.4.1
-合并官方 v8.0.5 至 v8.0.8 的 32 个提交（30 个非 merge、2 个 merge），管理页
-升级到官方 v1.25.1 基线并保留二开。发布不替换或重启既有部署。
+当前修订为 `v8.0.10-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.10.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.8.1
+合并官方 v8.0.9 / v8.0.10 的 8 个提交（7 个非 merge、1 个 merge），管理页
+升级到官方 v1.25.2 基线并保留二开。发布不替换或重启既有部署。
 
-## v8.0.5 至 v8.0.8 更新
+## v8.0.9 / v8.0.10 更新
+
+- 新增跨提供商 `apply_patch` 桥接：Codex 的自由文本补丁工具可转换为其他协议接受的
+  JSON 函数参数，再把响应还原成客户端的补丁调用，保留工具身份、namespace、call/item
+  标识与事件顺序。覆盖 Responses、Chat、Claude、Gemini/Interactions 及相应执行器，
+  包括 xAI 的 namespace 分派和 HTTP/WS。普通同名函数不被随意当作补丁工具，真正
+  Codex 自定义工具保留原生透传。此功能转译工具调用，不在 CPA 服务器上执行文件补丁。
+- 补丁参数只接受严格的单字段字符串包装；不完整、歧义或冲突的工具流保留脱敏失败，
+  不以原文回退、插件覆盖或合成成功结束掩盖错误。原生改动远大于首个提交标题中的
+  Interactions 桥接，包含执行器、翻译器、模型能力与错误传播。
+- 新增客户端配置 `client.codex.enable-apply-patch`，默认 false；此时 Codex 客户端模型
+  目录的 `apply_patch_tool_type` 清空。启用后，仅当该精确公开模型的所有实际路由执行器
+  都声明支持，才展示 `freeform`；未知执行器、缺失路由和非文本图片/视频模型不冒称支持。
+  该开关控制模型能力展示，不是文件权限控制，也不是拒绝客户端提交工具调用的总开关。
+- 多代理优化移到 `client.codex.optimize-multi-agent-v2`，默认 false。它对使用 Codex
+  客户端协议的 OAuth 与 API Key 路由共同生效，旧 OAuth 路径不再表示仅作用于 OAuth。
+  `client` 新路径只要存在就优先，包括显式 false 或 null；不存在时依次采用
+  `oauth.providers.codex.optimize-multi-agent-v2`、`providers.codex.optimize-multi-agent-v2`、
+  `codex.optimize-multi-agent-v2`。已有别名继续可读，成功 v8 写入迁移且保留注释；新 v8
+  写入应使用客户端路径。Home 配置发布方需对应支持新 client Schema，不因 CPA 发布而
+  自动升级外部 Home 服务。
+  Go 嵌入调用方需将旧 `Config.Codex.OptimizeMultiAgentV2` /
+  `SDKConfig.CodexOptimizeMultiAgentV2` 改为 `Client.Codex.OptimizeMultiAgentV2`；
+  这是源码字段迁移，普通 Docker 用户不用修改 Go 代码。
+- 相同底层字节切片只翻译一次并调用一次请求插件，再克隆成独立工作缓冲区，避免重复
+  插件副作用；不同缓冲区维持原调用顺序，不是按内容相等全局去重。保留插件修改或删除
+  `configuration_update` 的意图。Gemini Interactions 同步采用这一处理。
+- Gemini 思考签名清理改为确定顺序的分组 Debug 摘要，不输出原始签名；后续提交保留
+  实际发生的 sibling bypass 清理摘要，不能概括为所有 bypass 日志都被禁用。
+- Antigravity 流式用量先发布已缓冲的统计，再调用兜底 EnsurePublished，避免正常结束
+  被空统计抢先占用。此为用量上报顺序修复，不是此前 usage queue 内存问题的修复。
+- 英/中/日 README 更新提供商说明并补充 Muse Code、Devin；这不表示本轮新建这些
+  执行器，也不是新的本地模型目录或真实账号可用性验证。
+
+管理页 v1.25.2 合入 3 个原生提交（无 merge）：Claude reset grant 资格/剩余次数读取、
+组织核验、确认后领取与结果展示。结果不明确时不自动重试；手动重试沿用 request_id，
+10 分钟后阻止该模糊操作重发，直至连接会话结束。记录仅在当前页签内存中，并非跨页签
+或持久化领取账本。是否有额度重置权益由上游账号决定，不能把它当作任意重置 Claude
+配额或 Access Guard 本地额度的按钮。
+
+本二开修正官方管理页仍向旧 OAuth 路径保存多代理优化的问题：新增独立客户端设置组，
+使用上述两个 `client.codex` 开关；身份、凭据代理仍在各自作用域。保留 OAuth 登录前代理
+设置、错误代理不直连回退、默认 10 并发/占用显示、稳定身份与 Access Guard 准入。
+没有新增必填项，不要求已有凭据批量重登或重建身份。自写配置工具及 Home 发布方需检查
+新的客户端路径与作用域；旧 OAuth 路径曾开启多代理优化时，本轮 Codex 客户端的 API Key 路由也会采用该开关。
+
+本轮还修正新桥接路径的用量保留：上游已返回用量后遇到补丁校验失败、截断或取消，
+不能让空失败记录先占用一次性上报位置；保留已观察令牌数与失败标记，并且只发布一次。
+不补造未知用量，也不把失败响应改成成功。真正 Codex HTTP/SSE/compact/WS 的自由文本
+补丁仍原样传递，同时保留稳定身份映射/响应还原与凭据代理。
+
+Home 模型列表的 `codex-free` / `codex-plus` / `codex-team` / `codex-pro` 是套餐分组，
+实际执行器名为 `codex`；修复仅能力查询把这四个已知分组映射到正确执行器，避免支持的
+Codex 模型仍显示无补丁能力。未知、混合不支持和空路由仍不展示支持，不改账号选择或
+调度。此模型能力兼容无需修改 Home 生产方；新 client 配置的发布支持仍应单独核对。
+
+原有 replay-cache/usage queue 内存保留问题仍未额外修复或进行压力复测。三个 replay
+cache、usage Manager 与 WS session/duplex 六个明列保留策略文件相较 v8.0.8.1 字节相同；
+其他执行器与 WS 工具转换有变更。减少重复翻译或调整流用量发布顺序都不等于已解决
+此前内存问题。下列历史记录保留其当时版本边界。
+
+## v8.0.5 至 v8.0.8 更新（历史）
 
 - Codex 客户端发往第三方执行器时，对指定内置工具的参数 Schema 做 number→integer
   兼容处理；最终规则按实际目标执行器判断，不按协议名猜测。真正 Codex HTTP/WS
@@ -758,7 +819,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v7.3.4.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.10.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -778,8 +839,8 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v7.3.3.1` 并重建对应服务，继续使用原有
-配置和挂载。下节说明的是退回原版、不再使用二开功能的情况。
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.8.1` 并重建对应服务，恢复该版本
+配套配置快照和原有挂载；新 client 字段不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
 

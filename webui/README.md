@@ -3,9 +3,9 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.25.1`
-- commit: `a7ec312fbbb0a13f3a580ee0c7e29228a07c8867`
-- patch: `management-center-v1.25.1-credential-identity.patch`
+- tag: `v1.25.2`
+- commit: `752e0ee772220ce49aae1221a3f39f23236590d7`
+- patch: `management-center-v1.25.2-credential-identity.patch`
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login proxy selectors. Proxy credentials are sent in the
@@ -85,7 +85,7 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.25.1 UI uses `/v8/management` and the native nested configuration editor.
+The v1.25.2 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -108,7 +108,7 @@ download request retain complete UUIDs as well as historical eight-hex-digit IDs
 filenames still use the final eight hex digits, and backend downloads select the latest
 matching suffix: preserving a full ID in the UI does not make that lookup globally unique.
 
-The v1.25.1 credential editor adds request retry, model aliases, and request-scoped error
+The credential editor includes request retry, model aliases, and request-scoped error
 policies. These edits compose with the fork's narrow concurrency patch; configuration-backed
 concurrency-only editors remain restricted to that field. Native single and bulk credential
 refreshes show per-credential results and invalidate affected quota caches. Provider forms
@@ -124,13 +124,33 @@ YAML boolean semantics. Quota cards include Codex credit balances/unlimited cred
 Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
 and accessible-label behavior.
 
+The v1.25.2 Claude quota card includes reset-grant status and a confirmation action for
+eligible grants. Usage, organization-profile and redemption requests retain the selected
+credential index through the management API and use a server-side token placeholder. The
+selected credential proxy remains authoritative. Redemption rechecks eligibility and the
+organization before sending; uncertain results require an explicit retry with the same
+request ID. Expired uncertain operations remain blocked for the connection session. The
+journal lives in tab memory and is neither a cross-tab nor durable spending ledger. The
+existing local cooldown-reset controls remain available independently.
+
+The fork corrects the native panel's old optimize-multi-agent-v2 field location to match
+v8.0.9 and later backends. A separate Codex client compatibility group writes
+`client.codex.optimize-multi-agent-v2` and `client.codex.enable-apply-patch`. Both default to
+false and apply across OAuth and API-key routes. The latter advertises the freeform
+apply_patch capability only for models supported by their routing executors; enabling it
+does not grant an unsupported upstream capability. Backend normalization migrates legacy
+multi-agent paths before displaying the configuration. Explicit false values remain false,
+and unrelated visual/provider saves preserve the client settings. Four locales and the
+configuration search index use the same client scope. This bundled panel is verified with
+its matching v8.0.10 backend.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout a7ec312fbbb0a13f3a580ee0c7e29228a07c8867
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.1-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.1 \
+git -C management-center checkout 752e0ee772220ce49aae1221a3f39f23236590d7
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.2-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.2 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -140,7 +160,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-1d4f248d33afeed1d6d2c3e853250f0ac54255cf7cc4cafe7a2cc01df06ece61
+fd34f7dbcfa46aff685857e9da7cb5797d9c556ef76c973748658c0e60b3ca14
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
