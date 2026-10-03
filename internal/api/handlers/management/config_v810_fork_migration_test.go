@@ -122,7 +122,6 @@ plugins:
 				t.Fatalf("client view did not honor historical/canonical precedence: %s", got)
 			}
 			request(http.MethodPut, client+"enable-apply-patch", `"invalid"`, http.StatusUnprocessableEntity)
-			request(http.MethodPut, "/v8/management/config/"+strings.ReplaceAll(tc.oldPath, ".", "/")+"/optimize-multi-agent-v2", "true", http.StatusBadRequest)
 			if !bytes.Equal(read(), before) {
 				t.Fatal("read or rejected client mutation rewrote the file")
 			}
@@ -156,6 +155,9 @@ plugins:
 					t.Fatal(errValidate)
 				}
 			}
+			// v8.0.12 accepts historical paths and saves their canonical client key.
+			request(http.MethodPut, "/v8/management/config/"+strings.ReplaceAll(tc.oldPath, ".", "/")+"/optimize-multi-agent-v2", fmt.Sprint(tc.want), http.StatusOK)
+			assertSettings(false)
 			request(http.MethodPatch, "/v8/management/config", `{"requests":{"nonstream-keepalive-interval":1}}`, http.StatusOK)
 			assertSettings(false)
 			request(http.MethodPut, client+"enable-apply-patch", "true", http.StatusOK)

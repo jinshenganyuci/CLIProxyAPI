@@ -1,16 +1,102 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.10`（上游提交
-`6fecc6e5567912661654a4eaf9b8f5436facd1c2`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.12`（上游提交
+`2044a01f422998de79a5da8015141b878886534d`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.10-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.10.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.8.1
-合并官方 v8.0.9 / v8.0.10 的 8 个提交（7 个非 merge、1 个 merge），管理页
-升级到官方 v1.25.2 基线并保留二开。发布不替换或重启既有部署。
+当前修订为 `v8.0.12-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.12.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.10.1
+合并官方 v8.0.11 / v8.0.12 的 14 个提交（13 个非 merge、1 个 merge）。管理页
+官方基线仍为 v1.25.2，本轮重新适配后端布局并构建。发布不替换或重启既有部署。
 
-## v8.0.9 / v8.0.10 更新
+## v8.0.11 / v8.0.12 更新
+
+- 新增共享 `upstream` 配置：选定的 Codex steering、客户端伪装、bootstrap 缓冲/时限、
+  孤立委派兼容和模型冷却，Claude 模型冷却/模型列表伪装/伪装模式/默认请求头，以及 xAI
+  inject-x-search 改在 OAuth 与 API Key 路由共同生效。并非把所有 OAuth 选项都搬走；
+  凭据身份、代理及未迁移提供商字段继续各守作用域。
+- `upstream.*` 新路径按存在性优先，包括 false/null；无新路径时旧 OAuth 设置优先于
+  旧全局设置。历史 v8 管理 API 路径和请求正文别名继续接受，GET/PUT/PATCH/DELETE
+  按对应子树投影及规范化；这不表示所有 v7 旧字段都能随意写入 v8。旧容器 null 重置
+  对应字段，完整替换与局部 PATCH 语义不混淆。
+- v8 PUT/PATCH/DELETE 统一保存已校验的规范 YAML 文档树，避免类型化默认值补回并
+  改写原本缺失字段、显式 null、空 map 或插件自由配置；挂载文件 inode 保留。标量修改
+  保留注释，完整替换使用提交文档。纯旧布局通过 v0 设置仍保持旧布局；已有 v8 文档经
+  v0 保存也规范到最新布局，不能笼统说只有 v8 API 才可能迁移。
+- **修正上一版补丁能力默认行为**：`client.codex.enable-apply-patch: false` 现在保留
+  模型模板原生声明的 freeform；启用 true 才按所有实际路由执行器的支持情况扩展到
+  非模板/桥接模型。图片、视频和不适用的非文本模型仍不展示补丁能力。false 不再意味着
+  所有模型的字段都是 null，也一直不是拒绝已有工具调用的总开关。
+- v8 上游 API Key 的 JSON 配置视图增加只读 `auth_index`，优先用实际注册凭据索引，
+  否则按同一合成规则取稳定索引；按生效的 Key/地址/代理/前缀/请求头及提供商规则匹配。
+  原始 YAML 不注入该字段；保存与运行时展开剥离 auth_index/auth-index，不把 UI 投影
+  写成真实凭据配置。客户端认证 Key 仍位于 `access.api-keys`，不能混同上游 Key。
+- Gemini 的分帧 usageMetadata/cpaUsageMetadata 按累计快照合并，未出现的字段保留，
+  不把多个快照相加。等待源终止后的用量尾帧或干净结束；MAX_TOKENS 转为 Responses
+  incomplete/max_output_tokens。Gemini/Vertex/AIStudio 先检查读取错误与取消，再允许
+  合成成功终止，避免断流被报告为正常完成。保留上一轮二开已观察用量的失败上报。
+- 插件执行器的 Responses 响应不能让单独出现的 service_tier 遮住顶层 usage；支持
+  response.usage 与顶层 usage 的流式/非流式解析，保留服务等级，不补造缺失用量。
+- 插件宿主新增 `host.routing.reset_cooldown`，按 auth_index 清理一个凭据的本地路由
+  冷却/配额阻塞并返回模型键，跳过 Token 文件落盘。它不重置供应商真实额度、Access
+  Guard 的本地 Key 额度或历史计费，也不能复活已进入终止未授权状态的凭据。
+- 当访问 Token 已被上游拒绝，刷新 Token 又返回 invalid_grant 时，凭据保留终止
+  unauthorized 状态并停止自动刷新/选择；在途成功、其他模型结果或冷却清除不能错误
+  恢复。更新有效令牌或明确的手动强制刷新才可能恢复。Claude 对网络/解析失败不再
+  盲重试可能已被消费的一次性刷新 Token，只有明确可重试 HTTP 响应保留重试策略。
+- Claude 伪装 currentDate 提示按凭据/会话首次请求日期固定，避免跨午夜改写提示缓存
+  前缀；沿用已有有界会话状态和 TTL，过期/重启重新定日期，无会话或探测请求仍逐次取值。
+  这不是保证长会话中的日期实时变化，也不等同于实际缓存命中率测量。
+- Claude pause_turn 转为 Responses incomplete，incomplete_details 为 null；这是
+  服务端工具暂停，不冒称输出 Token 到顶。Codex 的 include 保留调用方请求的
+  web_search_call.action.sources，并继续强制 reasoning.encrypted_content；不会因此
+  自动开启搜索，也不保留全部任意 include 项。
+- Antigravity 增加仅 Debug 的连接复用诊断，含操作、主机名、凭据索引、请求 ID、
+  是否复用和空闲时长，覆盖重定向。复用原 transport/client 设置，不输出 URL 查询、
+  Header 或令牌。另一个提交仅放宽并发拨号测试容差，仍要求优于完全不复用的最坏情况，
+  不能描述为新连接池或已测得吞吐提升。
+
+### 本次迁移
+
+| 原 v8 路径 | 最新路径/行为 |
+| --- | --- |
+| `oauth.providers.codex` 中 steering/cloaking/bootstrap/orphan/model-cooling 选项 | 对应 `upstream.codex` 字段，OAuth/API Key 共用 |
+| `oauth.providers.claude` 中模型冷却、伪装和默认头 | 对应 `upstream.claude`；旧 claude-code.disable-cloaking-model-list 映射为直接字段 |
+| `oauth.providers.xai.inject-x-search` | `upstream.xai.inject-x-search` |
+| 历史多代理优化路径 | 继续规范为 `client.codex.optimize-multi-agent-v2`；历史 v8 API 别名现可接受 |
+| `client.codex.enable-apply-patch: false` | 保留模板原生 freeform，不再全清空 |
+| JSON 配置内 `auth_index` / `auth-index` | 只读映射；新保存时剥离，不作为持久身份字段 |
+
+没有新增必填项，不要求健康凭据批量重登或重新初始化二开身份；已真实失效的凭据需更新
+有效授权，清冷却不能解决 Token 失效。旧配置继续读取，但旧 OAuth 共享设置也将影响
+API Key 路由。Go 运行时仍使用原 provider 字段，并未新增 Go `Upstream` 结构；上一轮
+客户端开关的 Go 字段迁移继续有效。回退 v8.0.10 时恢复配套旧配置快照，不应假定该版本
+识别 upstream 新布局，也要核对升级期间 Token 轮换与额度变化。
+
+本轮合并还补修两条真实上游帧边界：AIStudio 已观察用量后收到不带用量的 HTTP 503，
+不能用零值覆盖前帧；Gemini/AIStudio/Antigravity 的 usage-only 尾帧即使没有 traceId，
+也应先按原始帧记录用量再做翻译过滤。保留只发布一次的失败状态和已见 Token，不把
+过滤掉的展示帧误认为没有消耗，也不改最终完成/未完成的协议语义。
+
+二开回归另捕获并修复 SSE 日志结束竞争：日志工作协程尚未读取完排队片段时，Finalize
+不能先把共享通道引用清空；现在等待工作协程排空并退出后再清理。确定性晚启动测试及
+原生代码负向对照可复现问题，日志队列容量、缓存和保留策略没有因此改变，不把这项
+并发正确性修复称为解决此前内存泄漏。
+
+若使用 Home 控制面，本轮只读核对的官方 Home 仍依赖 CPA v8.0.4：其校验器接受旧
+OAuth 路径，但拒绝新的 upstream 和 client 根节。upstream 是本轮新增差距，client 是
+已存在差距。向该 Home 发布完整最新配置前需匹配 Schema，或继续使用它支持的历史
+路径；不代表独立 Docker 必须部署 Home，也不代表既有 RESP 路由已失效。本轮未修改
+或部署 Home，实证为直接调用其校验器的测试，不是远端 HTTP 部署验证。
+
+本轮管理页官方没有新版本；二开适配及验收详情见发布报告。保留登录前选代理、凭据冻结
+出口、错误代理不回退、稳定身份、默认 10 并发/占用和 Access Guard。此前用户停止处理
+的 replay-cache/usage queue 内存保留问题未额外修复或压力复测；六个明列保留策略文件
+与上轮二开字节相同，其他终止/诊断代码有变，不能以用量或连接日志修复宣称内存问题
+已解决。下列历史记录保留其当时版本语义，当前行为以上述更新为准。
+
+## v8.0.9 / v8.0.10 更新（历史）
 
 - 新增跨提供商 `apply_patch` 桥接：Codex 的自由文本补丁工具可转换为其他协议接受的
   JSON 函数参数，再把响应还原成客户端的补丁调用，保留工具身份、namespace、call/item
@@ -819,7 +905,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.10.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.12.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -839,8 +925,8 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.8.1` 并重建对应服务，恢复该版本
-配套配置快照和原有挂载；新 client 字段不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.10.1` 并重建对应服务，恢复该版本
+配套配置快照和原有挂载；新 upstream 字段不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
 

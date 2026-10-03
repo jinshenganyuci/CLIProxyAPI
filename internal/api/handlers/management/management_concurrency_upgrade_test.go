@@ -17,7 +17,7 @@ import (
 )
 
 func TestAuthCooldownProjectionPreservesConcurrencyAndSource(t *testing.T) {
-	for _, mode := range []string{"expired-cooldown", "unauthorized", "token-expired", "disabled"} {
+	for _, mode := range []string{"expired-cooldown", "unauthorized", "transient-unauthorized", "token-expired", "disabled"} {
 		t.Run(mode, func(t *testing.T) {
 			h, manager, record := newConcurrencyManagementFixture(t)
 			release, errAcquire := manager.AcquireCredentialConcurrency(context.Background(), record)
@@ -33,6 +33,9 @@ func TestAuthCooldownProjectionPreservesConcurrencyAndSource(t *testing.T) {
 			switch mode {
 			case "unauthorized":
 				current.LastError = &coreauth.Error{HTTPStatus: http.StatusUnauthorized, Message: "synthetic unauthorized"}
+				current.NextRetryAfter = time.Time{}
+			case "transient-unauthorized":
+				current.LastError = &coreauth.Error{HTTPStatus: http.StatusUnauthorized, Message: "synthetic retryable unauthorized"}
 			case "token-expired":
 				current.StatusMessage = "token expired"
 				current.Metadata["expired"] = time.Now().Add(-time.Hour).Format(time.RFC3339)
@@ -53,7 +56,7 @@ func TestAuthCooldownProjectionPreservesConcurrencyAndSource(t *testing.T) {
 			}
 			wantStatus := coreauth.StatusError
 			wantUnavailable := true
-			if mode == "expired-cooldown" {
+			if mode == "expired-cooldown" || mode == "transient-unauthorized" {
 				wantStatus, wantUnavailable = coreauth.StatusActive, false
 			} else if mode == "disabled" {
 				wantStatus = coreauth.StatusDisabled

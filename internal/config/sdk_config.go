@@ -86,7 +86,7 @@ type CodexClientConfig struct {
 	OptimizeMultiAgentV2 bool `yaml:"optimize-multi-agent-v2" json:"optimize-multi-agent-v2"`
 
 	// EnableApplyPatch advertises freeform apply_patch only for supported models.
-	// Default false clears the capability regardless of template metadata.
+	// Default false retains native template capabilities; true also enables supported bridged models.
 	EnableApplyPatch bool `yaml:"enable-apply-patch" json:"enable-apply-patch"`
 }
 

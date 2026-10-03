@@ -136,13 +136,29 @@ existing local cooldown-reset controls remain available independently.
 The fork corrects the native panel's old optimize-multi-agent-v2 field location to match
 v8.0.9 and later backends. A separate Codex client compatibility group writes
 `client.codex.optimize-multi-agent-v2` and `client.codex.enable-apply-patch`. Both default to
-false and apply across OAuth and API-key routes. The latter advertises the freeform
-apply_patch capability only for models supported by their routing executors; enabling it
-does not grant an unsupported upstream capability. Backend normalization migrates legacy
+false and apply across OAuth and API-key routes. With enable-apply-patch disabled,
+built-in Codex model templates retain their existing freeform apply_patch capability.
+Enabling it extends capability advertisement according to actual routing support; it
+does not grant unsupported upstream capability. Backend normalization migrates legacy
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Four locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.10 backend.
+its matching v8.0.12 backend.
+
+The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
+`upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
+spellings remain readable as aliases; explicit canonical false/null values take
+precedence. Editing an alias writes its canonical field and removes only the edited
+legacy field. Unrelated OAuth settings, including Codex identity, credential proxy
+policy and Live media relay, remain in their own scope. The search index and provider
+behavior descriptions follow the same scope.
+
+Provider configuration JSON now includes read-only `auth_index` values. Both underscore
+and historical hyphen spellings are recognized for selected-credential operations.
+Provider saves remove these fields only at group/key boundaries, and snapshot comparisons
+ignore index-only changes. Actual changes to proxies, concurrency or nested headers still
+reject stale edits. Same-named header and plugin fields remain ordinary configuration.
+This does not make provider editing an atomic compare-and-swap operation.
 
 Rebuild the asset from a clean checkout:
 
@@ -160,7 +176,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-fd34f7dbcfa46aff685857e9da7cb5797d9c556ef76c973748658c0e60b3ca14
+4a2e7057342be2471394ff4d64bb7f19f746c8ad46fc4d3eca040b68afd0fa99
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
