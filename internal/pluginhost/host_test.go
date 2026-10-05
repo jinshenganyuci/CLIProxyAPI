@@ -1630,8 +1630,9 @@ func TestHostCanceledInitializationDiscardsBlockedClient(t *testing.T) {
 
 	close(client.release)
 	deadline := time.Now().Add(time.Second)
-	for client.shutdown.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	// Client shutdown is observed before asynchronous load-token cleanup.
+	for (client.shutdown.Load() == 0 || h.PluginBusy("alpha")) && time.Now().Before(deadline) {
+		runtime.Gosched()
 	}
 	if got := client.shutdown.Load(); got != 1 {
 		t.Fatalf("blocked initialization client shutdown calls = %d, want 1", got)
@@ -1729,8 +1730,9 @@ func TestHostCanceledLoadDiscardsLateClientWithoutReplacingCurrentPlugin(t *test
 
 	close(loader.firstRelease)
 	deadline := time.Now().Add(time.Second)
-	for first.shutdown.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	// Wait for both physical shutdown and the final load-token removal.
+	for (first.shutdown.Load() == 0 || h.PluginBusy("alpha")) && time.Now().Before(deadline) {
+		runtime.Gosched()
 	}
 	if got := first.shutdown.Load(); got != 1 {
 		t.Fatalf("late client shutdown calls = %d, want 1", got)

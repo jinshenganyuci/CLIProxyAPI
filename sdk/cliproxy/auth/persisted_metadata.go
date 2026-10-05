@@ -19,7 +19,10 @@ func (m *Manager) UpdateAndPersistMetadata(ctx context.Context, id string, edit 
 		return nil, fmt.Errorf("persisted metadata update is unavailable")
 	}
 	prepare := func(latest *Auth) error {
-		if m.store == nil {
+		m.mu.RLock()
+		store := m.store
+		m.mu.RUnlock()
+		if store == nil {
 			return fmt.Errorf("auth metadata persistence store is unavailable")
 		}
 		if IsConfigAPIKeyAuth(latest) {
@@ -74,10 +77,16 @@ func (m *Manager) UpdateAndPersistMetadata(ctx context.Context, id string, edit 
 // saveMetadataUpdate wraps only the durable candidate. The published credential
 // retains native storage for subsequent refreshes and provider identity access.
 func (m *Manager) saveMetadataUpdate(ctx context.Context, auth *Auth) error {
+	m.mu.RLock()
+	store := m.store
+	m.mu.RUnlock()
+	if store == nil {
+		return fmt.Errorf("auth metadata persistence store is unavailable")
+	}
 	snapshot := auth.Clone()
 	nativeStorage := auth.Storage
 	snapshot.Storage = baseauth.WrapAtomicMetadataStorage(nativeStorage)
-	if _, errSave := m.store.Save(ctx, snapshot); errSave != nil {
+	if _, errSave := store.Save(ctx, snapshot); errSave != nil {
 		return errSave
 	}
 	*auth = *snapshot
@@ -97,35 +106,43 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	if m == nil || commit == nil {
 		return nil, fmt.Errorf("persisted metadata update is unavailable")
 	}
-	m.mu.Lock()
-	current := m.auths[id]
+	releaseMutation, errMutation := m.lockAuthMutationContext(ctx, id)
+	if errMutation != nil {
+		return nil, errMutation
+	}
+	defer releaseMutation()
+	m.mu.RLock()
+	current := m.auths[id].Clone()
+	store := m.store
+	m.mu.RUnlock()
 	if current == nil {
-		m.mu.Unlock()
 		return nil, fmt.Errorf("auth %q disappeared before metadata update", id)
 	}
-	// Result recording already persists under m.mu. Preserve the same lock order
-	// so pending refresh writes can finish without waiting for the manager lock.
+	// Use the native mutation/load gates, then the persistence watermark lock.
+	// Store I/O must not hold m.mu: unrelated credentials and store read callbacks
+	// remain available while the durable operator transaction is in progress.
 	lockValue, _ := m.persistLocks.LoadOrStore(id, &authPersistLock{})
 	persistLock := lockValue.(*authPersistLock)
 	persistLock.mu.Lock()
+	persistLocked := true
+	defer func() {
+		if persistLocked {
+			persistLock.mu.Unlock()
+		}
+	}()
 	updated := current.Clone()
 	if prepare != nil {
 		if errPrepare := prepare(updated); errPrepare != nil {
-			persistLock.mu.Unlock()
-			m.mu.Unlock()
 			return nil, errPrepare
 		}
 	}
-	// A refresh can publish its runtime result just before this transaction
-	// acquires m.mu, without having started persistence yet. Flush that result
-	// before advancing the persistence watermark past its generation.
-	if m.store != nil && (persistLock.lastSaveFailed || current.RegistrationEpoch > persistLock.lastEpoch ||
+	// Retry a failed or previously skipped token save before advancing the
+	// durable metadata watermark past that credential generation.
+	if store != nil && (persistLock.lastSaveFailed || current.RegistrationEpoch > persistLock.lastEpoch ||
 		(current.RegistrationEpoch == persistLock.lastEpoch && current.Generation > persistLock.lastGeneration)) {
 		pending := current.Clone()
 		if prepare != nil {
 			if errPrepare := prepare(pending); errPrepare != nil {
-				persistLock.mu.Unlock()
-				m.mu.Unlock()
 				return nil, errPrepare
 			}
 		}
@@ -133,31 +150,44 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 		if prepare != nil {
 			errSave = m.saveMetadataUpdate(ctx, pending)
 		} else {
-			_, errSave = m.store.Save(ctx, pending)
+			_, errSave = store.Save(ctx, pending)
 		}
 		if errSave != nil {
 			persistLock.lastSaveFailed = true
-			persistLock.mu.Unlock()
-			m.mu.Unlock()
 			return nil, fmt.Errorf("persist pending auth metadata: %w", errSave)
 		}
+		mergeAuthSaveDelta(updated, current, pending, true)
 		persistLock.lastEpoch = current.RegistrationEpoch
 		persistLock.lastGeneration = current.Generation
 		persistLock.lastSaveFailed = false
 	}
 	if errCommit := commit(updated); errCommit != nil {
 		persistLock.lastSaveFailed = true
-		persistLock.mu.Unlock()
-		m.mu.Unlock()
 		return nil, errCommit
 	}
-	updated.Generation = current.Generation + 1
+	m.mu.Lock()
+	latest := m.auths[id]
+	if latest == nil || latest.RegistrationEpoch != current.RegistrationEpoch {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("auth %q changed registration during metadata update", id)
+	}
+	// Runtime-only refresh outcomes can change during store I/O. Preserve their
+	// delta without discarding accepted operator edits or store-enriched fields.
+	mergeAuthSaveDelta(updated, current, latest, false)
+	updated.ID = current.ID
+	updated.RegistrationEpoch = current.RegistrationEpoch
+	updated.Generation = latest.Generation + 1
 	updated.UpdatedAt = time.Now()
 	m.auths[id] = updated.Clone()
+	m.notifyAuthChangeLocked(id)
 	persistLock.lastEpoch = updated.RegistrationEpoch
 	persistLock.lastGeneration = updated.Generation
-	persistLock.mu.Unlock()
+	persistLock.lastSaveFailed = false
 	m.mu.Unlock()
+	// Release transaction locks before scheduler/hook callbacks can reenter.
+	persistLock.mu.Unlock()
+	persistLocked = false
+	releaseMutation()
 	if m.scheduler != nil {
 		m.scheduler.upsertAuth(updated.Clone())
 	}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	sdkauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -40,7 +41,6 @@ func TestPluginFilePriorityRefreshPreservesForkControlsUpgrade(t *testing.T) {
 							wantProxy, wantNamespace, wantLimit = "socks5://changed.example:1080", "98c43f4b-77df-4e1a-9730-f1d487076d4e", 3
 							current.ProxyURL = wantProxy
 							current.Metadata["proxy_url"] = wantProxy
-							current.Metadata["codex_identity_namespace"] = wantNamespace
 							current.Metadata["concurrency_limit"] = wantLimit
 							switch mode {
 							case "zero":
@@ -59,6 +59,25 @@ func TestPluginFilePriorityRefreshPreservesForkControlsUpgrade(t *testing.T) {
 							}
 							if _, errUpdate := manager.Update(ctx, current); errUpdate != nil {
 								t.Fatal(errUpdate)
+							}
+							// Ordinary saves preserve the persisted namespace. Model an explicit
+							// management rotation through its durable metadata transaction.
+							if _, errRotate := manager.UpdatePersistedMetadata(ctx, id, func(latest *coreauth.Auth) error {
+								path := filepath.Join(dir, id)
+								unlock := credentialfile.Lock(path)
+								defer unlock()
+								latest.Metadata["codex_identity_namespace"] = wantNamespace
+								raw, errMarshal := json.Marshal(latest.Metadata)
+								if errMarshal != nil {
+									return errMarshal
+								}
+								temporary := path + ".rotation"
+								if errWrite := os.WriteFile(temporary, raw, 0o600); errWrite != nil {
+									return errWrite
+								}
+								return os.Rename(temporary, path)
+							}); errRotate != nil {
+								t.Fatal(errRotate)
 							}
 						}
 						return pluginapi.AuthRefreshResponse{Auth: pluginapi.AuthData{Metadata: map[string]any{"access_token": "new-token", "priority": 99}, Attributes: map[string]string{"priority": "99", "plugin_attr": "new-value"}}}, nil

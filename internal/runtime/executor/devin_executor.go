@@ -463,6 +463,15 @@ func (e *DevinExecutor) prepareDevinHTTPRequest(ctx context.Context, auth *clipr
 		cascadeID,
 	)
 
+	var errPayload error
+	protoBytes, logBody, errPayload = helps.FinalizeDevinPayload(protoBytes, func(body []byte) []byte {
+		original := helps.DevinPayloadDefaultsSource(body, payload)
+		return helps.NewPayloadFinalizer(e.cfg, e.Identifier(), baseModel, "devin", "", original, req, opts)(body)
+	})
+	if errPayload != nil {
+		return nil, "", nil, errPayload
+	}
+
 	framed := helps.WrapConnectEnvelope(protoBytes)
 	url := strings.TrimRight(baseURL, "/") + helps.DevinChatPath
 
@@ -619,9 +628,12 @@ func (e *DevinExecutor) streamDevinFrames(
 	var streamErr error
 	var lastStopReason uint64
 
-	// Buffer subsequent content/tools while thinking is active so late-arriving or split
-	// thought signatures can be emitted before closing the thinking content block.
+	// Keep tools and block-oriented content queued for late or split thought signatures.
+	// OpenAI text can stream independently, but must not overtake queued tools.
+	streamContentEarly := responseFormat == sdktranslator.FormatOpenAI || responseFormat == sdktranslator.FormatOpenAIResponse
 	var pendingActions []func() bool
+	var deferredThoughtStops []int
+	responseThoughtSignatures := make(map[int]string)
 
 	flushPendingActions := func() bool {
 		if thoughtStarted {
@@ -654,9 +666,15 @@ func (e *DevinExecutor) streamDevinFrames(
 			if stopIdx < 0 {
 				stopIdx = stepIndex
 			}
-			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stopIdx)
-			if !emitInteractionsEvent(stopEvent) {
-				return false
+			if responseFormat == sdktranslator.FormatOpenAIResponse {
+				// Responses items may overlap. Keep reasoning open for late signatures
+				// so output_item.done and response.completed contain the same item.
+				deferredThoughtStops = append(deferredThoughtStops, stopIdx)
+			} else {
+				stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", stopIdx)
+				if !emitInteractionsEvent(stopEvent) {
+					return false
+				}
 			}
 			thoughtStarted = false
 			stepIndex++
@@ -774,6 +792,13 @@ func (e *DevinExecutor) streamDevinFrames(
 		if ctx.Err() != nil {
 			return false
 		}
+		for _, index := range deferredThoughtStops {
+			stopEvent, _ := sjson.SetBytes([]byte(`{"event_type":"step.stop","index":0}`), "index", index)
+			if !emitInteractionsEvent(stopEvent) {
+				return false
+			}
+		}
+		deferredThoughtStops = nil
 		if len(pendingActions) > 0 || thoughtStarted {
 			if !flushPendingActions() {
 				return false
@@ -989,7 +1014,13 @@ func (e *DevinExecutor) streamDevinFrames(
 			}
 			sigEvent := []byte(`{"event_type":"step.delta","index":0,"delta":{"type":"thought_signature","signature":""}}`)
 			sigEvent, _ = sjson.SetBytes(sigEvent, "index", targetIdx)
-			sigEvent, _ = sjson.SetBytes(sigEvent, "delta.signature", string(frameRes.DeltaSignature))
+			sig := string(frameRes.DeltaSignature)
+			if responseFormat == sdktranslator.FormatOpenAIResponse {
+				// The Responses translator accepts complete signatures, not fragments.
+				responseThoughtSignatures[targetIdx] += sig
+				sig = responseThoughtSignatures[targetIdx]
+			}
+			sigEvent, _ = sjson.SetBytes(sigEvent, "delta.signature", sig)
 			if frameRes.DeltaSignatureType != "" {
 				sigEvent, _ = sjson.SetBytes(sigEvent, "delta.signature_type", frameRes.DeltaSignatureType)
 			}
@@ -1017,7 +1048,7 @@ func (e *DevinExecutor) streamDevinFrames(
 			accumulatedContent.WriteString(frameRes.ContentText)
 			chunk := contentBuf.Feed([]byte(frameRes.ContentText))
 			if chunk != "" {
-				if thoughtStarted {
+				if thoughtStarted && (!streamContentEarly || len(pendingActions) > 0) {
 					capturedChunk := chunk
 					pendingActions = append(pendingActions, func() bool {
 						return emitContentChunk(capturedChunk)

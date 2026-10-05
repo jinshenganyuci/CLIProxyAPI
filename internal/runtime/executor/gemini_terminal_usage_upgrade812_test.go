@@ -71,7 +71,12 @@ func TestGeminiTerminalAndFailedUsageComposeUpgrade812(t *testing.T) {
 					} else if errors != 0 || terminals != 1 {
 						t.Fatalf("clean terminal errors=%d terminals=%d", errors, terminals)
 					}
-					records := providerV810UsageRecords(t, capture)
+					var records []usage.Record
+					if provider == "antigravity" {
+						records = antigravityUsageRecordsAfterDelivery815(t, capture)
+					} else {
+						records = providerV810UsageRecords(t, capture)
+					}
 					if len(records) != 1 {
 						t.Fatalf("usage records=%d, want exactly one", len(records))
 					}

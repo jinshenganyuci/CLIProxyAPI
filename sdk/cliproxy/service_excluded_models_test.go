@@ -366,17 +366,8 @@ func TestRegisterModelsForAuth_AntigravityFetchesWebSearchCapability(t *testing.
 	if webSearchModel.ContextLength != staticWebSearchModel.ContextLength || webSearchModel.MaxCompletionTokens != staticWebSearchModel.MaxCompletionTokens {
 		t.Fatalf("static token limits should be preserved, got=%#v static=%#v", webSearchModel, staticWebSearchModel)
 	}
-	if agentModel == nil {
-		t.Fatal("expected gemini-pro-agent to be registered")
-	}
-	if !agentModel.SupportsWebSearch {
-		t.Fatal("gemini-pro-agent should retain its static web search capability")
-	}
-	if staticOnlyModel == nil {
-		t.Fatal("expected static-only Antigravity model to remain registered")
-	}
-	if staticOnlyModel.SupportsWebSearch {
-		t.Fatal("a model with neither static nor fetched web search support must remain unsupported")
+	if agentModel != nil || staticOnlyModel != nil {
+		t.Fatal("models absent from the account catalog must not be registered")
 	}
 	if fetchedOnlyModel != nil {
 		t.Fatalf("fetched-only model should not be registered: %#v", fetchedOnlyModel)

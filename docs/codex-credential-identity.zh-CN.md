@@ -1,16 +1,127 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.12`（上游提交
-`2044a01f422998de79a5da8015141b878886534d`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.15`（上游提交
+`a4acc9f752bd46571f737a10c04bf413656ab06b`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.12-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.12.1` 和 `latest`，使用同一验证镜像。从上一轮 v8.0.10.1
-合并官方 v8.0.11 / v8.0.12 的 14 个提交（13 个非 merge、1 个 merge）。管理页
-官方基线仍为 v1.25.2，本轮重新适配后端布局并构建。发布不替换或重启既有部署。
+当前修订为 `v8.0.15-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.15.1` 和 `latest`，使用同一验证镜像。从 v8.0.12.1 合并官方
+v8.0.13 / v8.0.14 / v8.0.15 共 37 个提交（35 个非 merge、2 个 merge）。管理页
+基线升级至 v1.25.3。发布不替换或重启既有部署。
 
-## v8.0.11 / v8.0.12 更新
+## v8.0.13 / v8.0.14 / v8.0.15 更新
+
+### 模型目录与 Antigravity
+
+- 新增可选 `models.catalog`、`models.codex-catalog`、`models.devin-catalog`，分别选择
+  通用目录、Codex 客户端模板、Devin 目录。只接受 HTTP(S) URL 或绝对本地路径；目录
+  文件/URL 每 3 小时及源切换时刷新，校验失败保留最后有效结果，自定义源失败不回退
+  官方 URL，旧代请求不能覆盖新源结果。显式源优先于 `--local-model`，空值则使用
+  该模式的内置目录或普通模式的官方远程源。Home 模式始终关闭通用目录，即使显式配置。
+  目录只是元数据，不能给账号增加真实模型权益；该下载属于进程级元数据请求。
+- Antigravity 按账号/项目/出口刷新实际可用模型集合，未知与“上游明确空集合”分开处理；
+  失败保留最近成功目录，带抖动的退避上限 30 分钟。每账号一个进行中的工作和最多一个
+  可替换后继，凭据/出口/生命周期改变时取消旧探测并阻止旧结果覆盖。替换模型保留原
+  冷却/生命周期状态，Home 或插件拥有模型时不抢占其控制权。
+- 连续版本要按最终结果看：v8.0.13 曾移除 Claude 4.6，v8.0.14 已恢复；本轮最终保留
+  4.6，并新增 `claude-opus-5-5-high` / `claude-sonnet-5-5-high`，目录标注 100 万上下文、
+  12.8 万输出。目录存在不保证真实账号拥有权限。
+- Antigravity Claude 5.5 支持已观察到的双层 CAQS/Q 思考签名原样回放，严格检查指定
+  Google version 4/channel 18 结构，拒绝重复容器、歧义/递归包装等。保留旧 E/R 兼容，
+  不把裸 CAIS 与该包装混为一谈；结构有效不等于密码学验证或可跨账号重放。
+- Interactions 记录已完成且需工具结果的 interaction/environment ID，以完整、无歧义
+  的尾部 call-result 集合续接，显式 previous ID 优先。只保存标识，缓存按调用者、凭据、
+  模型、会话和调用集合隔离，最多 1024 项、30 分钟有效。新增模型详情入口按原可见模型
+  列表查找，不因此公开原本隐藏的模型。
+
+### 请求处理、工具和流式行为
+
+- payload 用户规则改在内置业务字段处理完成后、编码/网络包装前执行一次，覆盖普通
+  JSON、protobuf、multipart 及图片/视频请求；重试从未应用规则的基线重新构造。原来
+  会被后续内置默认值覆盖的自定义值，现在可在最终业务体生效；Claude 签名跟随最终体。
+  WebSocket response.steer 应用业务规则，但不继承 response.create 默认字段。
+- Responses 支持本地 shell 工具的声明、调用、历史与结果翻译，校验 commands 和正整数
+  限额，保留整条命令及输出截断信息；这只是客户端工具协议转换，不在 CPA 主机执行
+  Shell，也不把托管/容器环境静默当本地环境。
+- Codex 已知工具整数 Schema 映射增加 memory/history/notes 等字段和指定嵌套路径；
+  不是全局递归把所有 number 改整数，也不改真实工具参数数值。原有实际 Codex 执行器
+  豁免继续保留。Claude 请求声明搜索工具时转 Codex 自动包含搜索来源；Codex 转 Chat
+  保留 URL annotations 和多块文本，Responses 推理摘要补全生命周期事件。
+- Devin 更早发送真实文本，同时为迟到思考签名保留正确 block 结束顺序。Claude 原生
+  非流 Messages JSON 可接入内部 SSE 形状的翻译器，不要求所有上游都返回 SSE。
+- 新的流刷新可观察底层写入/flush 错误；交付确认与请求取消分开。Antigravity 先提交
+  replay 状态，再向下游发完成帧，用量等消费者确认结果；内部调用隔离外层 HTTP 确认。
+  已成功交付终止帧后客户端关闭可判成功，写入/flush 失败仍判失败；上游产生完成事件
+  本身不等于客户端已收到。未结束的 Chat 流 EOF 若缺少 finish_reason 不再无条件补 DONE。
+- Antigravity 后端错误帧直接表达失败，支持多行 SSE data 拼接。Codex WebSocket 保存
+  消费者激活前的上游断线错误并在激活时交付，旧连接错误不能污染替换连接。
+- Codex 非流主用量在图片工具用量前上报，避免图片辅助事件抢占主请求记录；不会将
+  辅助记录重复当主推理次数。
+
+### Claude 续接与凭据状态
+
+- Claude 对终端连续 user turns 保留顶层 system 提示，并为 thread 续接预留一个缓存
+  breakpoint；模型版本判断更精确，避免 assistant prefill 的过宽前缀误判。
+- OAuth 工具别名跨 thread 续接保留，缺失状态返回请求范围的 404/thread_not_found，
+  供客户端以完整会话重新 create；不是换凭据就能修复，也不是自动在服务器重放全部
+  历史。新别名状态为进程内有界缓存，不能当持久线程存储。
+- 凭据注册/更新在释放锁前取快照；同凭据变更串行化并与完整 Load 隔离。存储 I/O 不
+  占用 manager 总锁，使用克隆快照、按字段/map 项合并存储与运行时差量，保护代际和
+  真实身份字段。普通落盘失败仍警告但不保证持久成功；Meta 新建 Key 仍需先成功保存。
+  自定义 Store 回调可读 manager，不应重入修改；共享对象应替换而非原地修改。
+- Claude 408 映射为 timeout_error；诊断 JSON 缺少目标字段时跳过完整遍历。README
+  删除 AxisNow 赞助说明。这些不代表新增推理超时或已测得整体性能提升。
+
+### 本轮二开合并补修
+
+- 二开元数据修改/原子落盘入口接入原生同凭据 mutation/load gate；存储 I/O 不持有
+  manager 总锁，失败事务不发布运行时变更或监听通知，成功后合并运行时差量再发布。
+  保留代理、稳定身份、已占用并发槽、限额及存储补充字段，不让新旧两套更新绕开彼此。
+- 修复 Claude 别名缓存只按 message ID 复用的边界：加入调用者、稳定凭据、提供商及
+  上游地址隔离；已注册凭据 Token 刷新或修改代理保持续接身份。API Key 派生执行器共享
+  同一有界 store，避免每次新空缓存或复制锁。仍为 1024 keys/FIFO、无 TTL，不宣称持久化。
+- Codex 保留原生最终业务覆盖，并在覆盖之后执行凭据命名空间映射；HTTP/compact/SSE/WS
+  共用同一顺序。直连图片 JSON/流式路径也接入，避免图片 finalizer 后置覆盖已映射的
+  installation 等身份为原始配置值。分别保留客户端业务体与上游映射体供翻译/用量使用，
+  WS 最后只做传输包装，选定代理及响应身份还原不变。
+- Antigravity 多行 SSE 中的用量不能只按单独 data 行解析；组装完整业务帧后再次观察
+  typed usage，保留后来 503/提前取消的已见消耗和单次失败记录。终止帧成功交付后
+  关闭仍按原生成功规则，未修改下游终态或重复累计用量。
+- 修复 Codex 转 Chat 流引用范围把“已经输出总长度”当当前内容起点，以及跨内容块同 URL
+  被误去重的问题。按 item/output 与 content_index 跟踪 Unicode 字符起点，每块分别
+  去重，流式/非流式一致；负数/反向范围先拒绝，缺少定位信息保留兼容 fallback。
+
+管理页 v1.25.3 更新插件 Logo 的运行时/元数据优先与唯一商店匹配回退，并将 Codex
+Pro/Prolite 展示名改为 Pro 200/Pro 100，不改变套餐权限。二开原登录代理、并发、身份
+和窄范围配置保存继续保留；模型目录源可用已有 YAML 源码编辑，新设/清空不会被普通
+表单保存误删。本轮未新增专门目录源可视控件。
+
+### 升级边界与本轮范围
+
+没有新增必填配置，不要求健康凭据批量重登或重新初始化二开身份。三个模型目录源均为
+可选；容器本地路径需指向容器内可读文件。若设置了自定义源，`--local-model` 不再能
+单独保证不联网，应按实际源检查。已有 payload 自定义覆盖因执行位置改变需复核最终
+请求；仅有目录定义不意味着上游能调用模型。
+
+当前官方 Home Schema 已更新，能接受 upstream、client.codex.optimize-multi-agent-v2
+及历史 OAuth 别名；不再沿用 v8.0.12 检查时这两个根节全被拒绝的结论。但当前 Home
+仍拒绝 models 三个目录源和 client.codex.enable-apply-patch，使用这些配置的 Home
+发布方还需匹配支持。独立 CPA Docker 不受此控制面限制，本轮仅审计，未部署 Home。
+
+上一轮 upstream 共享设置、历史 v8 API 别名、auth_index 只读投影及补丁开关默认语义
+继续适用。新模型目录字段与运行时存储契约对旧版本并非都可识别，回退保留配套旧
+镜像/config/auth/插件及计费快照，并核对期间 Token 轮换。升级重启会清空进程内续接
+状态，客户端遇 thread_not_found 应完整重建会话，不需因此批量重登账号。
+
+此前用户停止处理的 replay-cache/usage queue 内存保留问题未另行修复，也没有做该问题
+的内存压力复测。本轮三个旧 reasoning replay 缓存实现与 usage Manager 实现未改，
+但 WS session/duplex 已改并新增 Interactions/Claude 续接状态及账号探测调度，不能
+沿用上一轮“六个文件全部不变”的描述。缓存项数限制不等于整个进程字节内存上限，
+交付时序或取消处理改进也不证明旧内存问题已解决。保留单凭据代理、稳定身份、默认 10
+并发/占用和 Access Guard；合并补修与本轮验证结果见发布报告。
+
+## v8.0.11 / v8.0.12 更新（历史）
 
 - 新增共享 `upstream` 配置：选定的 Codex steering、客户端伪装、bootstrap 缓冲/时限、
   孤立委派兼容和模型冷却，Claude 模型冷却/模型列表伪装/伪装模式/默认请求头，以及 xAI
@@ -905,7 +1016,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.12.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.15.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -925,8 +1036,8 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.10.1` 并重建对应服务，恢复该版本
-配套配置快照和原有挂载；新 upstream 字段不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.12.1` 并重建对应服务，恢复该版本
+配套配置快照和原有挂载；新模型目录设置不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚
 

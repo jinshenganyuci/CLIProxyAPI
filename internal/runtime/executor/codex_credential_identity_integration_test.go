@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
@@ -475,6 +476,63 @@ func TestCodexCredentialIdentityDirectImageResponse(t *testing.T) {
 				result = res.Payload
 			}
 			if !bytes.Contains(result, []byte(`"installation_id":"client-install"`)) {
+				t.Fatalf("image response identity not restored: %s", result)
+			}
+		})
+	}
+}
+
+func TestV815CodexDirectImagePayloadOverridePreservesIdentity(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				mapped := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+				if mapped == "configured-install" || mapped == "client-install" || mapped == "" {
+					t.Errorf("final image override escaped credential identity: %s", body)
+				}
+				if gjson.GetBytes(body, "prompt").String() != "configured-prompt" {
+					t.Errorf("image business override missing: %s", body)
+				}
+				if stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = fmt.Fprintf(w, "data: {\"type\":\"image_generation.completed\",\"padding\":%q,\"installation_id\":%q}\n\n", string(bytes.Repeat([]byte("a"), 40*1024)), mapped)
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"data":[],"installation_id":%q}`, mapped)
+				}
+			}))
+			defer server.Close()
+			auth := codexCredentialIdentityTestAuth("audit.json", "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+			auth.Attributes = map[string]string{"base_url": server.URL}
+			auth.ProxyURL = "direct"
+			cfg := codexCredentialIdentityTestConfig(false)
+			cfg.Payload.Override = []config.PayloadRule{{Models: []config.PayloadModelRule{{Name: "*"}}, Params: map[string]any{
+				"prompt": "configured-prompt", "client_metadata.x-codex-installation-id": "configured-install",
+			}}}
+			e := NewCodexExecutor(cfg)
+			req := cliproxyexecutor.Request{Model: "gpt-image-1.5", Payload: []byte(`{"model":"gpt-image-1.5","prompt":"test","client_metadata":{"x-codex-installation-id":"client-install"}}`)}
+			opts := codexOpenAIImageTestOptions(codexImagesGenerationsPath, stream)
+			var result []byte
+			if stream {
+				res, err := e.ExecuteStream(context.Background(), auth, req, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for chunk := range res.Chunks {
+					if chunk.Err != nil {
+						t.Fatal(chunk.Err)
+					}
+					result = append(result, chunk.Payload...)
+				}
+			} else {
+				res, err := e.Execute(context.Background(), auth, req, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result = res.Payload
+			}
+			if !bytes.Contains(result, []byte(`"installation_id":"configured-install"`)) {
 				t.Fatalf("image response identity not restored: %s", result)
 			}
 		})

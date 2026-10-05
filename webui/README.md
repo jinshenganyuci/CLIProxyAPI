@@ -3,9 +3,9 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.25.2`
-- commit: `752e0ee772220ce49aae1221a3f39f23236590d7`
-- patch: `management-center-v1.25.2-credential-identity.patch`
+- tag: `v1.25.3`
+- commit: `ee79a794526a30c03748a8864a9ac6589a31833b`
+- patch: `management-center-v1.25.3-credential-identity.patch`
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login proxy selectors. Proxy credentials are sent in the
@@ -85,7 +85,7 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.25.2 UI uses `/v8/management` and the native nested configuration editor.
+The v1.25.3 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -124,7 +124,7 @@ YAML boolean semantics. Quota cards include Codex credit balances/unlimited cred
 Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
 and accessible-label behavior.
 
-The v1.25.2 Claude quota card includes reset-grant status and a confirmation action for
+The v1.25.3 Claude quota card includes reset-grant status and a confirmation action for
 eligible grants. Usage, organization-profile and redemption requests retain the selected
 credential index through the management API and use a server-side token placeholder. The
 selected credential proxy remains authoritative. Redemption rechecks eligibility and the
@@ -143,7 +143,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Four locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.12 backend.
+its matching v8.0.15 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -160,13 +160,26 @@ ignore index-only changes. Actual changes to proxies, concurrency or nested head
 reject stale edits. Same-named header and plugin fields remain ordinary configuration.
 This does not make provider editing an atomic compare-and-swap operation.
 
+The v1.25.3 native update names Codex subscription tiers Pro 200 and Pro 100 in all
+four locales while retaining their existing quota mappings. Plugin cards choose logos
+from runtime metadata, then plugin metadata, then a uniquely matching store entry.
+An unavailable plugin store does not block the installed-plugin list; store responses
+from previous management connections are ignored.
+
+The v8.0.15 backend accepts `models.catalog`, `models.codex-catalog`, and
+`models.devin-catalog` in the YAML source editor. They accept empty strings, absolute
+local paths, or HTTP(S) URLs. There are no dedicated visual controls for these sources.
+Unrelated visual and provider edits preserve configured values; explicit empty strings
+clear them through source editing. Catalog fetching and refresh policy belong to the
+backend and are not implied by successful UI serialization.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 752e0ee772220ce49aae1221a3f39f23236590d7
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.2-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.2 \
+git -C management-center checkout ee79a794526a30c03748a8864a9ac6589a31833b
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.3-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.3 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -176,7 +189,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-4a2e7057342be2471394ff4d64bb7f19f746c8ad46fc4d3eca040b68afd0fa99
+9904eb31de65603c8f194650ed40b3e7688abeb694835871e343bd1078dec2c8
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

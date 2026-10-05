@@ -9,9 +9,16 @@ func (e CodexExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
 	return &e
 }
 
-func (e ClaudeExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
-	e.cfg = e.cfg.ForAPIKey()
-	return &e
+func (e *ClaudeExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
+	// Keep one alias store across credential-specific executor views without
+	// copying the mutex used to initialize that shared store.
+	return &ClaudeExecutor{
+		cfg:                     e.cfg.ForAPIKey(),
+		requestLogProvider:      e.requestLogProvider,
+		upstreamModelNormalizer: e.upstreamModelNormalizer,
+		oauthProfileFetcher:     e.oauthProfileFetcher,
+		oauthToolAliases:        e.claudeOAuthToolAliasStore(),
+	}
 }
 
 func (e GeminiExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {

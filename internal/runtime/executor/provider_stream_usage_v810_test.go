@@ -63,6 +63,11 @@ func TestProviderV810StreamUsageSurvivesTermination(t *testing.T) {
 					t.Cleanup(func() { usage.RegisterNamedPlugin(t.Name(), antigravityUsageNoop{}) })
 					payload := `{"candidates":[{"content":{"role":"model","parts":[{"text":"observed"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}`
 					if provider == "antigravity" {
+						// Native now accepts cancellation after a delivered terminal; this case
+						// continues to verify failure when cancellation interrupts partial output.
+						if ending == "cancel" {
+							payload = strings.Replace(payload, `,"finishReason":"STOP"`, "", 1)
+						}
 						payload = `{"response":` + payload + `}`
 					}
 					if provider == "gemini-interactions" {
@@ -136,7 +141,12 @@ func TestProviderV810StreamUsageSurvivesTermination(t *testing.T) {
 					if ending == "truncated" && !receivedError {
 						t.Fatal("truncated HTTP body did not report an error")
 					}
-					records := providerV810UsageRecords(t, capture)
+					var records []usage.Record
+					if provider == "antigravity" {
+						records = antigravityUsageRecordsAfterDelivery815(t, capture)
+					} else {
+						records = providerV810UsageRecords(t, capture)
+					}
 					if len(records) != 1 {
 						t.Fatalf("usage records=%d, want exactly one", len(records))
 					}

@@ -27,7 +27,7 @@ func TestCodexCredentialIdentityMapsFinalGeneratedPromptCacheKey(t *testing.T) {
 	}
 	rawJSON := []byte(`{"model":"gpt-5-codex","client_metadata":{"x-codex-installation-id":"home-device"}}`)
 
-	firstRequest, firstBody, firstState, firstErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-a"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
+	firstRequest, _, firstBody, firstState, firstErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-a"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
 	if firstErr != nil {
 		t.Fatal(firstErr)
 	}
@@ -44,7 +44,7 @@ func TestCodexCredentialIdentityMapsFinalGeneratedPromptCacheKey(t *testing.T) {
 		t.Fatalf("snapshot original prompt cache key = %q, want generated %q", firstState.originalPromptCacheKey, baseCacheA)
 	}
 
-	_, secondBody, secondState, secondErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-b"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
+	_, _, secondBody, secondState, secondErr := executor.cacheHelper(testContextWithAPIKey("downstream-key-b"), sdktranslator.FormatOpenAI, "https://example.com/responses", auth, req, req.Payload, rawJSON)
 	if secondErr != nil {
 		t.Fatal(secondErr)
 	}
@@ -75,7 +75,7 @@ func TestCodexExecutorCacheHelper_OpenAIChatCompletions_StablePromptCacheKeyFrom
 	}
 	url := "https://example.com/responses"
 
-	httpReq, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai"), url, nil, req, req.Payload, rawJSON)
+	httpReq, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai"), url, nil, req, req.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCodexExecutorCacheHelper_OpenAIChatCompletions_StablePromptCacheKeyFrom
 		t.Fatalf("Session_id = %q, want empty", gotLegacySession)
 	}
 
-	httpReq2, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai"), url, nil, req, req.Payload, rawJSON)
+	httpReq2, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai"), url, nil, req, req.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper error (second call): %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCodexExecutorCacheHelper_UsesDerivedSessionUUID(t *testing.T) {
 	}
 	expectedKey := helps.DerivedSessionUUID("codex", req.Metadata)
 
-	httpReq, body, _, err := executor.cacheHelper(context.Background(), sdktranslator.FormatOpenAI, "https://example.com/responses", nil, req, req.Payload, []byte(`{"model":"gpt-5.4","stream":true}`))
+	httpReq, _, body, _, err := executor.cacheHelper(context.Background(), sdktranslator.FormatOpenAI, "https://example.com/responses", nil, req, req.Payload, []byte(`{"model":"gpt-5.4","stream":true}`))
 	if err != nil {
 		t.Fatalf("cacheHelper error: %v", err)
 	}
@@ -162,11 +162,11 @@ func TestCodexExecutorCacheHelper_ClaudeUsesClaudeCodeSessionID(t *testing.T) {
 		}`),
 	}
 
-	firstHTTPReq, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, firstReq, firstReq.Payload, rawJSON)
+	firstHTTPReq, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, firstReq, firstReq.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper first error: %v", err)
 	}
-	secondHTTPReq, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, secondReq, secondReq.Payload, rawJSON)
+	secondHTTPReq, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, secondReq, secondReq.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper second error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestCodexExecutorCacheHelper_ClaudeRejectsBareUserID(t *testing.T) {
 		Payload: []byte(`{"model":"gpt-5.4","metadata":{"user_id":"same-user-across-chats"},"messages":[{"role":"user","content":[{"type":"text","text":"first"}]}]}`),
 	}
 
-	httpReq, _, _, err := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), "https://example.com/responses", nil, req, req.Payload, []byte(`{"model":"gpt-5.4","stream":true}`))
+	httpReq, _, _, _, err := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), "https://example.com/responses", nil, req, req.Payload, []byte(`{"model":"gpt-5.4","stream":true}`))
 	if err != nil {
 		t.Fatalf("cacheHelper error: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestCodexExecutorCacheHelper_IdentityConfuseRemapsBodyAndHeaders(t *testing
 	}
 	url := "https://example.com/responses"
 
-	httpReq, body, identityState, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai-response"), url, auth, req, req.Payload, rawJSON)
+	httpReq, _, body, identityState, err := executor.cacheHelper(ctx, sdktranslator.FromString("openai-response"), url, auth, req, req.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper error: %v", err)
 	}
@@ -351,11 +351,11 @@ func TestCodexExecutorCacheHelper_ClaudeUsesSessionHeader(t *testing.T) {
 	rawJSON := []byte(`{"model":"gpt-5.4","stream":true}`)
 	url := "https://example.com/responses"
 
-	firstHTTPReq, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, firstReq, firstReq.Payload, rawJSON)
+	firstHTTPReq, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, firstReq, firstReq.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper first error: %v", err)
 	}
-	secondHTTPReq, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, secondReq, secondReq.Payload, rawJSON)
+	secondHTTPReq, _, _, _, err := executor.cacheHelper(ctx, sdktranslator.FromString("claude"), url, nil, secondReq, secondReq.Payload, rawJSON)
 	if err != nil {
 		t.Fatalf("cacheHelper second error: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestCodexExecutorCacheHelper_ClaudeAgentScopeUsesResolvedModelAcrossHTTPAnd
 	childHeaders.Set(helps.ClaudeCodeAgentHeader, "agent-a")
 	rawJSON := []byte(`{"model":"gpt-5.4","stream":true}`)
 
-	rootRequest, _, _, errRoot := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, req, req.Payload, rawJSON, rootHeaders)
+	rootRequest, _, _, _, errRoot := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, req, req.Payload, rawJSON, rootHeaders)
 	if errRoot != nil {
 		t.Fatalf("root cacheHelper error: %v", errRoot)
 	}
@@ -401,7 +401,7 @@ func TestCodexExecutorCacheHelper_ClaudeAgentScopeUsesResolvedModelAcrossHTTPAnd
 	}
 	rootKey := gjson.GetBytes(rootBody, "prompt_cache_key").String()
 
-	childRequest, _, _, errChild := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, req, req.Payload, rawJSON, childHeaders)
+	childRequest, _, _, _, errChild := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, req, req.Payload, rawJSON, childHeaders)
 	if errChild != nil {
 		t.Fatalf("child cacheHelper error: %v", errChild)
 	}
@@ -416,7 +416,7 @@ func TestCodexExecutorCacheHelper_ClaudeAgentScopeUsesResolvedModelAcrossHTTPAnd
 
 	aliasReq := req
 	aliasReq.Model = "another-local-alias-low"
-	aliasRequest, _, _, errAlias := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, aliasReq, aliasReq.Payload, rawJSON, childHeaders)
+	aliasRequest, _, _, _, errAlias := executor.cacheHelper(context.Background(), sdktranslator.FromString("claude"), url, nil, aliasReq, aliasReq.Payload, rawJSON, childHeaders)
 	if errAlias != nil {
 		t.Fatalf("alias cacheHelper error: %v", errAlias)
 	}

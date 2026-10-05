@@ -3800,6 +3800,7 @@ func TestDevinExecutor_WarnsWhenUpstreamServesUnexpectedModel(t *testing.T) {
 
 	exec := NewDevinExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{
+		// Isolate this run from the process-wide model warning throttle.
 		ID:         "devin-auth-unexpected-" + uuid.NewString(),
 		Provider:   "devin",
 		Attributes: map[string]string{"api_key": "test-key"},

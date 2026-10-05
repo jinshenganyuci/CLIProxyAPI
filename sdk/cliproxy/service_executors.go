@@ -28,6 +28,11 @@ var pluginModelsForAuth = func(ctx context.Context, host *pluginhost.Host, auth 
 	return host.ModelsForAuth(ctx, auth)
 }
 
+// pluginHostHasAuthModelProvider only checks declarations, never model discovery.
+var pluginHostHasAuthModelProvider = func(host *pluginhost.Host, provider string) bool {
+	return host != nil && host.HasAuthModelProvider(provider)
+}
+
 type openAICompatibilityRegistrationEntry struct {
 	providerKey string
 	models      []*ModelInfo
@@ -538,6 +543,9 @@ func (s *Service) tryRegisterPluginModelsForAuth(ctx context.Context, a *coreaut
 	// while persistence and auth hooks run; model publication rechecks afterward.
 	if s.coreManager != nil && s.shouldSkipModelRegistration(a.ID, a.RegistrationEpoch, a.Generation, a.Disabled) {
 		return true
+	}
+	if s.coreManager != nil && strings.EqualFold(a.Provider, "antigravity") && !s.antigravityHomeEnabled() {
+		defer s.coreManager.ReconcileRegistryModelStates(ctx, a.ID)
 	}
 	activeAuth := a
 	providerKey := strings.ToLower(strings.TrimSpace(result.Provider))

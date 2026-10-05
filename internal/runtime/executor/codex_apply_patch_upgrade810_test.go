@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
@@ -26,6 +27,14 @@ import (
 // Native apply_patch declarations and tool identities must survive the fork's
 // namespace transform while all transports retain the selected credential proxy.
 func TestV810CodexApplyPatchPreservesCredentialNamespaceAndProxy(t *testing.T) {
+	runCodexApplyPatchNamespaceAndProxy(t, false)
+}
+
+func TestV815CodexFinalPayloadPreservesCredentialNamespaceAndProxy(t *testing.T) {
+	runCodexApplyPatchNamespaceAndProxy(t, true)
+}
+
+func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 	for _, mode := range []string{"http", "compact", "http-stream", "websocket", "websocket-stream"} {
 		for _, advertised := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/advertised=%v", mode, advertised), func(t *testing.T) {
@@ -36,16 +45,30 @@ func TestV810CodexApplyPatchPreservesCredentialNamespaceAndProxy(t *testing.T) {
 				var selectedHits, globalHits, upstreamHits atomic.Int32
 				auth := codexCredentialIdentityTestAuth(t.Name(), namespace)
 				namespaceID, _, _ := internalcodex.ParseCredentialIdentity(auth.Metadata)
-				wantSession := internalcodex.DeriveCredentialIdentity(namespaceID, "session", "client-session")
-				wantInstall := internalcodex.DeriveCredentialIdentity(namespaceID, "installation", "client-install")
+				clientSession, clientInstall := "client-session", "client-install"
+				if finalOverrides {
+					clientSession, clientInstall = "configured-session", "configured-install"
+				}
+				wantSession := internalcodex.DeriveCredentialIdentity(namespaceID, "session", clientSession)
+				wantInstall := internalcodex.DeriveCredentialIdentity(namespaceID, "installation", clientInstall)
+				// Payload overrides do not replace the independently prepared WebSocket
+				// handshake identity; both values must remain credential-scoped.
+				headerSession := clientSession
+				if strings.HasPrefix(mode, "websocket") {
+					headerSession = "client-session"
+				}
+				wantHeaderSession := internalcodex.DeriveCredentialIdentity(namespaceID, "session", headerSession)
 				inspect := func(body []byte, headers http.Header) []byte {
+					if finalOverrides && (gjson.GetBytes(body, "model").String() != "configured-model" || gjson.GetBytes(body, "instructions").String() != "configured-instructions" || gjson.GetBytes(body, "input.2.content").String() != "configured-message") {
+						t.Errorf("final business overrides were lost: %s", body)
+					}
 					if got := gjson.GetBytes(body, "tools.0").Raw; got != declaration {
 						t.Errorf("native grammar changed: %s", got)
 					}
 					if gjson.GetBytes(body, "input.0.call_id").String() != "history-call" || gjson.GetBytes(body, "input.0.input").String() != "original patch" || gjson.GetBytes(body, "input.1.call_id").String() != "history-call" {
 						t.Errorf("native tool history changed: %s", body)
 					}
-					if gjson.GetBytes(body, "prompt_cache_key").String() != wantSession || codexSessionHeaderValue(headers) != wantSession || gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String() != wantInstall {
+					if gjson.GetBytes(body, "prompt_cache_key").String() != wantSession || codexSessionHeaderValue(headers) != wantHeaderSession || gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String() != wantInstall {
 						t.Errorf("native tool request bypassed credential namespace: body=%s session=%q", body, codexSessionHeaderValue(headers))
 					}
 					return []byte(fmt.Sprintf(`{"id":"response-patch","object":"response","status":"completed","output":[{"type":"custom_tool_call","id":"patch-item","call_id":"patch-call","name":"apply_patch","input":%q}],"metadata":{"prompt_cache_key":%q,"x-codex-installation-id":%q},"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}`, patch, wantSession, wantInstall))
@@ -126,6 +149,12 @@ func TestV810CodexApplyPatchPreservesCredentialNamespaceAndProxy(t *testing.T) {
 				cfg.Codex.CredentialProxyPolicy = "require"
 				cfg.ProxyURL = global.URL
 				cfg.Client.Codex.EnableApplyPatch = advertised
+				if finalOverrides {
+					cfg.Payload.Override = []config.PayloadRule{{Models: []config.PayloadModelRule{{Name: "*"}}, Params: map[string]any{
+						"model": "configured-model", "instructions": "configured-instructions", "input.2.content": "configured-message",
+						"prompt_cache_key": clientSession, "client_metadata.x-codex-installation-id": clientInstall,
+					}}}
+				}
 				auth.ProxyURL = selected.URL
 				auth.Attributes = map[string]string{"base_url": upstream.URL}
 				req := coreexecutor.Request{Model: "gpt-5-codex", Payload: payload}
@@ -171,10 +200,10 @@ func TestV810CodexApplyPatchPreservesCredentialNamespaceAndProxy(t *testing.T) {
 					if len(response.Headers) != 0 {
 						t.Fatalf("non-stream WebSocket unexpectedly exposed handshake headers: %v", response.Headers)
 					}
-				} else if response.Headers.Get("Session-Id") != "client-session" {
+				} else if response.Headers.Get("Session-Id") != headerSession {
 					t.Fatalf("response Session-Id was not restored: %v", response.Headers)
 				}
-				if gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String() != "client-session" || gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String() != "client-install" {
+				if gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String() != clientSession || gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String() != clientInstall {
 					t.Fatalf("response identity was not restored: headers=%v payload=%s", response.Headers, response.Payload)
 				}
 				item := gjson.GetBytes(response.Payload, "output.0")

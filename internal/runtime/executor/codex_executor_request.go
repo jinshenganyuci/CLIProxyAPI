@@ -112,7 +112,7 @@ type codexIdentityReplacement struct {
 	confused string
 }
 
-func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Format, url string, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, userPayload []byte, rawJSON []byte, headerSets ...http.Header) (*http.Request, []byte, codexIdentityConfuseState, error) {
+func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Format, url string, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, userPayload []byte, rawJSON []byte, headerSets ...http.Header) (*http.Request, []byte, []byte, codexIdentityConfuseState, error) {
 	var headers http.Header
 	if len(headerSets) > 0 {
 		headers = headerSets[0]
@@ -125,7 +125,7 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 		}
 		cached, ok, errCache := helps.ClaudeCodePromptCache(ctx, modelName, req.Payload, headers)
 		if errCache != nil {
-			return nil, nil, codexIdentityConfuseState{}, errCache
+			return nil, nil, nil, codexIdentityConfuseState{}, errCache
 		}
 		if ok {
 			cache = cached
@@ -160,22 +160,25 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	if !e.resolveCodexModelIsCompat(auth, req, thinking.ParseSuffix(req.Model).ModelName) {
 		rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
 	}
+	// Apply business overrides before the credential namespace transport boundary.
+	rawJSON = helps.FinalizePayload(ctx, rawJSON)
+	clientBody := rawJSON
 	var identityState codexIdentityConfuseState
 	rawJSON, identityState, errIdentity := applyCodexIdentityBody(e.cfg, auth, userPayload, rawJSON)
 	if errIdentity != nil {
-		return nil, nil, codexIdentityConfuseState{}, errIdentity
+		return nil, nil, nil, codexIdentityConfuseState{}, errIdentity
 	}
 	if identityState.promptCacheKey != "" {
 		cache.ID = identityState.promptCacheKey
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(rawJSON))
 	if err != nil {
-		return nil, nil, codexIdentityConfuseState{}, err
+		return nil, nil, nil, codexIdentityConfuseState{}, err
 	}
 	if cache.ID != "" {
 		httpReq.Header.Set("Session-Id", cache.ID)
 	}
-	return httpReq, rawJSON, identityState, nil
+	return httpReq, clientBody, rawJSON, identityState, nil
 }
 
 func applyCodexIdentityConfuseBody(cfg *config.Config, auth *cliproxyauth.Auth, userPayload []byte, rawJSON []byte) ([]byte, codexIdentityConfuseState) {
