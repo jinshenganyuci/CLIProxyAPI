@@ -1,16 +1,113 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.15`（上游提交
-`a4acc9f752bd46571f737a10c04bf413656ab06b`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.17`（上游提交
+`57bde35179ecbdca176ca8923d39cc18805774f2`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.15-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.15.1` 和 `latest`，使用同一验证镜像。从 v8.0.12.1 合并官方
-v8.0.13 / v8.0.14 / v8.0.15 共 37 个提交（35 个非 merge、2 个 merge）。管理页
-基线升级至 v1.25.3。发布不替换或重启既有部署。
+当前修订为 `v8.0.17-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.17.1` 和 `latest`，使用同一验证镜像。从 v8.0.15.1 合并官方
+v8.0.16 / v8.0.17 共 32 个提交（27 个非 merge、5 个 merge）。管理页升级为
+v1.25.4，合入 6 个非 merge 提交。发布不替换或重启既有部署。
 
-## v8.0.13 / v8.0.14 / v8.0.15 更新
+## v8.0.16 / v8.0.17 更新
+
+### 认证状态与刷新并发
+
+- 新增运行时凭据版本 `CredentialVersion`，配合原 `RegistrationEpoch` 标记请求使用
+  的凭据快照；HTTP/流式/令牌计数/Home 结果携带版本，旧凭据发起的迟到结果不能改写
+  当前凭据的可用性或冷却。旧结果仍可经过 hook/错误观察，不是抹掉真实请求用量。
+- 在途刷新若发现用户已经更换凭据版本或秘密材料，不再用旧刷新结果覆盖新凭据，而是
+  保留当前状态。Store 不能修改 manager 拥有的 ID、版本、注册代际或 Generation；
+  二开元数据原子更新需继续遵守相同边界，代理、身份与现存并发槽独立保留。
+- 被上游拒绝、又缺少可用到期时间的访问 Token 会被标记失效，避免刷新期间重复选中。
+  取消刷新会重新调度，成功刷新清除 unauthorized 标记，但仍保留有效的账号/模型额度
+  冷却；刷新成功不等于恢复供应商真实额度。
+
+### Claude 缓存与兼容
+
+- 请求可增加 `prompt_cache_options: {"mode":"explicit"}`，显式由调用方安排缓存
+  breakpoint，保留有效 `cache_control` 的 TTL/scope，不再自动补标记、升级 TTL 或
+  规范 TTL 顺序。适用于普通/流式与 count_tokens；该 CPA 扩展字段发上游前删除。
+  仍执行四个 breakpoint 上限及 thread 预留，不保证上游接受任意 TTL 或缓存一定命中。
+  未设置仍走原自动策略，这不是新增必填 YAML 项。
+- 起始单条或连续 user 消息段的 system prompt 保持顶层，扩展上轮仅终端多 user 的
+  特例，减少布局改动；令牌计数路径保持一致。Claude OAuth scoped 执行器原生也共享
+  工具别名 store；本二开此前已修同类生命周期问题，合并继续保留调用者/凭据/上游隔离。
+- Codex 搜索的 `action.sources` 可转为 Claude 搜索来源。Gemini→Claude 支持优先读
+  camelCase `systemInstruction`、缺失才回退 snake_case，不把冲突的两个字段拼起来。
+- Claude→Gemini 支持 base64 document 块，保留媒体类型，不支持的块不会留下空消息；
+  不等于支持所有 URL/文本文件输入。实际 JSON Schema 有 properties 时补正 object，
+  包含嵌套/nullable 分支，不修改真实工具参数值。
+- Gemini→Claude 对无工具调用的安全/内容拒绝等结束原因映射 refusal，MAX_TOKENS
+  对应 max_tokens；有效工具调用优先 tool_use。无 parts 的用量/结束帧仍正确结束。
+  有签名的可见文本和工具调用可用空 thinking 载体保存签名，保持可见内容和块生命周期，
+  不凭空生成隐藏推理文字。
+- Responses 的 is-compat 模式保留非空、无首尾空白且未知格式的 encrypted_content，
+  供第三方模型回放；已知不兼容提供商签名、null/畸形值仍过滤，原生模式验证不放宽。
+  这是协议兼容，不是解密或对任意签名的真实性背书。
+
+### 流结束、用量与可观测性
+
+- Chat→Responses 在已有真实 finish_reason、输出项均结束且工具输入有效时，允许干净
+  EOF 补完成事件，保留迟到用量；没有 source [DONE] 不再必然挂起。没有 finish_reason、
+  读取失败或无效工具流仍不会被补成成功，终态只发一次。
+- Vertex API Key/服务账号流将已交给消费者的终止块与后续 context.Canceled 区分，避免
+  已完成请求被后续取消错算失败；这不代表所有网络写入/断线都可忽略。
+- 原生补齐 apply_patch 异常路径保留上游用量，与二开此前失败用量修补重叠；本轮合并
+  不应重复发布，也不丢取消、背压、图片/代理/身份边界。Codex 推理强度在最终 payload
+  覆盖后取值上报，反映真正发送的请求。
+- 模型上报使用统一提供商逻辑，并移除原模型替换警告的节流 map，同类上游替换可能
+  逐次警告；不能只说函数重命名或日志更少。日志只用 auth_index 标识凭据。
+- Antigravity 上下文哈希拒绝日志按工具/opaque ID 分组，区分 batch/顺序阶段和不同 part。
+  若批量没有恢复稳定 ID，相同上下文不再重复重建重试；这是回放应用算法改动，不是
+  缓存存储 TTL/淘汰策略调整，也不能据此宣称旧内存问题解决。
+
+### 二开合并边界
+
+- 元数据事务若从磁盘同步到真实新 Token，也同步递增 manager 凭据版本并清旧 Token
+  拒绝标记；仅编辑代理/命名空间/并发限额不虚增版本、不解除旧拒绝状态。保留账号与
+  模型的有效额度冷却和现存并发槽，不接受编辑器/存储任意回填 manager 拥有的版本。
+- 旧刷新不只是成功结果需要隔离，错误/取消返回也检查注册代际、凭据版本及真实秘密
+  材料，并等待已有元数据事务发布，避免新 Token 正在落盘时被旧失败污染；同代真实
+  失败/取消仍保留原生重调度行为。
+- 原生 apply_patch WithUsage 与二开此前 buffer 帮助函数合并为同一失败上报链，保留
+  已见用量、单次失败、提前取消和背压；Vertex 终止之后的取消成功与终止前取消失败
+  分开验证。Claude 原生共享 store 初始化与二开调用者/凭据/上游隔离同时保留。
+- Codex HTTP/compact/SSE/WS 都按最终 payload 记录模型/推理强度，业务覆盖后再做
+  稳定身份映射、出口约束与响应还原；保留原并发/Access Guard 准入，没有为兼容新
+  日志帮助函数绕过现有保护。
+
+### Home、管理页与迁移
+
+Home 模式现在同时停止通用与 Devin 模型目录读取，即使配置了显式源；Codex 客户端
+模板继续独立使用。独立 CPA 的 Devin 目录行为不变。这取代上一轮“Home 仅关闭通用
+目录”的说明。本轮 Home 源码仍为 c098d84d：支持 upstream/client.optimize 和旧别名，
+仍不接受 models 三个目录源及 client.enable-apply-patch；独立 Docker 不受此控制面
+限制。本轮只读复核 Schema 和四套餐模型输出，发布不部署外部 Home。
+
+管理页 v1.25.4 增加越南语及占位符/语言顺序测试，中文界面保留 Claude/Antigravity
+Pro、Free、Team 等套餐原名。官方也修正多代理开关到 client 路径、共享选项到 upstream
+路径；二开此前已有此适配，本次合并保持代理/身份/并发和只读 auth_index 边界，不把
+官方追平已有适配说成新增二开功能。最后一个笼统标题提交实际仅补全越南语翻译。
+README 新增三个社区项目链接，不代表镜像内自动安装这些项目。
+
+本二开为新增越南语补齐 115 个既有二开缺失字段，并修正登录回调、设备授权、国内 Kimi
+域名及共享设置提示；其他官方翻译继续保留。没有借语言升级新增未请求的产品逻辑，
+现有表单/YAML 保存、模型高级字段、代理、身份与默认并发通过实际 UI→Go 边界复核。
+
+没有新增必填配置，也不要求健康凭据批量重登或重新初始化身份。新的显式缓存选项只
+在需要自行控制 breakpoint 时按请求启用；配置/凭据旧文件保持兼容。Go 嵌入或自写
+Store/执行器需遵守凭据版本和结果代际契约，不能把旧结果当当前状态直接覆盖。
+回退继续保存同一时点固定镜像、配置、凭据和插件/计费快照，核对 Token 轮换与期间
+用量；运行中容器不会因 latest 发布自行换版本。
+
+此前用户停止处理的 replay-cache/usage queue 内存保留问题未独立修复或压力复测。
+本轮可明确列出的三个 replay 缓存、usage Manager、WS session/duplex 六个实现文件
+原生未改，但回放应用、模型警告缓存、Claude store 生命周期与刷新状态处理有变，不能
+笼统说所有内存行为不变，也不能以普通回归验收证明旧问题已解决。
+
+## v8.0.13 / v8.0.14 / v8.0.15 更新（历史）
 
 ### 模型目录与 Antigravity
 
@@ -1016,7 +1113,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.15.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.17.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -1036,7 +1133,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.12.1` 并重建对应服务，恢复该版本
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.15.1` 并重建对应服务，恢复该版本
 配套配置快照和原有挂载；新模型目录设置不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚

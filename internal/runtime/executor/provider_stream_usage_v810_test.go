@@ -62,12 +62,12 @@ func TestProviderV810StreamUsageSurvivesTermination(t *testing.T) {
 					usage.RegisterNamedPlugin(t.Name(), capture)
 					t.Cleanup(func() { usage.RegisterNamedPlugin(t.Name(), antigravityUsageNoop{}) })
 					payload := `{"candidates":[{"content":{"role":"model","parts":[{"text":"observed"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}`
+					// Native accepts cancellation after a delivered terminal for these providers;
+					// retain coverage of cancellation that interrupts partial output here.
+					if ending == "cancel" && (provider == "antigravity" || provider == "vertex") {
+						payload = strings.Replace(payload, `,"finishReason":"STOP"`, "", 1)
+					}
 					if provider == "antigravity" {
-						// Native now accepts cancellation after a delivered terminal; this case
-						// continues to verify failure when cancellation interrupts partial output.
-						if ending == "cancel" {
-							payload = strings.Replace(payload, `,"finishReason":"STOP"`, "", 1)
-						}
 						payload = `{"response":` + payload + `}`
 					}
 					if provider == "gemini-interactions" {

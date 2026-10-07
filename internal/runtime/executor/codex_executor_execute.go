@@ -82,7 +82,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if err != nil {
 		return resp, err
 	}
-	reporter.SetTranslatedReasoningEffort(body, to.String())
+	reporter.SetTranslatedReasoningEffort(upstreamBody, to.String())
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
 	applyCodexRoutingHint(ctx, httpReq.Header, auth, baseModel, upstreamBody, opts.Headers)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
@@ -143,7 +143,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 		eventData := bytes.TrimSpace(line[5:])
 		eventData = helps.RestoreCodexMultiAgentV2Response(eventData, optimizeMultiAgentV2)
-		reporter.ObserveCodexResponseModel(eventData)
+		reporter.ObserveResponseModel(eventData)
 		eventType := gjson.GetBytes(eventData, "type").String()
 
 		if helps.HasMeaningfulCodexOutputDelta(eventData) {
@@ -262,7 +262,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	if err != nil {
 		return resp, err
 	}
-	reporter.SetTranslatedReasoningEffort(body, to.String())
+	reporter.SetTranslatedReasoningEffort(upstreamBody, to.String())
 	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg, opts.Headers)
 	applyCodexRoutingHint(ctx, httpReq.Header, auth, baseModel, upstreamBody, opts.Headers)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
@@ -313,7 +313,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	upstreamData := applyCodexIdentityConfuseResponsePayload(data, identityState)
 	helps.AppendAPIResponseChunk(ctx, e.cfg, upstreamData)
 	upstreamData = helps.RestoreCodexMultiAgentV2Response(upstreamData, optimizeMultiAgentV2)
-	reporter.ObserveCodexResponseModel(upstreamData)
+	reporter.ObserveResponseModel(upstreamData)
 	var param any
 	clientData := applyCodexIdentityExposeResponsePayload(upstreamData, identityState)
 	out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, clientData, &param)

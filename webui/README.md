@@ -3,9 +3,9 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.25.3`
-- commit: `ee79a794526a30c03748a8864a9ac6589a31833b`
-- patch: `management-center-v1.25.3-credential-identity.patch`
+- tag: `v1.25.4`
+- commit: `6abace9ffb83a9ac349464ded04bb4e7f7cb309e`
+- patch: `management-center-v1.25.4-credential-identity.patch`
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login proxy selectors. Proxy credentials are sent in the
@@ -22,7 +22,7 @@ It no longer falls back to old auth-file quota observations.
 Meta device login displays the authorization URL, optional device code, expiry guidance,
 and cancellation controls without a callback form. Its selected proxy is sent through
 `POST /oauth/auth-url?provider=meta` and stays locked until completion or cancellation. Browser
-authorization uses the browser's own network settings. All four locales are included.
+authorization uses the browser's own network settings. All five locales are included.
 The native Meta API-key editor is included. It preserves unknown backend configuration fields and
 per-credential concurrency settings when saving a current provider form. Stale or ambiguous
 provider snapshots are rejected before a write. Meta quota
@@ -85,7 +85,7 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.25.3 UI uses `/v8/management` and the native nested configuration editor.
+The v1.25.4 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -124,7 +124,7 @@ YAML boolean semantics. Quota cards include Codex credit balances/unlimited cred
 Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
 and accessible-label behavior.
 
-The v1.25.3 Claude quota card includes reset-grant status and a confirmation action for
+The v1.25.4 Claude quota card includes reset-grant status and a confirmation action for
 eligible grants. Usage, organization-profile and redemption requests retain the selected
 credential index through the management API and use a server-side token placeholder. The
 selected credential proxy remains authoritative. Redemption rechecks eligibility and the
@@ -141,9 +141,9 @@ built-in Codex model templates retain their existing freeform apply_patch capabi
 Enabling it extends capability advertisement according to actual routing support; it
 does not grant unsupported upstream capability. Backend normalization migrates legacy
 multi-agent paths before displaying the configuration. Explicit false values remain false,
-and unrelated visual/provider saves preserve the client settings. Four locales and the
+and unrelated visual/provider saves preserve the client settings. Five locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.15 backend.
+its matching v8.0.17 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -160,7 +160,7 @@ ignore index-only changes. Actual changes to proxies, concurrency or nested head
 reject stale edits. Same-named header and plugin fields remain ordinary configuration.
 This does not make provider editing an atomic compare-and-swap operation.
 
-The v1.25.3 native update names Codex subscription tiers Pro 200 and Pro 100 in all
+The retained v1.25.3 native update names Codex subscription tiers Pro 200 and Pro 100 in all
 four locales while retaining their existing quota mappings. Plugin cards choose logos
 from runtime metadata, then plugin metadata, then a uniquely matching store entry.
 An unavailable plugin store does not block the installed-plugin list; store responses
@@ -173,13 +173,22 @@ Unrelated visual and provider edits preserve configured values; explicit empty s
 clear them through source editing. Catalog fetching and refresh policy belong to the
 backend and are not implied by successful UI serialization.
 
+The v1.25.4 native update adds Vietnamese, keeps Claude/Antigravity subscription
+plan names untranslated in Chinese, and aligns shared-provider and Codex client
+settings with their canonical `upstream.*` and `client.codex` paths. The fork already
+used those canonical paths; its alias reads, explicit false/null precedence, and
+narrow save guards are retained. Vietnamese also includes the fork's login proxy,
+concurrency, and credential-identity controls, with current Devin callback and shared
+provider/apply_patch guidance. Native Vietnamese interpolation checks cover the full
+combined dictionary.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout ee79a794526a30c03748a8864a9ac6589a31833b
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.3-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.3 \
+git -C management-center checkout 6abace9ffb83a9ac349464ded04bb4e7f7cb309e
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.4-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.4 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -189,7 +198,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-9904eb31de65603c8f194650ed40b3e7688abeb694835871e343bd1078dec2c8
+00818ce8b49a51bac393b48572d3ddf90149418b145ffcf9398835be544c3570
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

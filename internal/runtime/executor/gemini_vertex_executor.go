@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -699,8 +700,9 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 		scanner.Buffer(nil, streamScannerBuffer)
 		claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
 		var streamUsage helps.StreamUsageBuffer
+		var terminalDelivered bool
 		defer func() {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil && !terminalDelivered {
 				streamUsage.PublishFailure(ctx, reporter, ctx.Err())
 				return
 			}
@@ -720,6 +722,9 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 			for i := range lines {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: lines[i]}:
+					if helps.IsGeminiVertexTerminalStreamChunk(lines[i]) {
+						terminalDelivered = true
+					}
 				case <-ctx.Done():
 					return
 				}
@@ -732,6 +737,9 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 			return
 		}
 		if errScan := scanner.Err(); errScan != nil {
+			if terminalDelivered && errors.Is(errScan, context.Canceled) {
+				return
+			}
 			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			streamUsage.PublishFailure(ctx, reporter, errScan)
 			select {
@@ -873,8 +881,9 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 		scanner.Buffer(nil, streamScannerBuffer)
 		claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
 		var streamUsage helps.StreamUsageBuffer
+		var terminalDelivered bool
 		defer func() {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil && !terminalDelivered {
 				streamUsage.PublishFailure(ctx, reporter, ctx.Err())
 				return
 			}
@@ -894,6 +903,9 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 			for i := range lines {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: lines[i]}:
+					if helps.IsGeminiVertexTerminalStreamChunk(lines[i]) {
+						terminalDelivered = true
+					}
 				case <-ctx.Done():
 					return
 				}
@@ -906,6 +918,9 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 			return
 		}
 		if errScan := scanner.Err(); errScan != nil {
+			if terminalDelivered && errors.Is(errScan, context.Canceled) {
+				return
+			}
 			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			streamUsage.PublishFailure(ctx, reporter, errScan)
 			select {

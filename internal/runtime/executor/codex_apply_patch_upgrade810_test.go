@@ -59,7 +59,7 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 				}
 				wantHeaderSession := internalcodex.DeriveCredentialIdentity(namespaceID, "session", headerSession)
 				inspect := func(body []byte, headers http.Header) []byte {
-					if finalOverrides && (gjson.GetBytes(body, "model").String() != "configured-model" || gjson.GetBytes(body, "instructions").String() != "configured-instructions" || gjson.GetBytes(body, "input.2.content").String() != "configured-message") {
+					if finalOverrides && (gjson.GetBytes(body, "model").String() != "configured-model" || gjson.GetBytes(body, "instructions").String() != "configured-instructions" || gjson.GetBytes(body, "input.2.content").String() != "configured-message" || gjson.GetBytes(body, "reasoning.effort").String() != "high") {
 						t.Errorf("final business overrides were lost: %s", body)
 					}
 					if got := gjson.GetBytes(body, "tools.0").Raw; got != declaration {
@@ -153,6 +153,7 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 					cfg.Payload.Override = []config.PayloadRule{{Models: []config.PayloadModelRule{{Name: "*"}}, Params: map[string]any{
 						"model": "configured-model", "instructions": "configured-instructions", "input.2.content": "configured-message",
 						"prompt_cache_key": clientSession, "client_metadata.x-codex-installation-id": clientInstall,
+						"reasoning.effort": "high",
 					}}}
 				}
 				auth.ProxyURL = selected.URL
@@ -162,14 +163,22 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 				httpExec := NewCodexExecutor(cfg)
 				wsExec := NewCodexWebsocketsExecutor(cfg)
 				wsExec.store = &codexWebsocketSessionStore{}
+				ctx := t.Context()
+				var capture *codexResponseModelUsageCapture
+				if finalOverrides {
+					capture = &codexResponseModelUsageCapture{alias: t.Name(), records: make(chan usage.Record, 4)}
+					usage.RegisterNamedPlugin(t.Name(), capture)
+					t.Cleanup(func() { usage.RegisterNamedPlugin(t.Name(), codexResponseModelNoopUsagePlugin{}) })
+					ctx = usage.WithRequestedModelAlias(ctx, t.Name())
+				}
 				var response coreexecutor.Response
 				var errExecute error
 				if strings.HasSuffix(mode, "stream") {
 					var stream *coreexecutor.StreamResult
 					if mode == "websocket-stream" {
-						stream, errExecute = wsExec.ExecuteStream(t.Context(), auth, req, opts)
+						stream, errExecute = wsExec.ExecuteStream(ctx, auth, req, opts)
 					} else {
-						stream, errExecute = httpExec.ExecuteStream(t.Context(), auth, req, opts)
+						stream, errExecute = httpExec.ExecuteStream(ctx, auth, req, opts)
 					}
 					if errExecute == nil {
 						response.Headers = stream.Headers
@@ -185,15 +194,21 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 						}
 					}
 				} else if mode == "websocket" {
-					response, errExecute = wsExec.Execute(t.Context(), auth, req, opts)
+					response, errExecute = wsExec.Execute(ctx, auth, req, opts)
 				} else {
 					if mode == "compact" {
 						opts.Alt = "responses/compact"
 					}
-					response, errExecute = httpExec.Execute(t.Context(), auth, req, opts)
+					response, errExecute = httpExec.Execute(ctx, auth, req, opts)
 				}
 				if errExecute != nil {
 					t.Fatal(errExecute)
+				}
+				if capture != nil {
+					record := capture.await(t)
+					if record.ReasoningEffort != "high" || record.Failed || record.Detail.TotalTokens != 5 {
+						t.Fatalf("finalized request usage diverged: %+v", record)
+					}
 				}
 				// Non-stream WebSocket execution does not expose handshake headers.
 				if mode == "websocket" {

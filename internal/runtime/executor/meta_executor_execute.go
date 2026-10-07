@@ -146,11 +146,10 @@ func (e *MetaExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 		return resp, wrapMetaUpstreamError(httpResp.StatusCode, data)
 	}
 
-	out, errCompleted := e.translateMetaCompleted(ctx, req, prepared, data)
+	var upstreamUsage helps.StreamUsageBuffer
+	out, errCompleted := e.translateMetaCompleted(ctx, req, prepared, data, &upstreamUsage)
 	if errCompleted != nil {
-		if detail, ok := helps.ParseCodexUsage(out.sourceEvent); ok {
-			reporter.PublishFailureWithDetail(ctx, detail, errCompleted)
-		}
+		upstreamUsage.PublishFailure(ctx, reporter, errCompleted)
 		return resp, errCompleted
 	}
 	if len(out.sourceEvent) > 0 {
@@ -173,7 +172,7 @@ type metaCompletedTranslation struct {
 	sourceEvent []byte
 }
 
-func (e *MetaExecutor) translateMetaCompleted(ctx context.Context, req cliproxyexecutor.Request, prepared *metaPreparedRequest, data []byte) (metaCompletedTranslation, error) {
+func (e *MetaExecutor) translateMetaCompleted(ctx context.Context, req cliproxyexecutor.Request, prepared *metaPreparedRequest, data []byte, upstreamUsage *helps.StreamUsageBuffer) (metaCompletedTranslation, error) {
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
 	for _, line := range bytes.Split(data, []byte("\n")) {
@@ -181,6 +180,9 @@ func (e *MetaExecutor) translateMetaCompleted(ctx context.Context, req cliproxye
 			continue
 		}
 		eventData := bytes.TrimSpace(line[len(dataTag):])
+		if detail, ok := helps.ParseCodexUsage(eventData); ok {
+			upstreamUsage.Observe(detail, true)
+		}
 		if errEvent := metaStreamEventError(eventData); errEvent != nil {
 			return metaCompletedTranslation{}, errEvent
 		}
@@ -207,6 +209,9 @@ func (e *MetaExecutor) translateMetaCompleted(ctx context.Context, req cliproxye
 	}
 
 	if completedData, ok := metaAsCompletedEvent(data); ok {
+		if detail, okUsage := helps.ParseCodexUsage(completedData); okUsage {
+			upstreamUsage.Observe(detail, true)
+		}
 		completedData = patchCodexCompletedOutput(completedData, outputItemsByIndex, outputItemsFallback)
 		sourceEvent := bytes.Clone(completedData)
 		var errBridge error

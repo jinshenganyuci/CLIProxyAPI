@@ -176,6 +176,36 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	mergeAuthSaveDelta(updated, current, latest, false)
 	updated.ID = current.ID
 	updated.RegistrationEpoch = current.RegistrationEpoch
+	// Explicit identity transactions can also adopt freshly persisted OAuth
+	// tokens. Fence old responses exactly as a native credential replacement,
+	// while ordinary proxy/namespace/concurrency edits retain their version.
+	updated.CredentialVersion = max(uint64(1), latest.CredentialVersion)
+	credentialChanged := CredentialsChanged(latest, updated)
+	cooldownStateChanged := false
+	if credentialChanged {
+		updated.CredentialVersion++
+		updated.RejectedAccessToken = ""
+		if !updated.Disabled && updated.Status != StatusDisabled {
+			if hasUnauthorizedAuthFailure(latest) || (updated.LastError != nil && isUnauthorizedError(updated.LastError)) {
+				updated.Unavailable = false
+				updated.LastError = nil
+				updated.StatusMessage = ""
+				updated.Status = StatusActive
+				cooldownStateChanged = true
+			}
+			cooldownStateChanged = len(clearUnauthorizedModelStates(updated, time.Now())) > 0 || cooldownStateChanged
+			if latest.Quota.Exceeded && latest.Quota.Reason == "credential_quota" && latest.Quota.NextRecoverAt.After(time.Now()) {
+				updated.Unavailable = latest.Unavailable
+				updated.NextRetryAfter = latest.NextRetryAfter
+				updated.Quota = mergeQuotaObservation(latest.Quota, updated.Quota)
+				if updated.Status == StatusActive {
+					updated.Status = latest.Status
+				}
+			}
+		}
+	} else {
+		updated.RejectedAccessToken = latest.RejectedAccessToken
+	}
 	updated.Generation = latest.Generation + 1
 	updated.UpdatedAt = time.Now()
 	m.auths[id] = updated.Clone()
@@ -193,5 +223,8 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	}
 	m.queueRefreshReschedule(id)
 	m.hook.OnAuthUpdated(ctx, updated.Clone())
+	if cooldownStateChanged {
+		m.persistCooldownStates(context.Background())
+	}
 	return updated.Clone(), nil
 }

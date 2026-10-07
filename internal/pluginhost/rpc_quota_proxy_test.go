@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
@@ -158,11 +160,21 @@ func TestRPCQuotaCallbacksKeepConcurrentCredentialClients(t *testing.T) {
 				}
 			}
 			for _, id := range streamIDs {
-				host.httpStreams.mu.Lock()
-				_, exists := host.httpStreams.streams[hostHTTPStreamKey{pluginID: "quota-plugin", streamID: id}]
-				host.httpStreams.mu.Unlock()
-				if exists {
-					t.Error("completed quota scope retained stream")
+				// Context cancellation removes the operation before its asynchronous
+				// cleanup closes the stream. Observe the actual cleanup boundary.
+				deadline := time.Now().Add(3 * time.Second)
+				for {
+					host.httpStreams.mu.Lock()
+					_, exists := host.httpStreams.streams[hostHTTPStreamKey{pluginID: "quota-plugin", streamID: id}]
+					host.httpStreams.mu.Unlock()
+					if !exists {
+						break
+					}
+					if !time.Now().Before(deadline) {
+						t.Error("completed quota scope retained stream")
+						break
+					}
+					runtime.Gosched()
 				}
 			}
 			if fallbackCalls.Load() != 0 {

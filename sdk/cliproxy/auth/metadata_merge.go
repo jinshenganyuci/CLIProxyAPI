@@ -113,6 +113,7 @@ func MergeRefreshedAuth(base, current, updated *Auth) *Auth {
 	merged.Quota = mergeQuotaObservation(merged.Quota, updated.Quota)
 
 	// 1. Refresh Lifecycle Timestamps
+	merged.RejectedAccessToken = updated.RejectedAccessToken
 	if !updated.LastRefreshedAt.IsZero() {
 		merged.LastRefreshedAt = updated.LastRefreshedAt
 	}
