@@ -131,6 +131,8 @@ func (e *ClaudeExecutor) rememberClaudeOAuthToolAliases(scope string, payload []
 	e.claudeOAuthToolAliasStore().save(keys, aliases)
 }
 
+const claudeThreadNotFoundErrorMessage = "No thread state was found for the requested previous_message_id. Replay the full conversation with thread create to start a new Thread."
+
 type claudeThreadNotFoundError struct {
 	statusErr
 }
@@ -138,10 +140,14 @@ type claudeThreadNotFoundError struct {
 func newClaudeThreadNotFoundError() claudeThreadNotFoundError {
 	return claudeThreadNotFoundError{statusErr: statusErr{
 		code: http.StatusNotFound,
-		msg:  "No thread state was found for the requested previous_message_id. Replay the full conversation with thread create to start a new Thread.",
+		msg:  claudeThreadNotFoundErrorMessage,
 	}}
 }
 
 func (claudeThreadNotFoundError) IsRequestScoped() bool { return true }
+
+func (claudeThreadNotFoundError) ResponseBody() []byte {
+	return []byte(`{"type":"error","error":{"type":"not_found_error","message":"` + claudeThreadNotFoundErrorMessage + `"}}`)
+}
 
 var _ cliproxyexecutor.RequestScopedError = claudeThreadNotFoundError{}

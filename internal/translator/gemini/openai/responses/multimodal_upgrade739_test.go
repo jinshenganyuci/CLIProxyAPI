@@ -18,7 +18,7 @@ func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
 	defer server.Close()
 	for _, target := range []struct {
 		name, contents string
-		convert        func(string, []byte, bool) []byte
+		convert        func(string, []byte, bool) ([]byte, error)
 	}{
 		{"gemini", "contents", gemini.ConvertOpenAIResponsesRequestToGemini},
 		{"antigravity", "request.contents", antigravity.ConvertOpenAIResponsesRequestToAntigravity},
@@ -37,7 +37,10 @@ func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
 					if toolResult {
 						input = `{"input":[{"type":"function_call","call_id":"call_media","name":"read_media","arguments":"{}"},{"type":"function_call_output","call_id":"call_media","output":` + media + `}],"tools":[{"type":"function","name":"read_media","parameters":{"type":"object"}}]}`
 					}
-					out := target.convert("gemini-3-flash", []byte(input), false)
+					out, errConvert := target.convert("gemini-3-flash", []byte(input), false)
+					if errConvert != nil {
+						t.Fatalf("request translation failed: %v", errConvert)
+					}
 					observed := make(map[string]string)
 					collect := func(part gjson.Result) {
 						file := part.Get("fileData")
@@ -84,8 +87,11 @@ func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
 
 func TestMultimodalUpgrade739UnknownBlocksDoNotBecomeFiles(t *testing.T) {
 	input := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"keep"},{"type":"vendor_private","url":"https://example.test/private.pdf"}]}]}`)
-	for _, convert := range []func(string, []byte, bool) []byte{gemini.ConvertOpenAIResponsesRequestToGemini, antigravity.ConvertOpenAIResponsesRequestToAntigravity} {
-		out := convert("gemini-3-flash", input, false)
+	for _, convert := range []func(string, []byte, bool) ([]byte, error){gemini.ConvertOpenAIResponsesRequestToGemini, antigravity.ConvertOpenAIResponsesRequestToAntigravity} {
+		out, errConvert := convert("gemini-3-flash", input, false)
+		if errConvert != nil {
+			t.Fatalf("request translation failed: %v", errConvert)
+		}
 		if gjson.GetBytes(out, "contents.0.parts.#").Int() > 1 || gjson.GetBytes(out, "request.contents.0.parts.#").Int() > 1 {
 			t.Fatalf("unknown content was reinterpreted as a document: %s", out)
 		}

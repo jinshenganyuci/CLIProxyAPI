@@ -32,7 +32,10 @@ func TestClaudeAllowedToolsUpgrade7318PreservesRestrictionsAndNativeNames(t *tes
 			body := []byte(`{"messages":[{"role":"assistant","tool_calls":[{"id":"call:time","type":"function","function":{"name":"mcp.server:get_time","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call:time","content":"stale result"},{"role":"tool","tool_call_id":"call:time","content":"latest result"}],"tools":[{"type":"function","function":{}},{"type":"function","function":{"name":"unrelated"}}]}`)
 			body, _ = sjson.SetBytes(body, "tools.0.function.name", tc.declaration)
 			body, _ = sjson.SetRawBytes(body, "tool_choice", []byte(tc.choice))
-			out := ConvertOpenAIRequestToClaude("claude-sonnet-4-6", body, false)
+			out, errConvert := ConvertOpenAIRequestToClaude("claude-sonnet-4-6", body, false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			if got := gjson.GetBytes(out, "tool_choice.type").String(); got != tc.wantChoice {
 				t.Fatalf("tool_choice=%q, want %q; payload=%s", got, tc.wantChoice, out)
 			}

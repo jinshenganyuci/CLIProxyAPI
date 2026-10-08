@@ -12,7 +12,7 @@ import (
 func TestBuiltinToolsUpgrade7311MixedFormsAndRestrictions(t *testing.T) {
 	for _, target := range []struct {
 		name, path string
-		convert    func(string, []byte, bool) []byte
+		convert    func(string, []byte, bool) ([]byte, error)
 	}{
 		{"gemini", "tools", gemini.ConvertInteractionsRequestToGemini},
 		{"antigravity", "request.tools", antigravity.ConvertInteractionsRequestToAntigravity},
@@ -29,7 +29,10 @@ func TestBuiltinToolsUpgrade7311MixedFormsAndRestrictions(t *testing.T) {
 						toolChoice = `{"type":"function","function":{"name":"lookup"}}`
 					}
 					input := []byte(`{"model":"gemini-3.5-flash","input":"hi","tool_choice":` + toolChoice + `,"tools":[` + fn + `,{"type":"url_context","url_context":{"max_urls":2}},{"type":"code_execution","code_execution":{"environment":"sandbox"}},{"type":"google_search","google_search":{"includedDomains":["allowed.example"]}}]}`)
-					out := target.convert("gemini-3.5-flash", input, false)
+					out, errConvert := target.convert("gemini-3.5-flash", input, false)
+					if errConvert != nil {
+						t.Fatalf("request translation failed: %v", errConvert)
+					}
 					tools := gjson.GetBytes(out, target.path).Array()
 					functions, builtins := 0, 0
 					for _, tool := range tools {
@@ -75,13 +78,16 @@ func TestBuiltinToolsUpgrade7311MixedFormsAndRestrictions(t *testing.T) {
 func TestBuiltinToolsUpgrade7311WebSearchAliasPreservesOptions(t *testing.T) {
 	for _, target := range []struct {
 		name, path string
-		convert    func(string, []byte, bool) []byte
+		convert    func(string, []byte, bool) ([]byte, error)
 	}{
 		{"gemini", "tools", gemini.ConvertInteractionsRequestToGemini},
 		{"antigravity", "request.tools", antigravity.ConvertInteractionsRequestToAntigravity},
 	} {
 		t.Run(target.name, func(t *testing.T) {
-			out := target.convert("gemini-3.5-flash", []byte(`{"input":"hi","tools":[{"type":"web_search","web_search":{"includedDomains":["allowed.example"]}}]}`), false)
+			out, errConvert := target.convert("gemini-3.5-flash", []byte(`{"input":"hi","tools":[{"type":"web_search","web_search":{"includedDomains":["allowed.example"]}}]}`), false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			if gjson.GetBytes(out, target.path+".0.googleSearch.includedDomains.0").String() != "allowed.example" {
 				t.Fatalf("web_search alias lost options: %s", out)
 			}
@@ -91,7 +97,10 @@ func TestBuiltinToolsUpgrade7311WebSearchAliasPreservesOptions(t *testing.T) {
 
 func TestBuiltinToolsUpgrade7311NativeSchemaNumbersStayExact(t *testing.T) {
 	input := []byte(`{"input":"hi","tools":[{"functionDeclarations":[{"name":"lookup","parametersJsonSchema":{"type":"object","properties":{"limit":{"type":"integer","maximum":9223372036854775807}}}}]},{"type":"url_context"}]}`)
-	out := gemini.ConvertInteractionsRequestToGemini("gemini-3.5-flash", input, false)
+	out, errConvert := gemini.ConvertInteractionsRequestToGemini("gemini-3.5-flash", input, false)
+	if errConvert != nil {
+		t.Fatalf("request translation failed: %v", errConvert)
+	}
 	if got := gjson.GetBytes(out, "tools.0.functionDeclarations.0.parametersJsonSchema.properties.limit.maximum").Raw; got != "9223372036854775807" {
 		t.Fatalf("native schema limit changed: %s", out)
 	}

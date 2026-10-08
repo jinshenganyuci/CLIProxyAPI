@@ -19,7 +19,10 @@ func TestUpgrade817ResponsesEOFPreservesShellProvenanceAndLateUsage(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := []byte(shellRequest)
-			translated := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("test", request, true)
+			translated, errConvert := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("test", request, true)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			toolName := gjson.GetBytes(translated, "tools.0.function.name").String()
 			if toolName == "__cpa_local_shell" || toolName == "__cpa_local_shell_1" {
 				t.Fatal("synthetic shell collided with user declaration")

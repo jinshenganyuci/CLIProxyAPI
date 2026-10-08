@@ -13,14 +13,17 @@ func TestUpgrade804InteractionsSignaturesStayWithinModelTurns(t *testing.T) {
 	for _, provider := range []struct {
 		name    string
 		path    string
-		convert func(string, []byte, bool) []byte
+		convert func(string, []byte, bool) ([]byte, error)
 	}{
 		{"gemini", "contents", gemini.ConvertInteractionsRequestToGemini},
 		{"antigravity", "request.contents", ag.ConvertInteractionsRequestToAntigravity},
 	} {
 		t.Run(provider.name, func(t *testing.T) {
 			for _, stream := range []bool{false, true} {
-				out := provider.convert("gemini-3.8-flash-high", input, stream)
+				out, errConvert := provider.convert("gemini-3.8-flash-high", input, stream)
+				if errConvert != nil {
+					t.Fatalf("request translation failed: %v", errConvert)
+				}
 				signatures := map[string]int{}
 				calls := map[string]gjson.Result{}
 				for _, turn := range gjson.GetBytes(out, provider.path).Array() {

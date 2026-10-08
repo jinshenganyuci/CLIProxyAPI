@@ -20,7 +20,7 @@ func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
 	interactions := `{"input":[{"type":"function_result","call_id":"call_1","name":"lookup","result":%s}]}`
 	for _, route := range []struct {
 		name, template, path string
-		convert              func(string, []byte, bool) []byte
+		convert              func(string, []byte, bool) ([]byte, error)
 		directResponse       bool
 	}{
 		{"claude-gemini", claude, "contents.1.parts.0.functionResponse.response.result", geminiclaude.ConvertClaudeRequestToGemini, false},
@@ -41,7 +41,10 @@ func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/stream=%v", route.name, payload.name, stream), func(t *testing.T) {
 					raw := []byte(fmt.Sprintf(route.template, payload.raw))
 					before := bytes.Clone(raw)
-					out := route.convert("gemini-3.8-flash", raw, stream)
+					out, errConvert := route.convert("gemini-3.8-flash", raw, stream)
+					if errConvert != nil {
+						t.Fatalf("request translation failed: %v", errConvert)
+					}
 					path := route.path
 					if route.directResponse && payload.stringify {
 						path += ".result"

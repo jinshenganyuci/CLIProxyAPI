@@ -24,7 +24,10 @@ func TestStringInputUpgrade7315PreservesTextAndAuthority(t *testing.T) {
 					if compat {
 						convert = ConvertOpenAIResponsesRequestToClaudeWithCompat
 					}
-					out := convert("claude-sonnet-4-6", raw, stream)
+					out, errConvert := convert("claude-sonnet-4-6", raw, stream)
+					if errConvert != nil {
+						t.Fatalf("request translation failed: %v", errConvert)
+					}
 					root := gjson.ParseBytes(out)
 					if root.Get("messages.#").Int() != 1 || root.Get("messages.0.role").String() != "user" || root.Get("messages.0.content").String() != input {
 						t.Fatalf("string input lost text or authority: %s", out)

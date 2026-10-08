@@ -8,7 +8,10 @@ import (
 
 func TestToolResultCacheUpgrade7311ParallelResultsStayIsolated(t *testing.T) {
 	input := []byte(`{"messages":[{"role":"assistant","tool_calls":[{"id":"a","type":"function","function":{"name":"one","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"two","arguments":"{}"}}]},{"role":"tool","tool_call_id":"a","cache_control":{"type":"ephemeral","ttl":"1h"},"content":[{"type":"text","text":"first","cache_control":{"type":"invalid"}},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="},"cache_control":{"type":"ephemeral","ttl":"5m"}}]},{"role":"tool","tool_call_id":"b","cache_control":{"type":"ephemeral","ttl":"1h"},"content":"second"}]}`)
-	out := ConvertOpenAIRequestToClaude("claude-opus-4-6", input, false)
+	out, errConvert := ConvertOpenAIRequestToClaude("claude-opus-4-6", input, false)
+	if errConvert != nil {
+		t.Fatalf("request translation failed: %v", errConvert)
+	}
 	results := make(map[string]gjson.Result)
 	for _, message := range gjson.GetBytes(out, "messages").Array() {
 		for _, part := range message.Get("content").Array() {

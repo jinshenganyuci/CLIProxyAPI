@@ -11,7 +11,10 @@ import (
 
 func devinImagesUpgrade737Parse(t *testing.T, original string, dropUserImages bool) []helps.DevinPrompt {
 	t.Helper()
-	translated := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", []byte(original), false)
+	translated, errTranslate := interactionsclaude.ConvertClaudeRequestToInteractions("devin/swe-2", []byte(original), false)
+	if errTranslate != nil {
+		t.Fatal(errTranslate)
+	}
 	if dropUserImages {
 		var request map[string]any
 		if err := json.Unmarshal(translated, &request); err != nil {

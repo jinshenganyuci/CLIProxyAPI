@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/githubauth"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/httpfetch"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
@@ -354,8 +355,9 @@ func fetchLatestAsset(ctx context.Context, client *http.Client, releaseURL strin
 		"Accept":     "application/vnd.github+json",
 		"User-Agent": httpUserAgent,
 	}
-	if token := util.ResolveGitHubToken(); token != "" {
+	if token := githubauth.TokenForURL(releaseURL); token != "" {
 		headers["Authorization"] = "Bearer " + token
+		client = githubReleaseRedirectClient(client, token)
 	}
 
 	data, err := httpfetch.GetBytes(ctx, client, releaseURL, headers, 0)
@@ -377,6 +379,32 @@ func fetchLatestAsset(ctx context.Context, client *http.Client, releaseURL strin
 	}
 
 	return nil, "", fmt.Errorf("management asset %s not found in latest release", managementAssetName)
+}
+
+// githubReleaseRedirectClient keeps the token snapshot confined to its allowed origin.
+// Go's default redirect policy also trusts subdomains, ports and scheme changes.
+func githubReleaseRedirectClient(client *http.Client, token string) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	clone := *client
+	previousRedirect := client.CheckRedirect
+	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if previousRedirect != nil {
+			if errRedirect := previousRedirect(req, via); errRedirect != nil {
+				return errRedirect
+			}
+		} else if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		if githubauth.IsGitHubAPIURL(req.URL.String()) {
+			req.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			req.Header.Del("Authorization")
+		}
+		return nil
+	}
+	return &clone
 }
 
 func downloadAsset(ctx context.Context, client *http.Client, downloadURL string) ([]byte, string, error) {

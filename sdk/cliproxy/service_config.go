@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
@@ -126,6 +127,13 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
 	s.cancelStaleAntigravityProbes("")
 	s.configSequence++
 	registry.UpdateModelCatalogSources(newCfg.Models, newCfg.Home.Enabled)
+	if updaterCtx := s.xaiVersionContext; updaterCtx != nil && updaterCtx.Err() == nil {
+		proxyURL := strings.TrimSpace(newCfg.ProxyURL)
+		if proxyURL != s.xaiVersionProxyURL {
+			s.xaiVersionProxyURL = proxyURL
+			executor.StartXAIVersionUpdater(updaterCtx, proxyURL)
+		}
+	}
 	return configCommit{cfg: newCfg, sequence: s.configSequence}
 }
 

@@ -14,13 +14,16 @@ func TestClaudeSchemaUpgrade7315NULOnlyAffectsSchemaPatterns(t *testing.T) {
 	before := bytes.Clone(raw)
 	for _, tt := range []struct {
 		name, schemaPath string
-		convert          func(string, []byte, bool) []byte
+		convert          func(string, []byte, bool) ([]byte, error)
 	}{
 		{"chat", "tools.0.function.parameters", openaiclaude.ConvertClaudeRequestToOpenAI},
 		{"codex", "tools.0.parameters", codexclaude.ConvertClaudeRequestToCodex},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			out := tt.convert("test-model", raw, false)
+			out, errConvert := tt.convert("test-model", raw, false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			schema := gjson.GetBytes(out, tt.schemaPath)
 			if !schema.Exists() || schema.Get("properties.unsafe.pattern").Exists() || len(schema.Get("patternProperties").Map()) != 1 || !schema.Get("patternProperties").Map()["^safe"].Exists() {
 				t.Fatalf("unsupported schema pattern cleanup failed: %s", out)

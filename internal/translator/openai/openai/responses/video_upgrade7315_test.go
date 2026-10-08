@@ -12,7 +12,10 @@ func TestVideoUpgrade7315PreservesObjectBytesAndUnknownFields(t *testing.T) {
 	raw := []byte(`{"input":[{"role":"user","content":[{"type":"input_video","video_url":` + video + `}]}]}`)
 	before := bytes.Clone(raw)
 	for _, stream := range []bool{false, true} {
-		out := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("video-model", raw, stream)
+		out, errConvert := ConvertOpenAIResponsesRequestToOpenAIChatCompletions("video-model", raw, stream)
+		if errConvert != nil {
+			t.Fatalf("request translation failed: %v", errConvert)
+		}
 		part := gjson.GetBytes(out, "messages.0.content.0.video_url")
 		if part.Raw != video {
 			t.Fatalf("video object was reserialized: got %s, want %s", part.Raw, video)

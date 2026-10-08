@@ -15,6 +15,8 @@ type RequestEnvelope struct {
 	ModelInfo *registry.ModelInfo
 	// ConfigurationUpdatesChanged reports that a plugin normalizer modified Responses updates.
 	ConfigurationUpdatesChanged bool
+	// Err is a request-scoped translation failure. Callers must not send Body upstream when it is set.
+	Err error
 }
 
 // ResponseEnvelope represents a response in the translation pipeline.
@@ -70,7 +72,8 @@ func (p *Pipeline) UseResponse(mw ResponseMiddleware) {
 // TranslateRequest applies middleware and registry transformations.
 func (p *Pipeline) TranslateRequest(ctx context.Context, from, to Format, req RequestEnvelope) (RequestEnvelope, error) {
 	terminal := func(ctx context.Context, input RequestEnvelope) (RequestEnvelope, error) {
-		return p.registry.TranslateRequestEnvelope(ctx, from, to, input), nil
+		output := p.registry.TranslateRequestEnvelope(ctx, from, to, input)
+		return output, output.Err
 	}
 
 	handler := terminal

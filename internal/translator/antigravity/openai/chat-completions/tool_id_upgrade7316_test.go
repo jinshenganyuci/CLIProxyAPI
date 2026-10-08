@@ -32,7 +32,10 @@ func TestToolIDUpgrade7316ParallelRequestsAndTurnsStayPaired(t *testing.T) {
 				t.Fatal(errMarshal)
 			}
 			before := bytes.Clone(raw)
-			out := ConvertOpenAIRequestToAntigravity("claude-sonnet-4-6", raw, false)
+			out, errConvert := ConvertOpenAIRequestToAntigravity("claude-sonnet-4-6", raw, false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			contents := gjson.GetBytes(out, "request.contents").Array()
 			if len(contents) != 5 {
 				t.Fatalf("unexpected turn count: %s", out)

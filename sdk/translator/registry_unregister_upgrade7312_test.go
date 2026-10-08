@@ -12,12 +12,12 @@ func TestRegistryUpgrade7312UnregisterDoesNotCorruptOtherPairs(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	result := make(chan []byte, 1)
-	registry.Register(from, to, func(_ string, body []byte, _ bool) []byte {
+	registry.Register(from, to, func(_ string, body []byte, _ bool) ([]byte, error) {
 		close(entered)
 		<-release
-		return []byte(`{"handled":"selected"}`)
+		return []byte(`{"handled":"selected"}`), nil
 	}, ResponseTransform{})
-	registry.Register(from, other, func(_ string, body []byte, _ bool) []byte { return []byte(`{"handled":"other"}`) }, ResponseTransform{})
+	registry.Register(from, other, func(_ string, body []byte, _ bool) ([]byte, error) { return []byte(`{"handled":"other"}`), nil }, ResponseTransform{})
 	go func() { result <- registry.TranslateRequest(from, to, "", []byte(`{"input":"original"}`), false) }()
 	<-entered
 	registry.Unregister(from, to)

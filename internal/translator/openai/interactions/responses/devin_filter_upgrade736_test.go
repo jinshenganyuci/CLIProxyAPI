@@ -25,7 +25,10 @@ func TestUpgrade736InteractionsDevinFilteringIsProviderScoped(t *testing.T) {
 				name = tc.model + "/stream"
 			}
 			t.Run(name, func(t *testing.T) {
-				out := ConvertOpenAIResponsesRequestToInteractions(tc.model, []byte(payload), stream)
+				out, errConvert := ConvertOpenAIResponsesRequestToInteractions(tc.model, []byte(payload), stream)
+				if errConvert != nil {
+					t.Fatalf("request translation failed: %v", errConvert)
+				}
 				descriptions := make(map[string]string)
 				for _, tool := range gjson.GetBytes(out, "tools").Array() {
 					descriptions[tool.Get("name").String()] = tool.Get("description").String()

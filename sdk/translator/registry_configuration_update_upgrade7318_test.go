@@ -41,8 +41,8 @@ func TestRegistryUpgrade7318TracksPluginConfigurationOwnership(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					registry := NewRegistry()
 					if native {
-						registry.Register(FormatOpenAIResponse, FormatCodex, func(_ string, body []byte, _ bool) []byte {
-							return body
+						registry.Register(FormatOpenAIResponse, FormatCodex, func(_ string, body []byte, _ bool) ([]byte, error) {
+							return body, nil
 						}, ResponseTransform{})
 					}
 					registry.SetPluginHooks(&fakePluginHooks{normalizeRequest: tc.normalize})
@@ -68,8 +68,8 @@ func TestRegistryUpgrade7318TracksPluginConfigurationOwnership(t *testing.T) {
 
 func TestRegistryUpgrade7318NativeTranslationDoesNotClaimPluginUpdateOwnership(t *testing.T) {
 	registry := NewRegistry()
-	registry.Register(FormatOpenAIResponse, FormatClaude, func(_ string, _ []byte, _ bool) []byte {
-		return []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
+	registry.Register(FormatOpenAIResponse, FormatClaude, func(_ string, _ []byte, _ bool) ([]byte, error) {
+		return []byte(`{"messages":[{"role":"user","content":"hello"}]}`), nil
 	}, ResponseTransform{})
 	registry.SetPluginHooks(&fakePluginHooks{})
 	for _, alreadyChanged := range []bool{false, true} {

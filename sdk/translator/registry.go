@@ -36,7 +36,7 @@ func (r *Registry) Register(from, to Format, request RequestTransform, response 
 	}
 	if request != nil {
 		r.requests[from][to] = func(_ context.Context, req RequestEnvelope) RequestEnvelope {
-			req.Body = request(req.Model, req.Body, req.Stream)
+			req.Body, req.Err = request(req.Model, req.Body, req.Stream)
 			return req
 		}
 	}
@@ -112,6 +112,9 @@ func (r *Registry) TranslateRequest(from, to Format, model string, rawJSON []byt
 // TranslateRequestEnvelope translates a complete request envelope while preserving
 // request-scoped metadata for the selected transform.
 func (r *Registry) TranslateRequestEnvelope(ctx context.Context, from, to Format, req RequestEnvelope) RequestEnvelope {
+	if req.Err != nil {
+		return req
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -126,6 +129,9 @@ func (r *Registry) TranslateRequestEnvelope(ctx context.Context, from, to Format
 	if fn != nil {
 		summaryConfig := thinking.ExtractTranslatedSummaryConfig(req.Body, from.String(), to.String())
 		req = fn(ctx, req)
+		if req.Err != nil {
+			return req
+		}
 		req.Body = thinking.ApplySummaryConfigForModel(req.Body, to.String(), req.Model, summaryConfig)
 		if hooks != nil {
 			// Request normalizers run after native translation and own the final

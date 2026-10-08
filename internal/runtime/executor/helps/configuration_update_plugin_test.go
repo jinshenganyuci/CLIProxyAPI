@@ -78,7 +78,7 @@ func TestRequestPairPreservesPluginConfigurationUpdateIntent(t *testing.T) {
 					wantCalls = 2
 				}
 				inputBefore := bytes.Clone(request)
-				base, work, updatesChanged := helps.TranslateRequestPairWithAPIKeyModelCompatibilityAndUpdateIntent(t.Context(), nil, &config.Config{}, sdktranslator.FormatOpenAIResponse, sdktranslator.FormatCodex, "opaque-route", original, request, stream, compat)
+				base, work, updatesChanged, _ := helps.TranslateRequestPairWithAPIKeyModelCompatibilityAndUpdateIntent(t.Context(), nil, &config.Config{}, sdktranslator.FormatOpenAIResponse, sdktranslator.FormatCodex, "opaque-route", original, request, stream, compat)
 				if hooks.calls != wantCalls {
 					t.Fatalf("stream=%v compat=%v distinct=%v: plugin calls = %d, want %d", stream, compat, distinct, hooks.calls, wantCalls)
 				}
@@ -135,9 +135,12 @@ func TestV808ExecutorSchemaNormalizationPreservesPluginUpdateAuthority(t *testin
 						t.Cleanup(func() { sdktranslator.SetPluginHooks(nil) })
 						sourceBytes := []byte(source)
 						headers := http.Header{"User-Agent": []string{"codex_cli_rs/0.1"}}
-						translated, updatesChanged := helps.TranslateRequestWithAPIKeyModelCompatibilityAndUpdateIntentForExecutor(
+						translated, updatesChanged, errTranslate := helps.TranslateRequestWithAPIKeyModelCompatibilityAndUpdateIntentForExecutor(
 							t.Context(), headers, &config.Config{}, target.executor, sdktranslator.FormatOpenAIResponse, to, "private-model", sourceBytes, stream, true,
 						)
+						if errTranslate != nil {
+							t.Fatal(errTranslate)
+						}
 						if !updatesChanged {
 							t.Fatal("executor-aware translation discarded the plugin update decision")
 						}

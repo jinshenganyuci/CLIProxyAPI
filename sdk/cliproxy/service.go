@@ -35,6 +35,10 @@ type Service struct {
 	// configUpdateMu serializes config updates across watcher + home.
 	configUpdateMu sync.Mutex
 
+	// xaiVersionContext and xaiVersionProxyURL are guarded by configUpdateMu.
+	xaiVersionContext  context.Context
+	xaiVersionProxyURL string
+
 	// configRuntimeMu orders side-effecting runtime application after config commits.
 	configRuntimeMu        sync.Mutex
 	executorRegistrationMu sync.Mutex

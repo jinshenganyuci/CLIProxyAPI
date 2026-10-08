@@ -3,9 +3,9 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.25.4`
-- commit: `6abace9ffb83a9ac349464ded04bb4e7f7cb309e`
-- patch: `management-center-v1.25.4-credential-identity.patch`
+- tag: `v1.25.5`
+- commit: `ebb4289bc689543059cd57862ddcfc1e50be3234`
+- patch: `management-center-v1.25.5-credential-identity.patch`
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login proxy selectors. Proxy credentials are sent in the
@@ -85,7 +85,7 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.25.4 UI uses `/v8/management` and the native nested configuration editor.
+The v1.25.5 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -124,7 +124,7 @@ YAML boolean semantics. Quota cards include Codex credit balances/unlimited cred
 Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
 and accessible-label behavior.
 
-The v1.25.4 Claude quota card includes reset-grant status and a confirmation action for
+The v1.25.5 Claude quota card includes reset-grant status and a confirmation action for
 eligible grants. Usage, organization-profile and redemption requests retain the selected
 credential index through the management API and use a server-side token placeholder. The
 selected credential proxy remains authoritative. Redemption rechecks eligibility and the
@@ -143,7 +143,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Five locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.17 backend.
+its matching v8.0.20 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -173,7 +173,7 @@ Unrelated visual and provider edits preserve configured values; explicit empty s
 clear them through source editing. Catalog fetching and refresh policy belong to the
 backend and are not implied by successful UI serialization.
 
-The v1.25.4 native update adds Vietnamese, keeps Claude/Antigravity subscription
+The retained v1.25.4 native update adds Vietnamese, keeps Claude/Antigravity subscription
 plan names untranslated in Chinese, and aligns shared-provider and Codex client
 settings with their canonical `upstream.*` and `client.codex` paths. The fork already
 used those canonical paths; its alias reads, explicit false/null precedence, and
@@ -182,13 +182,32 @@ concurrency, and credential-identity controls, with current Devin callback and s
 provider/apply_patch guidance. Native Vietnamese interpolation checks cover the full
 combined dictionary.
 
+The v1.25.5 native update adds a masked `server.github-token` input. Targeted
+visual edits replace or clear the token while preserving unrelated configuration and
+plugin store authentication. The token remains visible to authorized configuration
+reads and source editing; input masking is not encryption. Configuration content is
+held in memory; configuration page storage retains display preferences, not this token.
+
+Claude quota cards show remaining reset counts and each grant's expiration details,
+including unknown expirations. Dollar-denominated legacy usage is labeled cloud
+session credits separately from Claude Code quotas. All five locales include the new
+labels. After confirmed Codex credit redemption, the UI clears the selected credential's
+gateway cooldown before refreshing quota. Unconfirmed redemption, connection changes,
+and mismatched clear acknowledgements do not trigger another redemption attempt.
+All remote calls retain the selected auth index; local cooldown reset uses the same index.
+
+Connectivity-test model selection is now transient. Provider saves remove obsolete
+`test-model` only at known model/OpenAI-group locations and remove read-only auth indices
+at credential/group boundaries. Same-named headers and opaque extension data, model
+capabilities, proxy choices and concurrency limits remain intact.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 6abace9ffb83a9ac349464ded04bb4e7f7cb309e
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.4-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.4 \
+git -C management-center checkout ebb4289bc689543059cd57862ddcfc1e50be3234
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.25.5-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.25.5 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -198,7 +217,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-00818ce8b49a51bac393b48572d3ddf90149418b145ffcf9398835be544c3570
+84dcecd85decec07ec065ba3632cb01253a65eab20a354972dcbe8f8d01b44cc
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

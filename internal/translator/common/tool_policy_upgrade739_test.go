@@ -36,7 +36,10 @@ func TestToolPolicyUpgrade739UnknownRestrictionsStayClosed(t *testing.T) {
 			}
 			input := []byte(fmt.Sprintf(`{"messages":[{"role":"user","content":"hello"}],"tools":%s,"tool_choice":%s%s}`, tools, tc.choice, tc.extra))
 			if tc.claudeInput {
-				out := geminiclaude.ConvertClaudeRequestToGemini("gemini-3-flash", input, false)
+				out, errConvert := geminiclaude.ConvertClaudeRequestToGemini("gemini-3-flash", input, false)
+				if errConvert != nil {
+					t.Fatalf("request translation failed: %v", errConvert)
+				}
 				if got := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
 					t.Fatalf("explicit restriction broadened to %q: %s", got, out)
 				}
@@ -44,13 +47,16 @@ func TestToolPolicyUpgrade739UnknownRestrictionsStayClosed(t *testing.T) {
 			}
 			for _, target := range []struct {
 				name, path string
-				convert    func(string, []byte, bool) []byte
+				convert    func(string, []byte, bool) ([]byte, error)
 				want       string
 			}{
 				{"claude", "tool_choice.type", claudechat.ConvertOpenAIRequestToClaude, "none"},
 				{"gemini", "toolConfig.functionCallingConfig.mode", geminichat.ConvertOpenAIRequestToGemini, "NONE"},
 			} {
-				out := target.convert("test-model", input, false)
+				out, errConvert := target.convert("test-model", input, false)
+				if errConvert != nil {
+					t.Fatalf("request translation failed: %v", errConvert)
+				}
 				if got := gjson.GetBytes(out, target.path).String(); got != target.want {
 					t.Errorf("%s explicit restriction broadened to %q: %s", target.name, got, out)
 				}
@@ -78,7 +84,10 @@ func TestToolPolicyUpgrade739GeminiBuiltinsRespectRestrictions(t *testing.T) {
 				choice = `,"tool_choice":` + tc.choice
 			}
 			input := []byte(`{"messages":[{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"tool_a","parameters":{"type":"object"}}},{"google_search":{}},{"code_execution":{}},{"url_context":{}}]` + choice + tc.extra + `}`)
-			out := geminichat.ConvertOpenAIRequestToGemini("gemini-3-flash", input, false)
+			out, errConvert := geminichat.ConvertOpenAIRequestToGemini("gemini-3-flash", input, false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			if got := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != tc.wantMode {
 				t.Fatalf("mode=%q want=%q", got, tc.wantMode)
 			}
@@ -97,7 +106,10 @@ func TestToolPolicyUpgrade739GeminiBuiltinsRespectRestrictions(t *testing.T) {
 
 func TestToolPolicyUpgrade739ClaudeGeminiNameCollisions(t *testing.T) {
 	input := []byte(`{"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"1tool","input_schema":{"type":"object"}},{"name":"_1tool","input_schema":{"type":"object"}}],"tool_choice":{"type":"tool","name":"_1tool"}}`)
-	out := geminiclaude.ConvertClaudeRequestToGemini("gemini-3-flash", input, false)
+	out, errConvert := geminiclaude.ConvertClaudeRequestToGemini("gemini-3-flash", input, false)
+	if errConvert != nil {
+		t.Fatalf("request translation failed: %v", errConvert)
+	}
 	if mode := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); mode != "NONE" {
 		t.Fatalf("ambiguous sanitized declarations can call wrong tool: %s", out)
 	}

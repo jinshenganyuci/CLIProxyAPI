@@ -1,16 +1,125 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.17`（上游提交
-`57bde35179ecbdca176ca8923d39cc18805774f2`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.20`（上游提交
+`0f96f568e4dbf6f84ad7399a74b78344c5eac7e6`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.17-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.17.1` 和 `latest`，使用同一验证镜像。从 v8.0.15.1 合并官方
-v8.0.16 / v8.0.17 共 32 个提交（27 个非 merge、5 个 merge）。管理页升级为
-v1.25.4，合入 6 个非 merge 提交。发布不替换或重启既有部署。
+当前修订为 `v8.0.20-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.20.1` 和 `latest`，使用同一验证镜像。从 v8.0.17.1 合并官方
+v8.0.18 / v8.0.19 / v8.0.20 共 15 个提交（11 个非 merge、4 个 merge）。管理页升级为
+v1.25.5，合入 6 个非 merge 提交。发布不替换或重启既有部署。
 
-## v8.0.16 / v8.0.17 更新
+## v8.0.18 / v8.0.19 / v8.0.20 更新
+
+### 语音接口、错误与路由
+
+- 新增需 CPA Key 鉴权的 `POST /v1/audio/speech` 和 `POST /v1/tts`，通过 xAI
+  `/tts` API 返回音频；`grok-tts`、`grok-voice-tts-1.0` 是语音专用模型，不能经
+  Chat/Responses 等文本执行入口误调用。模型目录出现不代表账号已获得真实语音权益。
+- 支持 OpenAI 风格的 `input`、`voice`、`response_format`，兼容原生 `text`、
+  `voice_id`、`output_format`；默认 voice 为 eve、格式为 mp3，可选 wav/pcm。
+  常用 OpenAI voice 会映射到 xAI voice。请求体最多 1 MiB，文本最多 60000 个
+  Unicode 字符。返回的是完整读取后的二进制音频，不是实时语音或 SSE 音频流；不会
+  在音频前插入 JSON 或 keepalive 换行。此路径不借用不支持 TTS 的 OAuth CLI chat 代理。
+- 无效 voice 等请求本身的错误不应触发换凭据或冷却；模型/账号权限错误保留原路由
+  处理。共享错误输出对有效 JSON 压成单行，保留字段值，避免多行 JSON 破坏 SSE。
+- Claude 缺失 thread 的 404 同时识别纯文本及结构化 `not_found_error`，需含
+  `thread state` 与 `previous_message_id` 条件；本地别名缺失返回结构化 Claude
+  错误。客户端需完整会话重新 create，不是所有 404 都忽略，也不是自动换凭据可修复。
+
+### 附件、空轮次与 SDK
+
+- 跨 Chat/Responses、Claude、Gemini、Interactions、Codex/Antigravity 的转换保留
+  目标协议可表达的文件、媒体与 URI；不再因不支持附件就悄悄丢掉整段用户轮次。
+  若不支持的内容使该轮次没有任何可发送内容，返回请求范围的 HTTP 400，避免发空请求。
+- **含有效文本或其他可发送内容的混合轮次仍发送剩余内容**；不是每个不支持的附件都
+  拒绝，也不保证所有协议都能传所有附件。system/developer 或别的轮次不能充当当前
+  空轮次的有效内容，连续 user 消息按目标协议的实际合并规则检查。Devin 保留支持的
+  inline image；不能表达的远程媒体/文档删除后，整轮为空才失败，不插假占位文字。
+- `sdk/translator.RequestTransform` 从返回 `[]byte` 改为 `([]byte, error)`，
+  自定义 Go 转换器必须适配。`RequestEnvelope.Err` 表示转换失败，本二开还修正
+  Pipeline 向调用方/中间件同步返回该错误。旧 `TranslateRequest` 仅返回 body 的
+  兼容入口仍存在，需要错误处理的调用方应使用 envelope 或 Pipeline 路径。
+- 执行器、流式、count_tokens 和插件执行适配器在实际工作请求转换失败时停止上游
+  请求；用于保留原始业务意图的 OriginalRequest 基线转换不是权威发送体，其单独失败
+  不否定已经有效的工作请求。不能以新错误传播接口误删这个原生兼容边界。
+
+### Claude 提示与进程元数据
+
+- Claude OAuth 请求不再将调用方第三方 system 提示留在顶层，按原生策略移入消息。
+  非 OAuth 路径才保留适用的新布局顶层分支，legacy 模型原 reminder 行为以及
+  strict/probe/advisor 等条件仍有效；count_tokens 使用同一策略。这取代上一版笼统的
+  “起始 user 段保留顶层 system”，不表示 Claude 所有系统提示都被统一删除或下移。
+- 增加可选 `server.github-token`，旧根级 `github-token` 可读；启动与热重载生效。
+  非空配置优先于 `GITHUB_TOKEN`、`github_token` 及适用的 GitHub gitstore 环境
+  Token。清空配置恢复环境回退，不保证完全匿名。用于管理页更新、插件商店的 GitHub
+  API 请求，显式匹配的插件商店鉴权仍优先；原生初始请求仅向 HTTPS `api.github.com`
+  标准端口附带 Token，二开再补齐重定向逐跳限制。它不是供应商 Token 或 CPA Key。
+- 服务后台从 npm 读取 Grok CLI 版本，启动及每 3 小时刷新，失败保留已验证版本或
+  fallback 1.0.46；接受三段纯数字且不低于 1.0.13 的版本。用于 OAuth CLI chat
+  请求的版本标头，不下载或更新本机 CLI。版本查询是使用全局代理的进程元数据请求，
+  与选定凭据的登录、刷新、推理出口分开；`--local-model` 不等于禁止所有元数据联网。
+
+### 二开合并边界
+
+既有登录前代理、凭据 direct/require、稳定身份命名空间、默认 10/自定义并发及占用显示、
+Access Guard 准入、最终业务覆盖后再做身份映射、失败用量与旧结果代际隔离继续保留。
+本轮适配新的请求转换错误返回，不能因函数签名变化绕过工作请求校验、插件对
+configuration_update 的权威修改或调用方原始请求的隔离。
+
+- 转换器已经返回错误时，Registry 立即停止，避免失败正文继续进入 summary 或插件
+  normalizer；Pipeline 将 envelope.Err 交给调用方及中间件，Antigravity 的直接
+  Responses 转换入口也不再吞掉错误；Responses→Gemini/Antigravity 不再把纯空白
+  当有效文本，从而掩盖已被删除的 file_id。真实非空混合文本及工作请求优先保持不变。
+- 插件 self/executor 内部入口原本提前派发，可能绕过新语音模型限制；同步、流式与
+  Count 路径现先按相同规则判断，仅有效 speech 来源放行，不能借插件入口把语音模型
+  当文本模型使用。真实语音传输仍保留原字节、凭据绑定、并发槽与代理，不伪造 Token 计价。
+- GitHub 管理发布元数据请求除了初始 URL 判断，还在重定向逐跳检查 HTTPS、精确
+  api.github.com、标准端口与无 userinfo，避免 Token 被带去子域、降级 HTTP 或其他
+  端口；保留调用方原有 redirect policy。管理配置是授权管理员的 YAML 投影，Token
+  可以为替换/清空而读回，密码框不意味着管理员无法读取保存值。
+- Grok 版本查询随全局 proxy-url 热重载重启，同值不重复启动；服务停止后不因重载
+  复活，旧代查询不能覆盖新代版本结果。该后台更新与每个凭据的路由和并发槽独立。
+
+新增 Grok 版本后台查询按仓库网络规则保留服务取消控制，取消原生新加的连接后整体
+10 秒超时；不为已建立的推理或元数据连接另设总时限。这不是调整用户凭据代理策略。
+具体补修与最终测试结果见本版本发布附件，源码说明不替代最终镜像验收记录。
+
+### 管理页、迁移与范围
+
+管理页 v1.25.5 合入 6 个非 merge 提交：
+
+- 新增 GitHub Token 密码输入字段；已有配置仍可留空，不是新增必填项。
+- 删除只用于旧 UI 的 `test-model` 字段及相应表单状态；受支持位置的旧标记在保存时
+  清理，真实模型映射/模型能力不因此删除。插件及 headers 内同名自由字段不是这些标记。
+- Codex 重置兑换需返回成功业务 code（reset/already_redeemed），然后才清 CPA 对应
+  凭据冷却并刷新额度。兑换成功而本地清冷却失败会单独提示，不能当供应商兑换失败
+  自动再领；连接切换会阻止旧结果写入。此操作不重置 Access Guard 的 RPM/美元/周额度。
+- Claude 美元计量的 cloud session credits 与原窗口分开展示；显示可用重置 grants
+  的剩余次数、到期顺序与倒计时。只是展示已有权益，不会自动领取或增加账户额度。
+- 模型选项测试补 i18next Provider 属测试支撑，不是新增运行时设置。
+
+只读复核的 Home 仍为 c098d84d：支持 upstream/client.optimize 及旧别名，但不接受
+models 三来源、client.enable-apply-patch，以及本次新增的 server.github-token。
+因此使用该 Home 控制面分发配置时不能直接提交含这些未支持字段的文档；本机 CPA
+可独立配置 GitHub Token。独立 Docker 用户不需因此迁移 Home，本轮未更新其部署。
+
+已有 v8 Docker 配置没有新增必填项，不要求健康凭据批量重登或重新初始化身份。
+只有自写 Go translator 需要适配返回签名；客户端过去靠“不支持附件被静默丢弃”发送的
+空轮次会收到 400，应改为目标协议支持的内容。控制台去除旧 test-model 标记不要求
+手动批量迁移凭据。浏览器 OAuth 授权页使用浏览器自己的网络，CPA 保证自身处理链的出口。
+
+回退继续保存同一时间点固定镜像、配置、凭据、插件及计费快照，并核对 Token 轮换与
+新增用量；进程内 thread/缓存状态不会因换回旧镜像而恢复。发布 latest 不会自动替换
+既有运行容器，也不部署外部 Home。
+
+此前用户停止处理的 replay-cache/usage queue 内存问题没有独立修复或压力复测。
+本轮六个明确列出的 replay 存储/usage Manager/WS session/duplex 实现文件原生未改，
+但新增后台版本查询、附件轮次状态、缓冲音频及 WS 请求准备有变化；不能据六文件相同
+声称全进程内存行为不变，也不能把普通功能验收说成已修复此前内存问题。
+
+## v8.0.16 / v8.0.17 更新（历史）
 
 ### 认证状态与刷新并发
 
@@ -1113,7 +1222,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.17.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.20.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -1133,7 +1242,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.15.1` 并重建对应服务，恢复该版本
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.17.1` 并重建对应服务，恢复该版本
 配套配置快照和原有挂载；新模型目录设置不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚

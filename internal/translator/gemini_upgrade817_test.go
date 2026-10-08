@@ -13,7 +13,10 @@ func TestUpgrade817GeminiDocumentSchemaAndToolHistoryRemainSeparated(t *testing.
 	raw := []byte(`{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBERi0xLjQK"}},{"type":"text","text":"Read document"}]},{"role":"assistant","content":[{"type":"tool_use","id":"call-original","name":"read","input":{"properties":{"keep":false},"required":["literal"],"items":{"count":9007199254740993}}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-original","content":"done"}]}],"tools":[{"name":"read","input_schema":{"properties":{"endpoint":{"type":["string","object"],"properties":{"traces":{"type":"string"}},"required":["traces"]},"items":{"type":"string"}},"required":["endpoint","items"]}}],"tool_choice":{"type":"tool","name":"read"}}`)
 	before := bytes.Clone(raw)
 	for _, stream := range []bool{false, true} {
-		out := gemini.ConvertClaudeRequestToGemini("gemini-test", raw, stream)
+		out, errConvert := gemini.ConvertClaudeRequestToGemini("gemini-test", raw, stream)
+		if errConvert != nil {
+			t.Fatalf("request translation failed: %v", errConvert)
+		}
 		if !bytes.Equal(raw, before) {
 			t.Fatal("translator changed the input document")
 		}
@@ -45,7 +48,10 @@ func TestUpgrade817GeminiSystemInstructionCamelCasePresenceWins(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			raw := []byte(`{"systemInstruction":` + test.camel + `,"system_instruction":{"parts":[{"text":"legacy-must-not-override"}]},"contents":[{"role":"user","parts":[{"text":"question"}]}]}`)
 			before := bytes.Clone(raw)
-			out := claude.ConvertGeminiRequestToClaude("claude-test", raw, false)
+			out, errConvert := claude.ConvertGeminiRequestToClaude("claude-test", raw, false)
+			if errConvert != nil {
+				t.Fatalf("request translation failed: %v", errConvert)
+			}
 			messages := gjson.GetBytes(out, "messages").Array()
 			wantCount := 1
 			if test.want != "" {

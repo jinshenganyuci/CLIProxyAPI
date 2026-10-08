@@ -27,6 +27,7 @@ type modelExecutionOptions struct {
 	AuthSelectionModel      string
 	ProxyURL                string
 	Path                    string
+	AllowSpeechModel        bool
 }
 
 // ProtocolExecutionRequest describes a route-level model execution request with explicit protocols.
@@ -230,6 +231,10 @@ func modelExecutionModeError(message string) *interfaces.ErrorMessage {
 
 func isModelExecutionImageProtocol(protocol string) bool {
 	return strings.EqualFold(strings.TrimSpace(protocol), "openai-image")
+}
+
+func isModelExecutionSpeechProtocol(protocol string) bool {
+	return strings.EqualFold(strings.TrimSpace(protocol), "openai-speech")
 }
 
 func validateModelExecutionProxy(raw string) *interfaces.ErrorMessage {
