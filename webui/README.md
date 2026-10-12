@@ -206,7 +206,10 @@ The v1.26.1 native interface uses provider tiles and focused OAuth dialogs, incl
 sponsor tiles, device codes, callback feedback, and resumed status polling after an
 accepted callback. The fork ports its proxy/direct/global choices into these dialogs
 for Codex, Devin, Meta and both Kimi regions. Their proxy controls remain locked during
-an attempt; cancellation and success clear the secret input. Other providers retain
+an attempt; closing the dialog, cancellation and success clear the secret input.
+Closing preserves the selected mode and any ongoing login; it does not start or cancel
+a server session. Reopening a custom proxy draft requires re-entering its URL before a
+new login can start. Other providers retain
 native immediate-start behavior. Korean includes the fork controls alongside the other
 five locales.
 
@@ -247,7 +250,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-a126149e6617ad450d1cea6da6bb451ca59a62a65d9b4cdcc52378f4322b2bcb
+c41492fc26afd58776933cd77d688a66e98fb9e07c9f180bf2569b9b88995630
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

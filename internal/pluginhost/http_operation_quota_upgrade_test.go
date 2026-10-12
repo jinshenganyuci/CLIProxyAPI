@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -153,14 +154,23 @@ func TestHostHTTPOperationQuotaProxyLifecycle(t *testing.T) {
 				if proxyHits.Load() != wantProxy || directHits.Load() != wantDirect || globalHits.Load() != 0 {
 					t.Fatalf("route hits proxy=%d direct=%d global=%d", proxyHits.Load(), directHits.Load(), globalHits.Load())
 				}
-				host.httpOperations.mu.Lock()
-				operations := len(host.httpOperations.operations)
-				host.httpOperations.mu.Unlock()
-				host.httpStreams.mu.Lock()
-				streams := len(host.httpStreams.streams)
-				host.httpStreams.mu.Unlock()
-				if operations != 0 || streams != 0 {
-					t.Fatalf("retained operations=%d streams=%d", operations, streams)
+				// Upstream cancellation can precede the operation's asynchronous stream
+				// cleanup. Observe actual removal without closing either registry here.
+				deadline := time.Now().Add(2 * time.Second)
+				for {
+					host.httpOperations.mu.Lock()
+					operations := len(host.httpOperations.operations)
+					host.httpOperations.mu.Unlock()
+					host.httpStreams.mu.Lock()
+					streams := len(host.httpStreams.streams)
+					host.httpStreams.mu.Unlock()
+					if operations == 0 && streams == 0 {
+						break
+					}
+					if !time.Now().Before(deadline) {
+						t.Fatalf("retained operations=%d streams=%d", operations, streams)
+					}
+					runtime.Gosched()
 				}
 			})
 		}
