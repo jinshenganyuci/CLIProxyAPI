@@ -265,30 +265,34 @@ func truncateWebsocketCloseReason(reason string, maxBytes int) string {
 
 // ResponsesWebsocket handles websocket requests for /v1/responses.
 // It accepts `response.create` and `response.append` requests and streams
-// response events back as JSON websocket text messages.
+// response events back as JSON websocket text messages. `response.interrupt`
+// is forwarded to the current Codex upstream socket without starting a new turn.
 func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	conn, err := responsesWebsocketUpgrader.Upgrade(c.Writer, c.Request, websocketUpgradeHeaders(c.Request))
 	if err != nil {
 		return
 	}
+	writer := newResponsesWebsocketWriter(conn)
+	passthroughSessionID := uuid.NewString()
+	socketCtx, cancelSocket := context.WithCancelCause(c.Request.Context())
+	defer cancelSocket(nil)
+	c.Request = c.Request.WithContext(socketCtx)
+	// The reader owns the client socket so an in-flight interrupt is not stuck
+	// behind the response currently being forwarded.
+	requestLogEnabled := h != nil && h.Cfg != nil && h.Cfg.RequestLog
+	wsTimelineLog := newWebsocketTimelineLog(requestLogEnabled, websocketTimelineSourceFromContext(c))
+	localInterrupt := newResponsesLocalInterrupt()
+	input, inputDone := readResponsesWebsocketInput(socketCtx, cancelSocket, conn, func(payload []byte) error {
+		return h.forwardResponsesWebsocketInterrupt(socketCtx, passthroughSessionID, payload, localInterrupt.authEnabled)
+	}, localInterrupt, writer, wsTimelineLog)
 	var duplexInput <-chan cliproxyexecutor.WebsocketInput
 	if h != nil && h.Cfg != nil && h.Cfg.CodexResponseSteering {
-		socketCtx, cancelSocket := context.WithCancel(c.Request.Context())
-		defer cancelSocket()
-		c.Request = c.Request.WithContext(socketCtx)
-		duplexInput = readResponsesWebsocketInput(socketCtx, cancelSocket, conn)
+		duplexInput = input
 	}
-	writer := newResponsesWebsocketWriter(conn)
-	sessionCtx, cancelSession := context.WithCancelCause(c.Request.Context())
-	c.Request = c.Request.WithContext(sessionCtx)
-	passthroughSessionID := uuid.NewString()
 	downstreamSessionKey := websocketDownstreamSessionKey(c.Request)
 	retainResponsesWebsocketToolCaches(downstreamSessionKey)
 	clientIP := websocketClientAddress(c)
 	log.Infof("responses websocket: client connected id=%s remote=%s", passthroughSessionID, clientIP)
-
-	requestLogEnabled := h != nil && h.Cfg != nil && h.Cfg.RequestLog
-	wsTimelineLog := newWebsocketTimelineLog(requestLogEnabled, websocketTimelineSourceFromContext(c))
 
 	wsDone := make(chan struct{})
 	defer close(wsDone)
@@ -327,7 +331,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 
 	var wsTerminateErr error
 	defer func() {
-		cancelSession(wsTerminateErr)
+		cancelSocket(wsTerminateErr)
 		releaseResponsesWebsocketToolCaches(downstreamSessionKey)
 		if wsTerminateErr != nil {
 			appendWebsocketTimelineDisconnect(wsTimelineLog, wsTerminateErr, time.Now())
@@ -339,10 +343,13 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			h.AuthManager.CloseExecutionSession(passthroughSessionID)
 			log.Infof("responses websocket: upstream execution session closed id=%s", passthroughSessionID)
 		}
-		wsTimelineLog.SetContext(c)
+		cancelSocket(nil)
 		if errClose := conn.Close(); errClose != nil && !isWebsocketConnectionClosedError(errClose) {
 			log.Warnf("responses websocket: close connection error: %v", errClose)
 		}
+		// Finish control-frame diagnostics before snapshotting the timeline.
+		<-inputDone
+		wsTimelineLog.SetContext(c)
 	}()
 
 	var lastRequest []byte
@@ -407,38 +414,29 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		pinnedAuthID = ""
 	}
 
-	// Keep the single WebSocket reader running while a turn is executing so a
-	// disconnected client cancels both bootstrap and a silent upstream stream.
-	// Requests are still executed serially below, preserving continuation state.
-	requests := make(chan []byte, wsPendingRequestLimit)
-	if duplexInput == nil {
-		go readResponsesWebsocketRequests(sessionCtx, writer, requests, cancelSession)
-	}
-
 	for {
 		var payload []byte
-		if duplexInput == nil {
-			select {
-			case <-sessionCtx.Done():
-			case payload = <-requests:
-			}
-		} else {
-			select {
-			case message, ok := <-duplexInput:
-				if !ok {
+		var errReadMessage error
+		select {
+		case message, ok := <-input:
+			if !ok {
+				errReadMessage = context.Cause(socketCtx)
+				if errReadMessage == nil {
 					return
 				}
-				payload = message.Payload
-				if message.Err != nil {
-					cancelSession(message.Err)
-				}
-			case <-sessionCtx.Done():
+			} else {
+				payload, errReadMessage = message.Payload, message.Err
 			}
+		case <-socketCtx.Done():
+			errReadMessage = context.Cause(socketCtx)
 		}
-		if sessionCtx.Err() != nil {
-			wsTerminateErr = context.Cause(sessionCtx)
-			if websocket.IsCloseError(wsTerminateErr, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
-				log.Infof("responses websocket: client disconnected id=%s error=%v", passthroughSessionID, wsTerminateErr)
+		if socketCtx.Err() != nil {
+			errReadMessage = context.Cause(socketCtx)
+		}
+		if errReadMessage != nil {
+			wsTerminateErr = errReadMessage
+			if websocket.IsCloseError(errReadMessage, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
+				log.Infof("responses websocket: client disconnected id=%s error=%v", passthroughSessionID, errReadMessage)
 			}
 			return
 		}
@@ -691,6 +689,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		}
 
 		modelName := gjson.GetBytes(requestJSON, "model").String()
+		localInterrupt.bindAuth("", nil)
 		lastAttemptedAuthID := pinnedAuthID
 		attemptedUpstreamMode := responsesWebsocketUpstreamModeUnknown
 		selectedAuthObserved := false
@@ -733,8 +732,14 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			if !ok || selectedAuth == nil {
 				return
 			}
+			boundCredential := responsesWebsocketCredentialBinding(selectedAuth, h.Cfg.ProxyURL)
+			localInterrupt.bindAuth(authID, func(candidateID string) bool {
+				current, exists := sessionAuthByID(candidateID)
+				return exists && current != nil && !current.Disabled && current.Status != coreauth.StatusDisabled &&
+					boundCredential == responsesWebsocketCredentialBinding(current, h.Cfg.ProxyURL)
+			})
 			duplexBindingMu.Lock()
-			duplexBinding = responsesWebsocketCredentialBinding(selectedAuth, h.Cfg.ProxyURL)
+			duplexBinding = boundCredential
 			duplexBindingMu.Unlock()
 			attemptedUpstreamMode = upstreamModeForAuth(selectedAuth)
 			codexDuplexStream.Store(duplexInput != nil && attemptedUpstreamMode == responsesWebsocketUpstreamModeWS && strings.EqualFold(strings.TrimSpace(selectedAuth.Provider), "codex"))
@@ -755,6 +760,13 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			// Plugin/alternate routes bypass auth selection. Keep canonical HTTP-mode
 			// state instead of inheriting the previous pinned websocket mode.
 			attemptedUpstreamMode = responsesWebsocketUpstreamModeHTTP
+			if isPluginExecutorRoute {
+				// The accepted plugin route owns this local turn without a credential.
+				// Its response ID still has to match before cancellation is allowed.
+				localInterrupt.bindAuth("plugin:"+pluginExecutorID, func(authID string) bool {
+					return authID == "plugin:"+pluginExecutorID
+				})
+			}
 		}
 		// A connection-scoped continuation cannot rotate credentials in place. Suppress
 		// credential errors and make the client replay the full turn on a new socket.
@@ -776,6 +788,8 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 				duplexStream:             codexDuplexStream.Load,
 				toolCacheTurn:            toolCacheTurn,
 				suppressError:            replayPinnedAuthFailure,
+				localInterrupt:           localInterrupt,
+				localInterruptHTTP:       attemptedUpstreamMode == responsesWebsocketUpstreamModeHTTP,
 			},
 		)
 		if errForward != nil {
@@ -867,32 +881,6 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			}
 			lastResponseID = strings.TrimSpace(completedResponseID)
 			lastResponsePendingToolCallIDs = append([]string(nil), completedPendingToolCallIDs...)
-		}
-	}
-}
-
-func readResponsesWebsocketRequests(ctx context.Context, writer *responsesWebsocketWriter, requests chan<- []byte, cancel context.CancelCauseFunc) {
-	defer close(requests)
-	for {
-		msgType, payload, errRead := writer.conn.ReadMessage()
-		if errRead != nil {
-			cancel(errRead)
-			_, _ = writer.closeWithoutError()
-			return
-		}
-		if msgType != websocket.TextMessage && msgType != websocket.BinaryMessage {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case requests <- payload:
-		default:
-			// Never block the reader on queued requests: doing so would hide a
-			// subsequent disconnect again. Bound pipelining and cancel overloads.
-			cancel(errors.New("responses websocket: too many queued requests"))
-			_, _ = writer.closeWithoutError()
-			return
 		}
 	}
 }

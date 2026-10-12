@@ -69,6 +69,10 @@ func (r *callbackContextRegistry) open(ctx context.Context, pluginID string, ins
 	ctx = withHostCallbackIdentity(ctx, pluginID, instance)
 	id := strconv.FormatUint(r.next.Add(1), 10)
 	r.mu.Lock()
+	if instance != nil && instance.closed.Load() {
+		r.mu.Unlock()
+		return "", func() {}
+	}
 	r.contexts[id] = callbackContextEntry{ctx: ctx, pluginID: pluginID, instance: instance}
 	r.mu.Unlock()
 
@@ -87,6 +91,29 @@ func (r *callbackContextRegistry) open(ctx context.Context, pluginID string, ins
 				}
 			}
 		})
+	}
+}
+
+// closePlugin removes scopes before invoking their cleanup outside the registry lock.
+// Instance matching prevents delayed cleanup from retiring a replacement plugin.
+func (r *callbackContextRegistry) closePlugin(pluginID string, instance *hostCallbackInstance, allInstances bool) {
+	if r == nil {
+		return
+	}
+	var cleanup []callbackContextCleanup
+	r.mu.Lock()
+	for id, entry := range r.contexts {
+		if entry.pluginID != pluginID || (!allInstances && entry.instance != instance) {
+			continue
+		}
+		delete(r.contexts, id)
+		cleanup = append(cleanup, entry.cleanup...)
+	}
+	r.mu.Unlock()
+	for _, item := range cleanup {
+		if item.fn != nil {
+			item.fn()
+		}
 	}
 }
 

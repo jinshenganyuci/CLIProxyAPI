@@ -2118,6 +2118,57 @@ func TestXAIWebsocketsCompactionTriggerFreshSessionFallback(t *testing.T) {
 	}
 }
 
+func TestConfigureXAIWebsocketConnResetsTerminalErrorOnReplacement(t *testing.T) {
+	oldConn := &websocket.Conn{}
+	newConn := &websocket.Conn{}
+	sess := &codexWebsocketSession{conn: oldConn}
+	oldErr := errors.New("old connection terminated")
+	if !sess.markTerminalError(oldConn, oldErr) {
+		t.Fatal("old connection terminal error was not recorded")
+	}
+	sess.resetUpstreamDisconnectError(oldConn)
+	sess.setUpstreamDisconnectError(oldConn, oldErr)
+
+	sess.connMu.Lock()
+	sess.conn = newConn
+	sess.connMu.Unlock()
+	configureXAIWebsocketConn(sess, newConn)
+	if errDisconnect := sess.upstreamDisconnectError(newConn); errDisconnect != nil {
+		t.Fatalf("replacement retained the old disconnect error: %v", errDisconnect)
+	}
+
+	sess.activeMu.Lock()
+	terminalConn, terminalErr := sess.terminalConn, sess.terminalErr
+	sess.activeMu.Unlock()
+	if terminalErr != nil {
+		t.Fatalf("terminal error after configuring replacement = %v, want nil", terminalErr)
+	}
+	if terminalConn != newConn {
+		t.Fatal("terminal state still references the old connection after replacement")
+	}
+	if sess.markTerminalError(oldConn, oldErr) {
+		t.Fatal("old connection overwrote the replacement terminal state")
+	}
+
+	newErr := errors.New("replacement connection terminated")
+	if !sess.markTerminalError(newConn, newErr) {
+		t.Fatal("replacement connection terminal error was not recorded")
+	}
+	sess.setUpstreamDisconnectError(newConn, newErr)
+	if !errors.Is(sess.upstreamDisconnectError(newConn), newErr) {
+		t.Fatal("replacement did not accept its own disconnect error")
+	}
+	readCh := sess.activate(newConn)
+	select {
+	case event, ok := <-readCh:
+		if !ok || event.conn != newConn || !errors.Is(event.err, newErr) {
+			t.Fatalf("replacement terminal event = %#v, want replacement connection error", event)
+		}
+	default:
+		t.Fatal("replacement connection terminal error was not replayed")
+	}
+}
+
 func TestXAIWebsockets_PingHandlerDoesNotBlockOnWriteMu(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serverConnCh := make(chan *websocket.Conn, 1)

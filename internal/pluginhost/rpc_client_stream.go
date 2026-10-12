@@ -16,6 +16,16 @@ func (a *rpcPluginAdapter) ExecuteStream(ctx context.Context, req pluginapi.Exec
 	streamID, chunks, cleanupStream := a.host.streams.open(ctx)
 	callbackID, closeCallback := a.openHostCallbackContext(ctx)
 	cleanup := combinedCleanup(cleanupStream, closeCallback)
+	if callbackID == "" {
+		cleanup()
+		return pluginapi.ExecutorStreamResponse{}, fmt.Errorf("plugin stream callback instance is closed")
+	}
+	if !a.host.addCallbackCleanup(callbackID, func() {
+		a.host.streams.close(streamID, "plugin executor callback scope closed")
+	}) {
+		cleanup()
+		return pluginapi.ExecutorStreamResponse{}, fmt.Errorf("plugin stream callback scope is closed")
+	}
 	rpcReq := rpcExecutorRequest{
 		ExecutorRequest: req,
 		StreamID:        streamID,

@@ -1,16 +1,146 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.20`（上游提交
-`0f96f568e4dbf6f84ad7399a74b78344c5eac7e6`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.23`（上游提交
+`d318bcc3afb9ea8782862f5e8cdb541afdc9dfa5`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.20-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.20.1` 和 `latest`，使用同一验证镜像。从 v8.0.17.1 合并官方
-v8.0.18 / v8.0.19 / v8.0.20 共 15 个提交（11 个非 merge、4 个 merge）。管理页升级为
-v1.25.5，合入 6 个非 merge 提交。发布不替换或重启既有部署。
+当前修订为 `v8.0.23-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.23.1` 和 `latest`，使用同一验证镜像。从 v8.0.20.1 合并官方
+v8.0.21 / v8.0.22 / v8.0.23 共 21 个提交（19 个非 merge、2 个 merge）。管理页升级为
+v1.26.1，合入 19 个非 merge 提交。发布不替换或重启既有部署。
 
-## v8.0.18 / v8.0.19 / v8.0.20 更新
+## v8.0.21 / v8.0.22 / v8.0.23 更新
+
+### WebSocket、原生 Interactions 与压缩
+
+- Responses WebSocket 新增 `response.interrupt` 控制消息，必须提供 `response_id`。
+  当前 Codex 上游为 WebSocket 时，通过已有连接转发原控制正文；当前轮次走 HTTP 时
+  本地取消，并返回含已收集输出的 `response.incomplete`，原因是 `interrupted`。
+  普通输入队列上限为 16、局部中断槽为 1；中断无需排在正在生成的响应之后。
+- 后续补丁记录当前 Codex 上游 WS 连接已结束的 response ID，迟到中断可作为已处理，避免误伤
+  下一轮；换连接重置相应状态。凭据状态仍需检查，中断不是新建另一个无约束代理连接。
+  诊断使用 ID 哈希并省略任意扩展字段。xAI 换 WebSocket 时也清除旧连接的终止错误。
+- Vertex 新增可选 `interactions: true`。API Key 使用 Vertex 配置项，service-account
+  JSON 在根级添加该字段；只有调用来源本身为 Interactions 且凭据启用才走原生
+  `/v1beta1/interactions` 或 project/global 路径，普通 generateContent 路由不变。
+  支持 API Key/服务账号及非流/SSE，共享 Gemini 的 input ID、thinking、revision
+  header 等处理；该路由没有新增 compact 支持，也不保证账号具有真实 Google 权益。
+- Claude 支持 `/responses/compact` 与 `compaction_trigger`：调用同一 Claude
+  执行器生成文本摘要，再返回 CPA 压缩 capsule，**会产生实际模型请求和可能的用量**。
+  stream 形式先完成摘要，再输出包装后的流事件，不是实时逐 Token 生成摘要。
+  有工具定义时保留工具历史并设 tool_choice none，缺定义的孤立工具历史改为文本。
+- 后续请求可展开识别出的 CPA capsule；同格式但损坏的内容返回 400，其他供应商的
+  compaction 项则丢弃并警告，不能视为任意 OpenAI 原生加密上下文都能迁入 Claude。
+  沿用已有 `cpa-ag-compact-v1` 格式与固定 CPA 密钥，不构成按用户独立的保密边界。
+
+### Claude、用量与工具兼容
+
+- Responses 没有传 `max_output_tokens` 时，Claude 使用模型注册目录的输出上限，
+  非 Fable 模型可高于以前的 32000 默认值；Fable 保留保守上限。需要固定输出预算的
+  客户端应显式设置，已有明确设置仍按原路径处理。
+- Claude 额度解析排除与 overage 账单周期相同的 reset，以及超过 7 天加 1 小时
+  时钟余量的期限，避免错误冷却到下个月。共享窗口健康/未评估时的 overage 拒绝可
+  限定到模型；真实共享窗口拒绝及有效短 Retry-After 仍有效，不是放开供应商额度。
+- OpenAI Chat→Claude 流先等待尾部 usage-only 或 `[DONE]`，再输出 message_delta/
+  message_stop，避免 finish_reason 同帧的初步用量抢占后续 cached_tokens。
+  这不应与其他协议的无 `[DONE]`/EOF 兼容结论混为一谈。
+- 向连续 user 段插入/恢复 system 提示时，跳过只有 output_config、空 content 的
+  effort 指令消息，避免把 system 提前放到下一条 user 前。继续保留上一版 OAuth 与
+  非 OAuth 的不同提示布局及既有 legacy 条件。
+- Antigravity Chat Completions 的 completion_tokens 计入 thoughtsTokenCount，
+  修正客户端可见的输出用量；不能把同一思考 Token 重复记作两次计费。
+- OpenAI-compatible 流按完整的有效 Token 帧记录 TTFT，空/role 帧只作首包回退；
+  观察点在翻译和下游背压之前。统计数字可能变化，不表示模型本身速度有提升。
+- Meta Responses 保留第三方未知格式 reasoning encrypted_content，已知不兼容签名
+  和不合法载体仍过滤；这是回放兼容，不是解密或证明内容真实。
+- Claude 工具调用/结果 ID 规范为可接受字符并处理冲突，合法 ID 保留。Devin 将不兼容
+  或占用保留前缀的 ID 编码为 `cpa_tid_v1_`，回传上游前只解一层规范编码；空片段、
+  畸形编码和普通类似 base64 的 ID 不误解码。这使用请求内映射，不新增全进程 ID 账本。
+- Codex 直连 OpenAI 图片路径保留 alias 解析后的真实上游模型名，包含显式配置的带路径
+  名称；JSON/multipart、生成/编辑、流式/非流式一致。未显式配置时仍按原内置名规范化。
+
+### 配置、插件和 Home
+
+- v8 管理配置写出时规范 YAML 集合格式，非空集合使用块布局、空列表保留 `[]`，
+  JSON 派生的双引号映射键可恢复正常格式；不是要求重建配置，字符串值的语义需保留。
+- 批量注册模型先读当前凭据快照，记录已处理 generation，批次完成后补注册期间新增
+  或发生变动的凭据，避免旧模型集合覆盖新凭据。不能与 CredentialVersion 或代理/
+  身份元数据事务混淆，二开的防迟到发布及活跃并发槽需同时保留。
+- 插件禁用/取消选择的热重载现在真正卸载并停止实例及能力；全局禁用插件会卸载全部。
+  这不是只改变 UI 开关，不能把关闭 Access Guard 后的行为当成它仍在保护请求。
+- Home 已派发凭据由 Home 决定可用性，本机不再重复按本地模型冷却筛掉；普通本机
+  选择仍过滤。它不代表跳过凭据代理、并发准入或插件预算，也不改变 Home 的配置 Schema。
+- README_CN 删除已满 QQ 群入口，只有文档变更。发布 tag 后 main 另有 9 个提交，
+  本轮目标仍是稳定 v8.0.23；未发布主线不能直接算作此版本已合并内容。
+
+### 二开合并边界
+
+保持登录前即可指定代理、单凭据 direct/require 与失败不回退、稳定 Codex 身份、默认
+10/自定义并发及占用显示、Access Guard、先完成业务 payload 再映射身份、已观察用量
+和凭据代际保护。原生 WebSocket 控制帧、图片模型名、Vertex 新路径和 Claude compact
+均需与这些约束组合，不能只用单独原生单测代替最终镜像链路验收。
+
+新增 Vertex Interactions 的异常链补回原二开的已观察用量保护：断流、提前取消、坏
+apply_patch 等失败保留真实消耗并只上报一次；终态已交付后的取消按成功结束，不能把
+未结束的取消也算成功。Claude compact 通过同一凭据执行摘要，保留代理、并发占用与
+用量；Chat→Claude 实际 HTTP 的干净 EOF 和传输截断分别验证，不以截断伪造终态。
+
+原生示例允许把 interactions 放在 Vertex 组级，但原组级白名单遗漏该字段，按示例
+配置会启动/保存失败。本二开补齐仅 Vertex 组级的允许项，保留 Key 级 false 显式覆盖
+及 null 继承规则；不能因此放宽其他提供商的未知字段校验。
+
+批量模型注册额外比较 RegistrationEpoch 与 Generation，防止同 ID 删除后重新注册、
+Generation 恰好相同时漏掉新状态。插件的配置 ID 被删除或未显式启用时，会先卸载再
+扫描目录，目录异常也不能让已禁用实例继续工作；同时结束该实例的 callback、异步流
+和嵌套模型调用，其他插件的在途占用不受此实例关闭影响。插件文件选择/回退机制未改。
+
+### 管理页与迁移
+
+管理页从 v1.25.5 升至 v1.26.1，合并 19 个非 merge 提交：v1.25.6 为 4 个、v1.26.0
+为 11 个、v1.26.1 为 4 个。新增韩语及对应翻译，越南语 cloud session credits 的
+原生补齐与此前二开同类补齐合并，不重复算为新二开能力。
+
+OAuth 页改为提供商画廊与独立流程对话框，支持设备码/浏览器流程、后台状态、手动
+回调后恢复轮询、取消及连接切换隔离；Kimi 两站展示赞助/注册卡和新图标。原生界面
+结构重做后，二开登录前的代理必须进入实际对话框和发起登录请求，不能只保留旧页面。
+
+配置控件调整为统一 setting row，开关改外部 label 并显示键盘焦点，调用者 API Key
+改为紧凑行；移除 Input 的旧额外 label 插槽，列表新增按钮左对齐。配置页移除旧
+quota 分区、将 Antigravity credits 移到高级设置，不是删除整个额度查看页面。
+
+二开代理输入已迁入新流程对话框，在发起登录前选定并以 POST 提交；进行中锁定选择，
+成功/取消后清除对话框敏感输入，已保存凭据代理不因此删除。Codex 手动回调遇网络错误
+后仍可恢复状态轮询。client 设置也迁入新 setting row，原生未提供的韩语二开提示
+补齐 115 项，六语言占位符保持一致。配置页移除的旧控件遵循原生设计，未触及的源码
+配置仍保留。插件额度先等待插件列表时若连接已改变，会阻止旧凭据请求发向新服务器，
+并阻止过期结果写入当前连接；稳定 v8.0.23 已具备需要的路由，无需引入后续 main 提交。
+
+xAI 显示共享额度的使用构成，额度查询的静态客户端版本标头更新为 1.0.46；这是管理
+页请求标头，不替代服务端按 npm 获取的版本。增加通用插件额度卡、数字/货币摘要、
+套餐/剩余窗口/重置时间，并保留内置额度卡展示顺序。UI 通过 v8 插件路由读取额度，
+需要实际提供该能力的插件；仅声明 quota_probe 而无 v8 管理路由的凭据不能据此查询。
+不会因为增加展示就增加真实额度或重置 Access Guard 预算。
+
+已有 v8 Docker 用户没有新增必填配置或批量重登要求。Vertex 原生 Interactions
+需要主动启用；客户端使用中断、压缩或依赖省略输出上限时，应按上述协议变化处理。
+已有 GitHub Token、upstream/client canonical 路径、auth_index 只读、配置旧别名
+仍保留。只读复核 Home 当前 c098d84d：旧 Vertex 配置可用，但新增 interactions
+组级与 Key 级（包括 false）均被其 Schema 拒绝；已有 server.github-token、models
+三来源、client.enable-apply-patch 限制仍在，upstream/client.optimize 和旧别名可用。
+这是控制面发布新字段的缺口，不代表已有 Home 调度坏了，也不要求独立 Docker 用户
+迁移 Home。本轮未修改或部署外部 Home。
+
+升级前保留同一时间点镜像、配置、凭据、插件及计费快照；回退核对 Token 轮换、期间
+新增用量及新 capsule 的协议兼容，进程内 thread/WS 状态不会因换镜像自动恢复。
+浏览器 OAuth 授权页走浏览器网络，CPA 控制自身令牌交换、刷新与推理出口。
+
+此前用户停止处理的 replay-cache/usage queue 内存问题未独立修复或压力复测。本轮
+原生 **确实修改了 Codex WS session**，新增每连接终态 ID 记录；其余明确审计的 replay
+存储/usage queue 与该新状态需分别说明，不能再写“六个文件都没变”。任何针对本轮
+新增状态的修补都不等于已解决此前整个进程内存问题，最终详情以本轮发布证据为准。
+
+## v8.0.18 / v8.0.19 / v8.0.20 更新（历史）
 
 ### 语音接口、错误与路由
 
@@ -1222,7 +1352,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.20.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.23.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。
@@ -1242,7 +1372,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 固定版本标签保留用于回滚和排查；需要严格锁定镜像内容时，使用发布记录中的 digest。
 
 回退到此前二开版本时，将镜像改回例如
-`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.17.1` 并重建对应服务，恢复该版本
+`jinshenganyuci/cli-proxy-api:codex-identity-v8.0.20.1` 并重建对应服务，恢复该版本
 配套配置快照和原有挂载；新模型目录设置不能假定被旧版本识别。下节说明的是退回原版、不再使用二开功能的情况。
 
 ## 回滚

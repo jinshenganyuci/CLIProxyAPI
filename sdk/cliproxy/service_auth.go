@@ -510,24 +510,34 @@ func (s *Service) completeModelRegistrationForAuth(ctx context.Context, auth *co
 	s.completeModelRegistrationForAuthWithCache(ctx, auth, nil)
 }
 
-func (s *Service) completeModelRegistrationForAuthWithCache(ctx context.Context, auth *coreauth.Auth, compatCache *openAICompatibilityRegistrationCache) {
+type modelRegistrationRevision struct {
+	epoch      uint64
+	generation uint64
+}
+
+func (s *Service) completeModelRegistrationForAuthWithCache(ctx context.Context, auth *coreauth.Auth, compatCache *openAICompatibilityRegistrationCache) modelRegistrationRevision {
 	if s == nil || s.coreManager == nil || auth == nil || auth.ID == "" {
-		return
+		return modelRegistrationRevision{}
 	}
 	if ctx != nil && ctx.Err() != nil {
-		return
+		return modelRegistrationRevision{}
 	}
-	s.registerModelsForAuthWithCache(ctx, auth, compatCache)
+	targetAuth := auth
+	if latest, ok := s.latestAuthForModelRegistration(auth.ID); ok && latest != nil {
+		targetAuth = latest
+	}
+	s.registerModelsForAuthWithCache(ctx, targetAuth, compatCache)
 	if ctx != nil && ctx.Err() != nil {
-		return
+		return modelRegistrationRevision{}
 	}
-	s.reconcileRegisteredModelStates(ctx, auth)
+	s.reconcileRegisteredModelStates(ctx, targetAuth)
 
 	// Refresh the scheduler entry so that the auth's supportedModelSet is rebuilt
 	// from the now-populated global model registry. Without this, newly added auths
 	// have an empty supportedModelSet (because Register/Update upserts into the
 	// scheduler before registerModelsForAuth runs) and are invisible to the scheduler.
-	s.coreManager.RefreshSchedulerEntry(auth.ID)
+	s.coreManager.RefreshSchedulerEntry(targetAuth.ID)
+	return modelRegistrationRevision{epoch: targetAuth.RegistrationEpoch, generation: targetAuth.Generation}
 }
 
 func (s *Service) applyCoreAuthRemoval(ctx context.Context, id string) {
