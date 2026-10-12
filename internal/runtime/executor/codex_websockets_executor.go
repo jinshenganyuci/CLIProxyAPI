@@ -208,7 +208,7 @@ func (e *CodexWebsocketsExecutor) InterruptExecutionSession(ctx context.Context,
 		return cliproxyexecutor.ErrNoActiveUpstreamWebsocket
 	}
 	sess.activeMu.Lock()
-	_, alreadyTerminal := sess.terminalResponseIDs[gjson.GetBytes(payload, "response_id").String()]
+	alreadyTerminal := sess.terminalResponseIDs.Contains(gjson.GetBytes(payload, "response_id").String())
 	alreadyTerminal = alreadyTerminal && sess.responseStateConn == conn
 	active := sess.activeConn == conn && sess.activeCh != nil
 	var disconnectErr error

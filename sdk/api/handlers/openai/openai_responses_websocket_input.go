@@ -37,13 +37,13 @@ type responsesLocalInterrupt struct {
 	authID         string
 	authCheck      func(string) bool
 	authGeneration uint64
-	terminalIDs    map[string]struct{}
-	terminalOrder  []string
+	terminalIDs    map[[sha256.Size]byte]struct{}
+	terminalOrder  [][sha256.Size]byte
 	frames         chan responsesInterruptFrame
 }
 
 func newResponsesLocalInterrupt() *responsesLocalInterrupt {
-	return &responsesLocalInterrupt{frames: make(chan responsesInterruptFrame, 1), terminalIDs: make(map[string]struct{})}
+	return &responsesLocalInterrupt{frames: make(chan responsesInterruptFrame, 1), terminalIDs: make(map[[sha256.Size]byte]struct{})}
 }
 
 func (s *responsesLocalInterrupt) bindAuth(authID string, check func(string) bool) {
@@ -99,7 +99,9 @@ func (s *responsesLocalInterrupt) rememberTerminalLocked(id string) {
 	if id == "" {
 		return
 	}
-	if _, exists := s.terminalIDs[id]; exists {
+	// Fixed-size digests bound retained history even for very large upstream IDs.
+	digest := sha256.Sum256([]byte(id))
+	if _, exists := s.terminalIDs[digest]; exists {
 		return
 	}
 	if len(s.terminalOrder) >= responsesInterruptTerminalLimit {
@@ -107,8 +109,8 @@ func (s *responsesLocalInterrupt) rememberTerminalLocked(id string) {
 		copy(s.terminalOrder, s.terminalOrder[1:])
 		s.terminalOrder = s.terminalOrder[:len(s.terminalOrder)-1]
 	}
-	s.terminalIDs[id] = struct{}{}
-	s.terminalOrder = append(s.terminalOrder, id)
+	s.terminalIDs[digest] = struct{}{}
+	s.terminalOrder = append(s.terminalOrder, digest)
 }
 
 func (s *responsesLocalInterrupt) observe(payload []byte) {
@@ -140,7 +142,7 @@ func (s *responsesLocalInterrupt) deliver(payload []byte) bool {
 	id := strings.TrimSpace(gjson.GetBytes(payload, "response_id").String())
 	s.mu.Lock()
 	if !s.active || !s.http || id == "" || id != s.responseID {
-		_, terminal := s.terminalIDs[id]
+		_, terminal := s.terminalIDs[sha256.Sum256([]byte(id))]
 		s.mu.Unlock()
 		return terminal
 	}

@@ -377,6 +377,14 @@ func (s *Service) prepareCoreAuthForModelRegistration(ctx context.Context, auth 
 			auth.Quota.ObservedAt = observation.ObservedAt
 			auth.Quota.Signals = observation.Signals
 		}
+		if existing.Metadata != nil {
+			if persistedHints, hasHints := existing.Metadata[antigravityPersistedHintsMetaKey]; hasHints {
+				if auth.Metadata == nil {
+					auth.Metadata = make(map[string]any)
+				}
+				auth.Metadata[antigravityPersistedHintsMetaKey] = persistedHints
+			}
+		}
 		if !existing.Disabled && existing.Status != coreauth.StatusDisabled && !auth.Disabled && auth.Status != coreauth.StatusDisabled {
 			auth.LastRefreshedAt = existing.LastRefreshedAt
 			auth.NextRefreshAfter = existing.NextRefreshAfter

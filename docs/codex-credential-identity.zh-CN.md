@@ -1,23 +1,24 @@
 # Codex OAuth 凭据独立身份方案
 
-本分支基于 CLIProxyAPI `v8.0.23`（上游提交
-`d318bcc3afb9ea8782862f5e8cdb541afdc9dfa5`），为每个 Codex OAuth
+本分支基于 CLIProxyAPI `v8.0.24`（上游提交
+`091ff27f31285ec4fd1dd5823b44f7f51fb8f48b`），为每个 Codex OAuth
 凭据保留稳定、独立的客户端身份命名空间，以及原有 CPA Key、OAuth Token、
 路由和客户端会话各自的职责。
 
-当前修订为 `v8.0.23-codex-identity.1`，Docker 发布固定标签
-`codex-identity-v8.0.23.1` 和 `latest`，使用同一验证镜像。从 v8.0.20.1 合并官方
-v8.0.21 / v8.0.22 / v8.0.23 共 21 个提交（19 个非 merge、2 个 merge）。管理页升级为
+当前修订为 `v8.0.24-codex-identity.1`，Docker 发布固定标签
+`codex-identity-v8.0.24.1` 和 `latest`，使用同一验证镜像。从已发布的 v8.0.20.1 合并
+官方 v8.0.21 / v8.0.22 / v8.0.23 / v8.0.24 共 52 个提交（46 个非 merge、6 个 merge）。
+v8.0.23 的二开工作只有本地检查点，未单独发布，全部并入本次版本。管理页升级为
 v1.26.1，合入 19 个非 merge 提交。发布不替换或重启既有部署。
 
-## v8.0.21 / v8.0.22 / v8.0.23 更新
+## v8.0.21 / v8.0.22 / v8.0.23 / v8.0.24 更新
 
 ### WebSocket、原生 Interactions 与压缩
 
 - Responses WebSocket 新增 `response.interrupt` 控制消息，必须提供 `response_id`。
   当前 Codex 上游为 WebSocket 时，通过已有连接转发原控制正文；当前轮次走 HTTP 时
   本地取消，并返回含已收集输出的 `response.incomplete`，原因是 `interrupted`。
-  普通输入队列上限为 16、局部中断槽为 1；中断无需排在正在生成的响应之后。
+  普通输入队列原生上限为 16，本二开保留 32；局部中断槽为 1，中断无需排在生成之后。
 - 后续补丁记录当前 Codex 上游 WS 连接已结束的 response ID，迟到中断可作为已处理，避免误伤
   下一轮；换连接重置相应状态。凭据状态仍需检查，中断不是新建另一个无约束代理连接。
   诊断使用 ID 哈希并省略任意扩展字段。xAI 换 WebSocket 时也清除旧连接的终止错误。
@@ -71,8 +72,53 @@ v1.26.1，合入 19 个非 merge 提交。发布不替换或重启既有部署�
   这不是只改变 UI 开关，不能把关闭 Access Guard 后的行为当成它仍在保护请求。
 - Home 已派发凭据由 Home 决定可用性，本机不再重复按本地模型冷却筛掉；普通本机
   选择仍过滤。它不代表跳过凭据代理、并发准入或插件预算，也不改变 Home 的配置 Schema。
-- README_CN 删除已满 QQ 群入口，只有文档变更。发布 tag 后 main 另有 9 个提交，
-  本轮目标仍是稳定 v8.0.23；未发布主线不能直接算作此版本已合并内容。
+- README_CN 删除已满 QQ 群入口；更新 CPA-Manager-Plus 的多语言说明及赞助资料、
+  图标。这些是文档/图片变更，不会安装其他管理器或增加真实模型权益。
+
+### v8.0.24：Claude 客户端工具搜索
+
+- 新增 `upstream.claude.tool-search`，默认 false，统一控制 Claude OAuth 与 API Key。
+  开启后，Responses 的 `tool_search`、`execution: client` 声明及调用/结果历史可转换
+  为 Claude 工具协议。**搜索由 Codex 客户端执行**，CPA 负责协议转换；不是联网搜索，
+  也不是 CPA 代执行客户端工具。此桥接没有实现 hosted/server 工具搜索。
+- 兼容路线使用 Anthropic `defer_loading` 与 `tool_reference` 表达已发现工具，保留
+  显式工具、namespace 和 tool_choice 的对应关系；显式定义优先。deferred 工具移除
+  不兼容的 cache_control。工具搜索的畸形/截断参数不会伪装成正常完成。
+- 全局开启后，官方 Anthropic 地址的非 legacy 模型可用；自定义 Claude API Key
+  上游须主动声明 `native-tool-search: true`，该声明不是自动探测或担保上游能力。
+  旧模型、不支持的路线会去掉客户端工具搜索专用声明/历史后按旧协议转换；Kimi 不因
+  共用执行器就自动得到此能力。Key 级开关不能覆盖全局关闭。
+- Codex 客户端模型目录仅在模板支持、所有实际服务凭据均兼容的 Claude 路线公布
+  `supports_search_tool`，混合或未知路线不放行。开关在请求开始时固定，热更新不会
+  令同一请求的 fallback、发送转换和响应转换采用不同策略。
+
+### v8.0.24：持久化、用量和协议边界
+
+- Antigravity 将 `antigravity_capability_hints` 保存到凭据 metadata，包含匹配项目/
+  endpoint 的模型与 web-search 模型提示，重启时可先恢复目录可见性，再后台更新。
+  **提示不等于当前权益或额度证明**；磁盘提示本身不含 proxy/epoch，运行时缓存另按
+  账号、注册代际、项目、endpoint、代理区分，不能把旧提示当作出口身份绑定证明。
+- 后台保存按凭据合并最新修订，每个凭据最多一个进行中及一个可替换的待处理保存；
+  失效路线/注册代际及 Home、插件拥有的状态不会按旧结果发布。前台凭据保存可抢占
+  后台 I/O，纯能力 metadata 保存不推进凭据 Generation 或触发令牌生命周期事件。
+- 同一原生提交还让 Git 存储网络操作接受 context 取消，并修复 Object/Postgres 在
+  本地文件已写入、远端先前失败后，重试因本地内容相同而跳过远端的问题。新增的
+  disabled-login 测试验证既有 AuthCreationIntent 合同，没有新改禁用凭据登录政策。
+- 用量增加下游认证来源 `access_provider`、`is_native_key`，流经普通/实时鉴权、
+  执行器、插件及 Redis 记录。native 指 CPA 配置 Key 认证而非插件认证，**不是**上游
+  凭据的 API Key/OAuth 类型。这只是归属元数据，不改变真实 Token 或插件财务限额。
+- 流开始阶段优先接收已经排队的上游错误；即使调用方同时取消，已确认的 Retry-After
+  仍按原凭据代际记录冷却。普通取消本身不制造额度冷却；Codex WS 在错误交付之后
+  再通知断开，防止真实上游错误被本地取消吞掉。
+- 过长 Codex call_id 确定性缩短并维护工具调用/结果配对，合法短 ID 不变。Claude
+  只把有效 ephemeral cache_control 对象计入缓存断点/TTL 规则；null、标量等无效
+  标记不阻止自动注入，不能据此声称所有原始无效字段都会删除。
+- Devin→Claude 不再预填整段输入的估算量，后续使用真实 cache-aware 用量。
+  Antigravity 普通 Chat delta 省略 `tool_calls: null`，真实工具调用仍保留；Devin/
+  Meta 静态模型查询使用当前目录 getter，不是新增账号权限。
+- Gemini 末尾工具结果包含嵌套媒体时补齐所需 user 轮次，无媒体结果保持原行为。
+  Antigravity 的 Gemini 路线移除末尾纯思考 model 轮次但至少保留一轮，真实文本/工具
+  不丢，Claude 路线不受该清理影响。
 
 ### 二开合并边界
 
@@ -95,6 +141,25 @@ Generation 恰好相同时漏掉新状态。插件的配置 ID 被删除或未�
 扫描目录，目录异常也不能让已禁用实例继续工作；同时结束该实例的 callback、异步流
 和嵌套模型调用，其他插件的在途占用不受此实例关闭影响。插件文件选择/回退机制未改。
 
+
+WebSocket 本地中断核对实际 response.created ID、执行模式和轮次，转发控制帧还核对
+所选凭据的 Token、proxy、namespace 与注册代际，不能借旧轮次操作新凭据。新原生
+上游连接终态历史改为最多 128 个固定长度 SHA-256 摘要的 FIFO，换连接清空；本地
+HTTP 终态历史同样最多 128 个固定 SHA-256 摘要，不保留任意长度原始 ID。只对保留范围内的已完成 ID 接受迟到中断，不承诺无限历史。
+本地中断 HTTP 后补齐一次失败用量记录，已见 Token 保留，未见 Token 才为零；已经
+交付并记账的成功终态不被后续取消改成失败。并发槽及插件生命周期仍结束，后续轮次可继续。对当前新历史的限制不等于修复旧内存问题。
+
+Codex 长工具 ID 的原生截断按字节切分，本二开退到 UTF-8 字符边界，避免中文/emoji
+被切断后替换成非法字符、最终反而超过 64 字节；ASCII、哈希后缀和配对规则保留。
+
+管理员元数据事务及旧 callback 保存入口接入新原生的前台保存优先 gate，可取消同
+凭据或跨凭据的后台 hints 保存；在触发 callback 前释放 gate，保留 Token 变更版本、
+代理/namespace/并发配置和已有 lease。后台 hints 自身不推进凭据版本或模型 generation。
+
+API 执行上下文在脱离 HTTP 时固定下游 Key、认证来源及 native 标记，空串/false 也
+明确冻结，防止异步用量读到已被复用的 Gin 请求身份；既有 With* 空串 no-op 语义不变。
+模型目录的 ToolSearch 可选指针改为深拷贝，调用方修改返回快照不能污染已注册能力。
+
 ### 管理页与迁移
 
 管理页从 v1.25.5 升至 v1.26.1，合并 19 个非 merge 提交：v1.25.6 为 4 个、v1.26.0
@@ -114,7 +179,7 @@ quota 分区、将 Antigravity credits 移到高级设置，不是删除整个�
 后仍可恢复状态轮询。client 设置也迁入新 setting row，原生未提供的韩语二开提示
 补齐 115 项，六语言占位符保持一致。配置页移除的旧控件遵循原生设计，未触及的源码
 配置仍保留。插件额度先等待插件列表时若连接已改变，会阻止旧凭据请求发向新服务器，
-并阻止过期结果写入当前连接；稳定 v8.0.23 已具备需要的路由，无需引入后续 main 提交。
+并阻止过期结果写入当前连接；这些路由已包含在本次稳定版本中。
 
 xAI 显示共享额度的使用构成，额度查询的静态客户端版本标头更新为 1.0.46；这是管理
 页请求标头，不替代服务端按 npm 获取的版本。增加通用插件额度卡、数字/货币摘要、
@@ -122,23 +187,38 @@ xAI 显示共享额度的使用构成，额度查询的静态客户端版本标�
 需要实际提供该能力的插件；仅声明 quota_probe 而无 v8 管理路由的凭据不能据此查询。
 不会因为增加展示就增加真实额度或重置 Access Guard 预算。
 
+管理页没有为本次 Claude tool-search 两个字段额外新增专用开关，可通过已有源码
+YAML 编辑器设置；可视化/提供商的窄保存保留 true、false 和省略状态，单 Key 的
+native-tool-search 不能被提升为组级字段。Vertex interactions 组级继承与 Key 级
+false 覆盖同时保留。这次 UI 原生仍为 v1.26.1，没有在未发布检查点之后再计一次升级。
+
 已有 v8 Docker 用户没有新增必填配置或批量重登要求。Vertex 原生 Interactions
 需要主动启用；客户端使用中断、压缩或依赖省略输出上限时，应按上述协议变化处理。
 已有 GitHub Token、upstream/client canonical 路径、auth_index 只读、配置旧别名
-仍保留。只读复核 Home 当前 c098d84d：旧 Vertex 配置可用，但新增 interactions
-组级与 Key 级（包括 false）均被其 Schema 拒绝；已有 server.github-token、models
-三来源、client.enable-apply-patch 限制仍在，upstream/client.optimize 和旧别名可用。
-这是控制面发布新字段的缺口，不代表已有 Home 调度坏了，也不要求独立 Docker 用户
-迁移 Home。本轮未修改或部署外部 Home。
+仍保留。Claude 客户端工具搜索为可选功能，默认关闭；自定义兼容上游需同时设置
+全局开关和对应 Key 的 native-tool-search，不能只打开其中一个。
+
+只读复核 Home 当前 aadf006b：已接受 Claude 全局 tool-search 与 Key 级
+native-tool-search 的 true/false，并按服务该模型的 Claude 凭据共同能力生成提示。
+旧 Vertex 配置可用，但 interactions 组级与 Key 级（包括 false）仍被其 Schema
+拒绝；server.github-token、models 三来源、client.enable-apply-patch 限制仍在，
+upstream/client.optimize 和旧别名可用。这是控制面发布新字段的支持边界，不代表
+已有 Home 调度坏了，也不要求独立 Docker 用户迁移 Home。本轮未修改或部署外部 Home。
+
+Go 嵌入方自定义客户端模型目录构造器时，应适配新增的工具搜索能力回调参数；新增
+可选执行器能力接口不等于修改必需 ProviderExecutor 接口。普通 Docker 用户无需
+修改 Go 调用；旧插件的实际二进制兼容性由本轮最终镜像验收确认。
 
 升级前保留同一时间点镜像、配置、凭据、插件及计费快照；回退核对 Token 轮换、期间
 新增用量及新 capsule 的协议兼容，进程内 thread/WS 状态不会因换镜像自动恢复。
 浏览器 OAuth 授权页走浏览器网络，CPA 控制自身令牌交换、刷新与推理出口。
 
 此前用户停止处理的 replay-cache/usage queue 内存问题未独立修复或压力复测。本轮
-原生 **确实修改了 Codex WS session**，新增每连接终态 ID 记录；其余明确审计的 replay
-存储/usage queue 与该新状态需分别说明，不能再写“六个文件都没变”。任何针对本轮
-新增状态的修补都不等于已解决此前整个进程内存问题，最终详情以本轮发布证据为准。
+原生确实修改 Codex WS session 和 usage Manager 文件：前者新增终态历史，后者新增
+认证来源及 context 元数据；不能写“六个文件都没变”。usage 队列存储/追加/分发机制
+另作逐段比较，机制不变不等于记录大小或全部内存行为不变，也不证明队列有界。
+本轮将新 WS 终态历史限定为 128 个固定摘要，同时存在 AG 后台保存/提示状态；这些
+变化都不等于已解决此前整个进程内存问题，最终详情以本轮发布证据为准。
 
 ## v8.0.18 / v8.0.19 / v8.0.20 更新（历史）
 
@@ -1352,7 +1432,7 @@ CPA 在生成授权链接时不请求 OpenAI。浏览器打开授权页面仍使
 
 2. 把 `CLI_PROXY_IMAGE` 改为
    `jinshenganyuci/cli-proxy-api:latest`，或使用固定版本
-   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.23.1`，保持现有 volumes 不变。
+   `jinshenganyuci/cli-proxy-api:codex-identity-v8.0.24.1`，保持现有 volumes 不变。
 3. 启动后先不要手改 `enabled: true`；打开 `/management.html`。
 4. 检查状态并点击“初始化旧凭据”。
 5. 为每个凭据确认 `proxy_url`。需要禁止回退时开启“严格使用凭据代理”。

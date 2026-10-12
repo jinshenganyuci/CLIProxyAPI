@@ -510,6 +510,23 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 	if c != nil && c.Request != nil {
 		requestCtx = c.Request.Context()
 	}
+	// Keep authenticated identity on the execution context, which can outlive
+	// the pooled Gin context. Explicit parent values retain their precedence.
+	apiKey := coreusage.APIKeyFromContext(parentCtx)
+	if apiKey == "" {
+		apiKey = coreusage.APIKeyFromContext(requestCtx)
+	}
+	parentCtx = coreusage.WithAPIKey(parentCtx, apiKey)
+	accessProvider := coreusage.AccessProviderFromContext(parentCtx)
+	if accessProvider == "" {
+		accessProvider = coreusage.AccessProviderFromContext(requestCtx)
+	}
+	parentCtx = coreusage.WithAccessProvider(parentCtx, accessProvider)
+	if _, explicit := coreusage.IsNativeKeyFromContext(parentCtx); !explicit {
+		if isNative, present := coreusage.IsNativeKeyFromContext(requestCtx); present {
+			parentCtx = coreusage.WithIsNativeKey(parentCtx, isNative)
+		}
+	}
 
 	if requestCtx != nil && logging.GetRequestID(parentCtx) == "" {
 		if requestID := logging.GetRequestID(requestCtx); requestID != "" {
@@ -562,7 +579,10 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 			}
 		}()
 	}
-	newCtx = context.WithValue(newCtx, "gin", c)
+	if c != nil {
+		newCtx = context.WithValue(newCtx, "gin", c)
+	}
+	newCtx = coreusage.SnapshotAccessIdentity(newCtx)
 	newCtx = context.WithValue(newCtx, "handler", handler)
 	return newCtx, func(params ...interface{}) {
 		if c != nil {

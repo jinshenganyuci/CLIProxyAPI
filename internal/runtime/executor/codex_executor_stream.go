@@ -158,6 +158,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	scanner.Buffer(nil, 52_428_800) // 50MB
 	claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
 	var param any
+	var cancellationUsage helps.StreamUsageBuffer
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
 
@@ -205,6 +206,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				data := bytes.TrimSpace(line[5:])
 				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
 				observeCodexTokenEvent(reporter, data)
+				cancellationUsage.Observe(helps.ParseCodexUsage(data))
 				translatedLine = append([]byte("data: "), data...)
 				eventType := gjson.GetBytes(data, "type").String()
 				if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(data, e.modelLevelCooling()); ok {
@@ -385,6 +387,13 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	go func() {
 		defer close(out)
 		defer func() {
+			if errCanceled := ctx.Err(); errCanceled != nil {
+				if !cancellationUsage.PublishFailure(ctx, reporter, errCanceled) {
+					reporter.PublishFailure(ctx, errCanceled)
+				}
+			}
+		}()
+		defer func() {
 			if errClose := httpResp.Body.Close(); errClose != nil {
 				log.Errorf("codex executor: close response body error: %v", errClose)
 			}
@@ -401,6 +410,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				data := bytes.TrimSpace(line[5:])
 				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
 				observeCodexTokenEvent(reporter, data)
+				cancellationUsage.Observe(helps.ParseCodexUsage(data))
 				translatedLine = append([]byte("data: "), data...)
 				eventType := gjson.GetBytes(data, "type").String()
 				if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(data, e.modelLevelCooling()); ok {

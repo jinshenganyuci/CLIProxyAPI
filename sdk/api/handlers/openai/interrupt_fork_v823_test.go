@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -71,6 +72,43 @@ func TestV823LocalInterruptRejectsStaleFramesAndWebsocketFallback(t *testing.T) 
 	}
 	if state.deliver([]byte(`{"response_id":"terminal-0"}`)) {
 		t.Fatal("oldest bounded history entry was not evicted")
+	}
+}
+
+func TestV824LocalInterruptHistoryRetainsFixedSizeDigests(t *testing.T) {
+	state := newResponsesLocalInterrupt()
+	longID := strings.Repeat("x", 256*1024) + "-a"
+	otherID := strings.Repeat("x", 256*1024) + "-b"
+	remember := func(id string) {
+		state.observe([]byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":%q}}`, id)))
+	}
+	deliver := func(id string) bool {
+		return state.deliver([]byte(fmt.Sprintf(`{"response_id":%q}`, id)))
+	}
+	remember(longID)
+	remember(longID)
+	if len(state.terminalIDs) != 1 || !deliver(longID) || deliver(otherID) {
+		t.Fatal("terminal history lost exact response identity or duplicate handling")
+	}
+	remember(otherID)
+	if !deliver(otherID) {
+		t.Fatal("different long response ID was not retained")
+	}
+	for _, retained := range state.terminalOrder {
+		if len(retained) != sha256.Size {
+			t.Fatalf("terminal history retains %d bytes per ID, want fixed digest", len(retained))
+		}
+	}
+	for n := range responsesInterruptTerminalLimit {
+		remember(fmt.Sprintf("later-%d", n))
+	}
+	if deliver(longID) || deliver(otherID) || len(state.terminalIDs) != responsesInterruptTerminalLimit {
+		t.Fatal("long response IDs did not follow bounded FIFO eviction")
+	}
+	select {
+	case <-state.framesChan():
+		t.Fatal("terminal history lookup queued an interrupt")
+	default:
 	}
 }
 
@@ -271,6 +309,15 @@ func TestV823HTTPInterruptPreservesProxyLeaseAccountingAndNextTurn(t *testing.T)
 	}
 	if successfulUsage != 1 || failedUsage != 2 {
 		t.Fatalf("interrupt usage outcomes: success=%d failed=%d", successfulUsage, failedUsage)
+	}
+	finalAuth, _ := manager.GetByID(id)
+	if finalAuth.Unavailable || finalAuth.Quota.Exceeded {
+		t.Fatalf("plain local interruption recorded a credential cooldown: %+v", finalAuth)
+	}
+	for model, state := range finalAuth.ModelStates {
+		if state != nil && (state.Unavailable || state.Quota.Exceeded || !state.NextRetryAfter.IsZero()) {
+			t.Fatalf("plain local interruption cooled model %s: %+v", model, state)
+		}
 	}
 	v820AssertNoMoreUsage(t, capture)
 	if hits.Load() != 3 || fallbackHits.Load() != 0 {

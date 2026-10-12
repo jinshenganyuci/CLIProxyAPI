@@ -144,7 +144,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Six locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.23 backend.
+its matching v8.0.24 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -217,12 +217,19 @@ Unrelated edits preserve existing raw configuration, including opaque plugin dat
 
 Generic plugin quota cards use `GET /v8/management/plugins` followed by
 `POST /v8/management/plugins/:id/quota` with the selected `auth_index`. These APIs are
-present in the official v8.0.23 tag; no unreleased backend commits are required. Built-in
+present in the official v8.0.24 tag; no unreleased backend commits are required. Built-in
 provider cards retain precedence. Probe-only credentials explicitly show unsupported
 because this v8 route does not run declarative probes. Connection checks prevent pending
 plugin-list results from issuing requests on a different management connection and
 reject responses after a connection switch. xAI cards retain native shared-usage details
 and the 1.0.46 client header.
+
+The v8.0.24 backend adds `upstream.claude.tool-search` and the credential-only
+`api-keys.claude[].keys[].native-tool-search`. Both default to false. The existing YAML
+source editor can set these native fields; this UI baseline has no dedicated visual
+switches for them. Unrelated visual edits and provider-form saves preserve true, false,
+and omitted values without promoting the key-only flag to a provider group. The same
+save path retains Vertex group `interactions` inheritance and explicit key overrides.
 
 Rebuild the asset from a clean checkout:
 

@@ -111,6 +111,13 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 		return nil, errMutation
 	}
 	defer releaseMutation()
+	// Operator edits must preempt background hint persistence even when another
+	// credential owns it; remote stores can serialize all credential writes.
+	releaseForeground, errForeground := m.beginForegroundStoreSave(ctx)
+	if errForeground != nil {
+		return nil, errForeground
+	}
+	defer releaseForeground()
 	m.mu.RLock()
 	current := m.auths[id].Clone()
 	store := m.store
@@ -217,6 +224,7 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	// Release transaction locks before scheduler/hook callbacks can reenter.
 	persistLock.mu.Unlock()
 	persistLocked = false
+	releaseForeground()
 	releaseMutation()
 	if m.scheduler != nil {
 		m.scheduler.upsertAuth(updated.Clone())
