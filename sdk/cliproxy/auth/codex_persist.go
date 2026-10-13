@@ -90,8 +90,10 @@ func PersistCodexAuthFile(ctx context.Context, path string, auth *Auth) (bool, e
 			if errPreserve := codex.PreserveFileCredentialIdentity(path, merged); errPreserve != nil {
 				return errPreserve
 			}
-			if errWrite := codex.WriteJSONFileAtomic(path, merged); errWrite != nil {
-				return errWrite
+			if !codexMetadataJSONEqual(existing, merged) {
+				if errWrite := codex.WriteJSONFileAtomic(path, merged); errWrite != nil {
+					return errWrite
+				}
 			}
 			auth.Metadata = merged
 			return nil
@@ -171,7 +173,7 @@ func PersistCodexAuthFile(ctx context.Context, path string, auth *Auth) (bool, e
 					if errPreserve := codex.PreserveFileCredentialIdentity(path, auth.Metadata); errPreserve != nil {
 						return errPreserve
 					}
-					if raw, errMarshal := json.Marshal(auth.Metadata); errMarshal == nil && string(existing) == string(raw) {
+					if codexMetadataJSONEqual(existing, auth.Metadata) {
 						return nil
 					}
 				}
@@ -191,6 +193,17 @@ func PersistCodexAuthFile(ctx context.Context, path string, auth *Auth) (bool, e
 	default:
 		return false, nil
 	}
+}
+
+// Preserve the original bytes and mtime when only JSON formatting or numeric
+// Go types differ. This comparison runs inside the same lock as the final write.
+func codexMetadataJSONEqual(existing []byte, metadata map[string]any) bool {
+	raw, errMarshal := json.Marshal(metadata)
+	if errMarshal != nil {
+		return false
+	}
+	var before, after any
+	return json.Unmarshal(existing, &before) == nil && json.Unmarshal(raw, &after) == nil && reflect.DeepEqual(before, after)
 }
 
 // Refresh retains the SDK's control-field three-way merge while native patches

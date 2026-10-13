@@ -504,3 +504,91 @@ func TestV827RefreshDiskReplacementAndDisabledFence(t *testing.T) {
 		})
 	}
 }
+
+func TestV827CodexNoopPersistencePreservesOriginalBytes(t *testing.T) {
+	for _, mode := range []string{"metadata", "refresh_controls", "refresh_patch"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "format.json")
+			original := []byte("{\n  \"type\": \"codex\", \"disabled\": false, \"proxy_url\": \"direct\",\n  \"access_token\": \"outer\", \"refresh_token\": \"refresh\",\n  \"priority\": 3.0, \"notes\": \"same\", \"remove\": \"present\", \"nested\": {\"b\": 2, \"a\": 1}\n}\n")
+			if err := os.WriteFile(path, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stamp := time.Unix(1700000000, 0)
+			if err := os.Chtimes(path, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			beforeInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var metadata map[string]any
+			if err := json.Unmarshal(original, &metadata); err != nil {
+				t.Fatal(err)
+			}
+			m := NewManager(&codexControlStoreV827{path: path}, nil, nil)
+			before, err := m.Register(WithSkipPersist(ctx), &Auth{ID: "format.json", Provider: "codex", Status: StatusActive, ProxyURL: "direct", Metadata: metadata})
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated := before.Clone()
+			updated.Metadata["priority"] = 3 // Same persisted value with a different Go type.
+			apply := func(base, next *Auth) (*Auth, error) {
+				if mode == "metadata" {
+					return m.UpdatePreparedAuth(ctx, base, next)
+				}
+				if mode == "refresh_patch" {
+					next.CodexRefreshPatch = codex.NewCredentialRefreshPatch(base.Metadata, next.Metadata, true, false)
+				}
+				return m.UpdateRefreshedAuth(ctx, base, next)
+			}
+			got, err := apply(before, updated)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			afterInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != string(original) || !os.SameFile(beforeInfo, afterInfo) || !beforeInfo.ModTime().Equal(afterInfo.ModTime()) {
+				t.Fatal("semantic no-op rewrote original bytes, inode, or mtime")
+			}
+			changed := got.Clone()
+			changed.Metadata["notes"] = "changed"
+			delete(changed.Metadata, "remove")
+			wantToken := "outer"
+			if mode == "refresh_patch" {
+				wantToken = "outer-refreshed"
+				changed.Metadata["access_token"] = wantToken
+			}
+			if _, err := apply(got, changed); err != nil {
+				t.Fatal(err)
+			}
+			raw, err = os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var disk map[string]any
+			if err := json.Unmarshal(raw, &disk); err != nil {
+				t.Fatal(err)
+			}
+			if disk["notes"] != "changed" || disk["access_token"] != wantToken {
+				t.Fatal("real metadata/token change was not persisted")
+			}
+			if _, exists := disk["remove"]; exists {
+				t.Fatal("real metadata deletion was not persisted")
+			}
+			changedInfo, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if os.SameFile(beforeInfo, changedInfo) || changedInfo.Mode().Perm() != 0o600 {
+				t.Fatal("real change did not use the private atomic replacement")
+			}
+		})
+	}
+}
