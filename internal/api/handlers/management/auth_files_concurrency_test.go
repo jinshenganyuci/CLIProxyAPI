@@ -222,7 +222,7 @@ func TestAuthFileConcurrencyConfigPatchPersistsAndReloads(t *testing.T) {
 		t.Fatal(errRegister)
 	}
 	h := NewHandler(cfg, path, manager)
-	entry := h.buildAuthFileEntry(auths[0], map[string]struct{}{})
+	entry := h.buildAuthFileEntry(auths[0], authFileQuotaContext{})
 	if entry == nil || entry["concurrency_config"] != true || entry["runtime_only"] != true {
 		t.Fatalf("config credential is missing or not safely marked in the auth list: %v", entry)
 	}

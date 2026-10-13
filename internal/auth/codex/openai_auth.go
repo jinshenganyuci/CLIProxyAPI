@@ -33,8 +33,9 @@ const (
 // It manages the HTTP client and provides methods for generating authorization URLs,
 // exchanging authorization codes for tokens, and refreshing access tokens.
 type CodexAuth struct {
-	httpClient   *http.Client
-	refreshRoute string
+	httpClient        *http.Client
+	refreshRoute      string
+	siwcAgentNameHint string
 }
 
 var codexRefreshGroup singleflight.Group
@@ -49,8 +50,10 @@ func NewCodexAuth(cfg *config.Config) *CodexAuth {
 // proxyURL takes precedence over cfg.ProxyURL when non-empty.
 func NewCodexAuthWithProxyURL(cfg *config.Config, proxyURL string) *CodexAuth {
 	globalURL := ""
+	agentNameHint := SIWCAgentNameHint
 	if cfg != nil {
 		globalURL = cfg.ProxyURL
+		agentNameHint = cfg.Codex.EffectiveSignInWithChatGPTIdentifier()
 	}
 	client := &http.Client{}
 	setting, errProxy := ResolveProxySetting(proxyURL, globalURL)
@@ -63,11 +66,10 @@ func NewCodexAuthWithProxyURL(cfg *config.Config, proxyURL string) *CodexAuth {
 		}
 	}
 	if errProxy != nil {
-		// Keep the constructor signature while ensuring a configuration error
-		// cannot send OAuth codes or tokens through the default transport.
+		// Fail closed rather than sending OAuth codes or tokens via a default route.
 		client.Transport = proxyConfigurationErrorTransport{err: errProxy}
 	}
-	return &CodexAuth{httpClient: client, refreshRoute: codexProxyRefreshRoute(setting)}
+	return &CodexAuth{httpClient: client, refreshRoute: codexProxyRefreshRoute(setting), siwcAgentNameHint: agentNameHint}
 }
 
 // GenerateAuthURL creates the OAuth authorization URL with PKCE (Proof Key for Code Exchange).
@@ -364,6 +366,7 @@ func (o *CodexAuth) UpdateTokenStorage(storage *CodexTokenStorage, tokenData *Co
 	if storage == nil || tokenData == nil {
 		return
 	}
+	before := tokenStorageCredentialFields(storage)
 	// Refresh responses may omit unchanged identity and rotation fields.
 	if tokenData.IDToken != "" {
 		storage.IDToken = tokenData.IDToken
@@ -385,4 +388,24 @@ func (o *CodexAuth) UpdateTokenStorage(storage *CodexTokenStorage, tokenData *Co
 		planType = strings.TrimSpace(tokenData.PlanType)
 	}
 	storage.PlanType = planType
+	// This API explicitly applies a refresh, unlike an ordinary stale snapshot
+	// save. Preserve the original baseline until its pending patch is persisted.
+	patch := CredentialRefreshPatch{}
+	if storage.RefreshPatch != nil {
+		patch = *storage.RefreshPatch
+	}
+	if patch.outerBefore == nil {
+		patch.outerBefore = before
+	}
+	patch.outerAfter = tokenStorageCredentialFields(storage)
+	storage.RefreshPatch = &patch
+}
+
+func tokenStorageCredentialFields(storage *CodexTokenStorage) map[string]any {
+	return map[string]any{
+		"id_token": storage.IDToken, "access_token": storage.AccessToken,
+		"refresh_token": storage.RefreshToken, "account_id": storage.AccountID,
+		"last_refresh": storage.LastRefresh, "email": storage.Email,
+		"expired": storage.Expire, "plan_type": storage.PlanType,
+	}
 }

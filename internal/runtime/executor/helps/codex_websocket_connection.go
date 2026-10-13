@@ -33,17 +33,27 @@ func CodexWebsocketConnectionKey(cfg *config.Config, auth *cliproxyauth.Auth, ex
 		namespace, _ = auth.Metadata["codex_identity_namespace"].(string)
 		version = fmt.Sprint(auth.Metadata["codex_identity_version"])
 	}
-	if proxyURL == "" && namespace == "" {
+	siwc := cliproxyauth.IsCodexUseSIWC(auth)
+	if proxyURL == "" && namespace == "" && !siwc {
 		return ""
 	}
-	digest := sha256.Sum256([]byte(proxyURL + "\x00" + namespace + "\x00" + version))
+	binding := proxyURL + "\x00" + namespace + "\x00" + version
+	if siwc {
+		// A custom origin can serve both modes, but their handshake credentials differ.
+		binding += "\x00siwc"
+	}
+	digest := sha256.Sum256([]byte(binding))
 	return hex.EncodeToString(digest[:])
 }
 
 // CodexWebsocketExecutionConnectionKey validates the request route before checking
 // whether a retained credential/namespace connection is eligible for reuse.
-func CodexWebsocketExecutionConnectionKey(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) (string, error) {
-	proxyURL, errProxy := ResolveExecutionProxy(ctx, cfg, auth)
+func CodexWebsocketExecutionConnectionKey(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, routeConfigs ...*config.Config) (string, error) {
+	routeConfig := cfg
+	if len(routeConfigs) > 0 {
+		routeConfig = routeConfigs[0]
+	}
+	proxyURL, errProxy := ResolveExecutionProxy(ctx, routeConfig, auth)
 	if errProxy != nil {
 		return "", errProxy
 	}

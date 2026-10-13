@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -59,6 +60,9 @@ func (m *Manager) RegisterExecutor(executor ProviderExecutor) {
 	}
 
 	if replaced == nil || replaced == executor {
+		return
+	}
+	if sharer, ok := replaced.(ExecutionSessionSharer); ok && sharer != nil && sharer.SharesExecutionSessionsWith(executor) {
 		return
 	}
 	if closer, ok := replaced.(ExecutionSessionCloser); ok && closer != nil {
@@ -190,6 +194,15 @@ func (m *Manager) UpdateModelRegistrationAuth(ctx context.Context, base, updated
 // UpdateRefreshedAuth atomically merges refresh results into the latest runtime auth
 // under the manager lock, preserving concurrent modifications (proxy_url, notes, weights, etc.).
 func (m *Manager) UpdateRefreshedAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
+	if base != nil && updated != nil && base.ID == updated.ID && updated.CodexRefreshPatch == nil && IsCodexAuthRecord(base) && IsCodexAuthRecord(updated) {
+		// Legacy SDK and plugin refreshers return updated metadata without the new
+		// persistence patch. Derive only changed credential partitions so their
+		// explicit refresh keeps version fences and the ordinary save disk policy.
+		if patch := codex.NewCredentialRefreshPatchForChanges(base.Metadata, updated.Metadata); patch != nil {
+			updated = updated.Clone()
+			updated.CodexRefreshPatch = patch
+		}
+	}
 	return m.updateInternal(ctx, base, updated, updateModeRefresh)
 }
 
@@ -240,9 +253,11 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 	}
 	// Do not let an in-flight refresh overwrite credentials committed after its snapshot.
 	if mode == updateModeRefresh && base != nil && (existing.CredentialVersion != base.CredentialVersion || CredentialsChanged(base, existing)) {
-		current := existing.Clone()
-		m.mu.Unlock()
-		return current, nil
+		if auth.CodexRefreshPatch == nil || !auth.CodexRefreshPatch.CanApplyTo(existing.Metadata) {
+			current := existing.Clone()
+			m.mu.Unlock()
+			return current, nil
+		}
 	}
 	if mode == updateModeRefresh {
 		merged := MergeRefreshedAuth(base, existing, auth)
@@ -338,7 +353,14 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 	// Runtime-only changes made during I/O are merged below, never overwritten.
 	existingBeforeSave := existing.Clone()
 	persistMetaMint := (mode == updateModePrepare || mode == updateModeRefresh) && strings.EqualFold(strings.TrimSpace(auth.Provider), "meta")
-	if errPersist := m.persistLocked(ctx, auth); errPersist != nil {
+	persistCtx := ctx
+	if mode == updateModeRefresh && base != nil && base.ID == auth.ID && IsCodexAuthRecord(auth) {
+		if persistCtx == nil {
+			persistCtx = context.Background()
+		}
+		persistCtx = context.WithValue(persistCtx, codexRefreshBaseContextKey{}, base.Clone())
+	}
+	if errPersist := m.persistLocked(persistCtx, auth); errPersist != nil {
 		// A minted Meta key must reach the store before requests can use it.
 		if persistMetaMint {
 			m.mu.Unlock()
@@ -438,7 +460,9 @@ func (m *Manager) Remove(ctx context.Context, id string) {
 
 	if provider != "" {
 		if exec, ok := m.Executor(provider); ok && exec != nil {
-			if closer, okCloser := exec.(ExecutionSessionCloser); okCloser {
+			if authCloser, okAuthCloser := exec.(AuthExecutionSessionCloser); okAuthCloser && authCloser != nil {
+				authCloser.CloseAuthExecutionSessions(id)
+			} else if closer, okCloser := exec.(ExecutionSessionCloser); okCloser {
 				closer.CloseExecutionSession(CloseAllExecutionSessionsID)
 			}
 		}

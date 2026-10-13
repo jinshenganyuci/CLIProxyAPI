@@ -34,8 +34,13 @@ func TestCodexRoutingHintKeepsCredentialProxyAndIdentity(t *testing.T) {
 	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false, true)
 }
 
-func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCloaking, routingHint bool) {
+func TestCodexSIWCExecutionPreservesProxyIdentityAndPayloadUpgrade827(t *testing.T) {
+	testCodexExecutionProxyKeepsCredentialAuthoritative(t, false, true, true)
+}
+
+func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCloaking, routingHint bool, siwc ...bool) {
 	t.Helper()
+	useSIWC := len(siwc) > 0 && siwc[0]
 	for _, mode := range []string{"http", "http_stream", "compact", "websocket", "websocket_stream"} {
 		for _, route := range []string{"matching", "conflicting", "direct_conflict", "unbound_override", "unbound_direct", "invalid_override"} {
 			t.Run(mode+"/"+route, func(t *testing.T) {
@@ -45,7 +50,11 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 					if !routingHint {
 						return
 					}
-					if got := r.Header.Get(codexRoutingHintHeader); got != "model=gpt-5.5;tier=priority" {
+					wantHint := "model=gpt-5.5;tier=priority"
+					if useSIWC {
+						wantHint = ""
+					}
+					if got := r.Header.Get(codexRoutingHintHeader); got != wantHint {
 						t.Errorf("routing hint = %q, want resolved model and overridden tier", got)
 					}
 					if gjson.GetBytes(body, "model").String() != "gpt-5.5" || gjson.GetBytes(body, "service_tier").String() != "priority" {
@@ -64,6 +73,9 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 					}
 				}
 				respond := func(w http.ResponseWriter, r *http.Request) {
+					if useSIWC && (r.Header.Get("Authorization") != "Bearer synthetic-siwc" || r.Header.Get("ChatGPT-Account-ID") != "" || r.Header.Get("Originator") != "") {
+						t.Errorf("SIWC transport used outer authentication headers: %v", r.Header)
+					}
 					if disableCloaking && (r.Header.Get("User-Agent") != "FixtureCodexClient/1.0" || r.Header.Get("Originator") != "fixture-codex") {
 						t.Errorf("uncloaked execution lost credential headers: %v", r.Header)
 					}
@@ -134,6 +146,10 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 				cfg := &config.Config{}
 				cfg.ProxyURL = global.URL
 				credential := &coreauth.Auth{ID: "proxy-upgrade-oauth", Provider: "codex", ProxyURL: selected.URL, Attributes: map[string]string{"base_url": origin.URL}, Metadata: map[string]any{"access_token": "synthetic-oauth"}}
+				if useSIWC {
+					credential.Metadata["use_siwc"] = true
+					credential.Metadata["siwc"] = map[string]any{"access_token": "synthetic-siwc", "client_id": "synthetic-client"}
+				}
 				if disableCloaking {
 					credential.Attributes["codex_disable_cloaking"] = "true"
 					credential.Attributes["header:User-Agent"] = "FixtureCodexClient/1.0"

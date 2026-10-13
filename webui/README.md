@@ -3,9 +3,13 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.26.1`
+- tag: `v1.26.2`
 - commit: `390718ecfec90b674fed474862e497522273e129`
-- patch: `management-center-v1.26.1-credential-identity.patch`
+- patch: `management-center-v1.26.2-credential-identity.patch`
+
+Official UI tags `v1.26.1` and `v1.26.2` point to the same source commit. This
+release rebuilds the retained fork with the `v1.26.2` version label; it does not
+count prior native UI features as new upstream changes.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login-dialog proxy selectors. Proxy-capable tiles open the dialog before starting a
@@ -86,7 +90,7 @@ Model discovery for a selected OpenAI-compatible credential never retries withou
 index after failure, preserving the configured credential proxy. Unbound public endpoints
 retain their anonymous model-list fallback.
 
-The v1.26.1 UI uses `/v8/management` and the native nested configuration editor.
+The v1.26.2 UI uses `/v8/management` and the native nested configuration editor.
 It supersedes the fork's temporary v0 visual-layout adapter. A configuration GET renders
 legacy files as a v8 view without migrating the file; the first successful v8 configuration
 mutation migrates persisted settings. Client keys under `access.api-keys` remain separate
@@ -125,7 +129,7 @@ YAML boolean semantics. Quota cards include Codex credit balances/unlimited cred
 Grok subscription information. Autocomplete and shared advanced-field selects retain keyboard
 and accessible-label behavior.
 
-The v1.26.1 Claude quota card includes reset-grant status and a confirmation action for
+The v1.26.2 Claude quota card includes reset-grant status and a confirmation action for
 eligible grants. Usage, organization-profile and redemption requests retain the selected
 credential index through the management API and use a server-side token placeholder. The
 selected credential proxy remains authoritative. Redemption rechecks eligibility and the
@@ -144,7 +148,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Six locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.24 backend.
+its matching v8.0.27 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -202,7 +206,7 @@ Connectivity-test model selection is now transient. Provider saves remove obsole
 at credential/group boundaries. Same-named headers and opaque extension data, model
 capabilities, proxy choices and concurrency limits remain intact.
 
-The v1.26.1 native interface uses provider tiles and focused OAuth dialogs, including
+The v1.26.2 native interface uses provider tiles and focused OAuth dialogs, including
 sponsor tiles, device codes, callback feedback, and resumed status polling after an
 accepted callback. The fork ports its proxy/direct/global choices into these dialogs
 for Codex, Devin, Meta and both Kimi regions. Their proxy controls remain locked during
@@ -218,9 +222,12 @@ editor. The retired quota section is removed, and Antigravity credit options app
 Advanced. The fork's two Codex client controls use the same setting-row components.
 Unrelated edits preserve existing raw configuration, including opaque plugin data.
 
-Generic plugin quota cards use `GET /v8/management/plugins` followed by
-`POST /v8/management/plugins/:id/quota` with the selected `auth_index`. These APIs are
-present in the official v8.0.24 tag; no unreleased backend commits are required. Built-in
+Generic plugin quota cards use the credential's backend-selected `quota_plugin_id`
+for `POST /v8/management/plugins/:id/quota` with its exact `auth_index`. They do not
+resolve a different plugin by provider name or retry through another plugin after
+failure. Older v8 servers without this field retain the plugin-list compatibility
+resolver. Same-file virtual credentials remain separate by their auth indices. These APIs are
+present in the official v8.0.27 tag; no unreleased backend commits are required. Built-in
 provider cards retain precedence. Probe-only credentials explicitly show unsupported
 because this v8 route does not run declarative probes. Connection checks prevent pending
 plugin-list results from issuing requests on a different management connection and
@@ -234,13 +241,20 @@ switches for them. Unrelated visual edits and provider-form saves preserve true,
 and omitted values without promoting the key-only flag to a provider group. The same
 save path retains Vertex group `interactions` inheritance and explicit key overrides.
 
+The matching v8.0.27 backend also accepts `server.max-request-body-bytes`,
+`routing.session-affinity-rebind-on`,
+`requests.streaming.send-keepalive-before-ft`, and
+`oauth.providers.codex.signin-with-chatgpt-identifier`. The source editor supports
+these fields. Unrelated visual/provider saves preserve explicit zero/false values,
+custom identifiers and existing credential proxy/concurrency settings.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
 git -C management-center checkout 390718ecfec90b674fed474862e497522273e129
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.1-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.1 \
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.2-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.2 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -250,7 +264,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-c41492fc26afd58776933cd77d688a66e98fb9e07c9f180bf2569b9b88995630
+8b3e48d6f2025cd6b2023f1b784173067d5f551da07d761d541ecb2b647ec46f
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

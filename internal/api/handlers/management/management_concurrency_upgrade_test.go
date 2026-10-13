@@ -50,7 +50,7 @@ func TestAuthCooldownProjectionPreservesConcurrencyAndSource(t *testing.T) {
 			if errRead != nil {
 				t.Fatal(errRead)
 			}
-			entry := h.buildAuthFileEntry(before.Clone())
+			entry := h.buildAuthFileEntry(before.Clone(), authFileQuotaContext{})
 			if entry["concurrency_in_flight"] != 1 || entry["concurrency_limit"] != 10 {
 				t.Fatalf("status projection changed capacity: %#v", entry)
 			}

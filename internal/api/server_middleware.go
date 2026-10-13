@@ -1,16 +1,20 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	codexlive "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/live"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/safemode"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	log "github.com/sirupsen/logrus"
 )
@@ -37,6 +41,53 @@ const (
 	exampleAPIKeyManagementPath = "/management.html"
 	exampleAPIKeyManagementURL  = "/management.html?safe-mode=configure"
 )
+
+func (s *Server) maxRequestBodyBytes() int64 {
+	if s == nil {
+		return 0
+	}
+	cfg := s.getConfig()
+	if cfg == nil || cfg.MaxRequestBodyBytes <= 0 {
+		return 0
+	}
+	return cfg.MaxRequestBodyBytes
+}
+
+func (s *Server) maxRequestBodyBytesMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		maxBytes := s.maxRequestBodyBytes()
+		if maxBytes <= 0 || c == nil || c.Request == nil {
+			c.Next()
+			return
+		}
+		c.Set(handlers.MaxRequestBodyBytesContextKey, maxBytes)
+		if c.Request.ContentLength > maxBytes {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{
+				"error": "http: request body too large",
+			})
+			return
+		}
+		if c.Request.Body != nil && c.Request.Body != http.NoBody {
+			limited := http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+			c.Request.Body = limited
+			if c.Request.ContentLength <= 0 {
+				// A JSON decoder can return after its first value without reaching
+				// an oversized trailing body. Check unknown-length bodies before
+				// any handler can commit side effects or a streaming response.
+				body, errRead := io.ReadAll(limited)
+				if errRead != nil {
+					c.AbortWithStatusJSON(clienterror.HTTPStatusFromErrorOr(errRead, http.StatusBadRequest), gin.H{"error": errRead.Error()})
+					return
+				}
+				c.Request.Body = struct {
+					io.Reader
+					io.Closer
+				}{bytes.NewReader(body), limited}
+			}
+		}
+		c.Next()
+	}
+}
 
 func (s *Server) homeHeartbeatMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -188,7 +239,10 @@ func accessAuthMiddleware(manager *sdkaccess.Manager, realtimeError bool) gin.Ha
 		if realtimeError {
 			errorType := "authentication_error"
 			code := "invalid_api_key"
-			if statusCode >= http.StatusInternalServerError {
+			if statusCode == http.StatusRequestEntityTooLarge {
+				errorType = "invalid_request_error"
+				code = "request_body_too_large"
+			} else if statusCode >= http.StatusInternalServerError {
 				errorType = "server_error"
 				code = "authentication_service_error"
 			}

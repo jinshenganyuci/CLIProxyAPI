@@ -51,9 +51,10 @@ func TestCodexPlanRefreshPartialClaimsPreservesStorageAndLeaseUpgrade804(t *test
 			t.Fatalf("partial refresh lost metadata field %s", key)
 		}
 	}
-	updatedStorage, ok := refreshed.Storage.(*codexauth.CodexTokenStorage)
-	if !ok || updatedStorage == storage || updatedStorage.AccountID != "old-account" || updatedStorage.Email != "old@example.test" || updatedStorage.IDToken != "old-id-token" || updatedStorage.IdentityNamespace != namespace || updatedStorage.PlanType != "free" {
-		t.Fatal("partial refresh lost storage fields or snapshot isolation")
+	// A persisted scoped refresh discards typed storage so later control saves
+	// cannot replay a stale token snapshot over the authoritative metadata.
+	if refreshed.Storage != nil {
+		t.Fatal("persisted refresh retained stale typed token storage")
 	}
 	if storage.PlanType != "pro" || storage.AccountID != "old-account" || storage.AccessToken != "old-access" {
 		t.Fatal("refresh mutated original token storage")
@@ -66,7 +67,7 @@ func TestCodexPlanRefreshPartialClaimsPreservesStorageAndLeaseUpgrade804(t *test
 	if errDecode := json.Unmarshal(raw, &saved); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if saved["plan_type"] != "free" || saved["account_id"] != "old-account" || saved["email"] != "old@example.test" || saved["codex_identity_namespace"] != namespace || saved["proxy_url"] != proxyURL {
+	if saved["plan_type"] != "free" || saved["account_id"] != "old-account" || saved["email"] != "old@example.test" || saved["codex_identity_namespace"] != namespace || saved["proxy_url"] != proxyURL || saved["id_token"] != "old-id-token" || saved["refresh_token"] != "new-mock-refresh-token" {
 		t.Fatal("accepted refresh did not persist plan and previous controls")
 	}
 	if inflight, limit := manager.CredentialConcurrencySnapshot(auth.ID); inflight != 1 || limit != 10 {

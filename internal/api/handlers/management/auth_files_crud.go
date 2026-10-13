@@ -18,7 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher/synthesizer"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -59,7 +59,7 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 
 	fileHeaders, errMultipart := h.multipartAuthFileHeaders(c)
 	if errMultipart != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid multipart form: %v", errMultipart)})
+		c.JSON(clienterror.HTTPStatusFromErrorOr(errMultipart, http.StatusBadRequest), gin.H{"error": fmt.Sprintf("invalid multipart form: %v", errMultipart)})
 		return
 	}
 	if len(fileHeaders) == 1 {
@@ -120,7 +120,7 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 	}
 	data, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		c.JSON(clienterror.HTTPStatusFromErrorOr(err, http.StatusBadRequest), gin.H{"error": "failed to read body"})
 		return
 	}
 	if err = h.writeAuthFile(ctx, filepath.Base(name), data); err != nil {
@@ -173,7 +173,7 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 
 	names, errNames := requestedAuthFileNamesForDelete(c)
 	if errNames != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errNames.Error()})
+		c.JSON(clienterror.HTTPStatusFromErrorOr(errNames, http.StatusBadRequest), gin.H{"error": errNames.Error()})
 		return
 	}
 	if len(names) == 0 {
@@ -281,21 +281,21 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 	writeFile := func() error { return os.WriteFile(dst, data, 0o600) }
 	if isCodexOAuth {
 		writeFile = func() error {
-			unlock := credentialfile.Lock(dst)
-			defer unlock()
-			var metadata map[string]any
-			if errParse := json.Unmarshal(data, &metadata); errParse != nil {
-				return errParse
-			}
-			if errPreserve := codex.PreserveFileCredentialIdentity(dst, metadata); errPreserve != nil {
-				return errPreserve
-			}
-			updated, errMarshal := json.MarshalIndent(metadata, "", "  ")
-			if errMarshal != nil {
-				return errMarshal
-			}
-			data = append(updated, '\n')
-			return writeCodexCredentialFileAtomic(dst, data)
+			return codex.WithFileLock(dst, func() error {
+				var metadata map[string]any
+				if errParse := json.Unmarshal(data, &metadata); errParse != nil {
+					return errParse
+				}
+				if errPreserve := codex.PreserveFileCredentialIdentity(dst, metadata); errPreserve != nil {
+					return errPreserve
+				}
+				updated, errMarshal := json.MarshalIndent(metadata, "", "  ")
+				if errMarshal != nil {
+					return errMarshal
+				}
+				data = append(updated, '\n')
+				return writeCodexCredentialFileAtomic(dst, data)
+			})
 		}
 	}
 	if errWrite := writeFile(); errWrite != nil {
@@ -406,6 +406,10 @@ func requestedAuthFileNamesForDelete(c *gin.Context) ([]string, error) {
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("failed to read body")
 	}
 	body = bytes.TrimSpace(body)

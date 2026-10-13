@@ -622,6 +622,12 @@ func pluginAuthDataToCoreAuth(data pluginapi.AuthData, path, fileName string, au
 	if metadata == nil {
 		metadata = make(map[string]any)
 	}
+	proxyURL := strings.TrimSpace(data.ProxyURL)
+	if proxyURL == "" {
+		if value, ok := metadata["proxy_url"].(string); ok {
+			proxyURL = strings.TrimSpace(value)
+		}
+	}
 	if provider != "" {
 		metadata["type"] = provider
 	}
@@ -660,7 +666,7 @@ func pluginAuthDataToCoreAuth(data pluginapi.AuthData, path, fileName string, au
 		FileName:         fileName,
 		Label:            strings.TrimSpace(data.Label),
 		Prefix:           strings.TrimSpace(data.Prefix),
-		ProxyURL:         strings.TrimSpace(data.ProxyURL),
+		ProxyURL:         proxyURL,
 		Disabled:         data.Disabled,
 		Status:           status,
 		Storage:          &pluginTokenStorage{provider: provider, rawJSON: bytes.Clone(data.StorageJSON), meta: metadata},

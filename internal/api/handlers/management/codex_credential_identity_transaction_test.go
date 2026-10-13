@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -44,6 +45,52 @@ func refreshCodexIdentityTransactionTestAuth(t *testing.T, h *Handler, path stri
 	refreshed.Metadata["proxy_url"] = refreshed.ProxyURL
 	if _, errRefresh := h.authManager.UpdateRefreshedAuth(context.Background(), base, refreshed); errRefresh != nil {
 		t.Fatal(errRefresh)
+	}
+}
+
+func refreshCodexIdentityTestAuthThenEditProxy(t *testing.T, h *Handler, path string) {
+	t.Helper()
+	base, _ := h.authManager.GetByID(filepath.Base(path))
+	refreshed := base.Clone()
+	refreshed.Metadata["access_token"] = "new-access"
+	refreshed.Metadata["refresh_token"] = "new-refresh"
+	if _, errRefresh := h.authManager.UpdateRefreshedAuth(context.Background(), base, refreshed); errRefresh != nil {
+		t.Fatal(errRefresh)
+	}
+	// Also cover the production control-plane path independently of the legacy
+	// combined token/proxy refresh API contract exercised by the helper above.
+	body := fmt.Sprintf(`{"name":%q,"proxy_url":"socks5://127.0.0.1:1089"}`, filepath.Base(path))
+	response := concurrencyManagementRequest(h, http.MethodPatch, "/v8/management/credentials/fields", body)
+	if response.Code != http.StatusOK {
+		t.Fatalf("concurrent proxy edit returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestCodexCredentialIdentityPreservesSeparateRefreshAndProxyEdit(t *testing.T) {
+	for _, initialized := range []bool{false, true} {
+		for _, rollback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("initialized_%t_rollback_%t", initialized, rollback), func(t *testing.T) {
+				h, path := newCodexIdentityTransactionTestHandler(t, initialized)
+				base, _ := h.authManager.GetByID(filepath.Base(path))
+				mutation, errPlan := h.planCodexCredentialIdentityMutation(base, codex.NewCredentialIdentityNamespace(), initialized)
+				if errPlan != nil {
+					t.Fatal(errPlan)
+				}
+				if rollback {
+					if errApply := h.applyCodexCredentialIdentityMutation(t.Context(), mutation, false); errApply != nil {
+						t.Fatal(errApply)
+					}
+				}
+				refreshCodexIdentityTestAuthThenEditProxy(t, h, path)
+				if errApply := h.applyCodexCredentialIdentityMutation(t.Context(), mutation, rollback); errApply != nil {
+					t.Fatal(errApply)
+				}
+				assertCodexIdentityTransactionTestRefresh(t, h, path)
+				if rollback && !codexIdentityFieldsEqual(readCodexIdentityTestFile(t, path), base.Metadata) {
+					t.Fatal("rollback did not restore the original identity after a management proxy edit")
+				}
+			})
+		}
 	}
 }
 
@@ -140,6 +187,9 @@ func TestCodexCredentialIdentitySynchronizesOAuthSaveBeforeWatcher(t *testing.T)
 			h.cfg.Codex.CredentialIdentity.Enabled = true
 			base, _ := h.authManager.GetByID(filepath.Base(path))
 			base.Metadata["id_token"] = "old-id"
+			base.Metadata["siwc"] = map[string]any{"access_token": "old-inner", "refresh_token": "old-inner-refresh"}
+			base.Metadata["use_siwc"] = true
+			base.Metadata["plan_type"] = "free"
 			base.Metadata["plugin_owned"] = "keep-this-value"
 			base.Attributes["plugin_owned"] = "keep-this-attribute"
 			runtimeMarker := &struct{}{}
@@ -156,10 +206,14 @@ func TestCodexCredentialIdentitySynchronizesOAuthSaveBeforeWatcher(t *testing.T)
 			fresh.Metadata["refresh_token"] = "oauth-new-refresh"
 			fresh.Metadata["account_id"] = "oauth-new-account"
 			fresh.Metadata["proxy_url"] = "socks5://127.0.0.1:1099"
+			fresh.Metadata["siwc"] = map[string]any{"access_token": "oauth-new-inner", "refresh_token": "oauth-new-inner-refresh"}
+			fresh.Metadata["use_siwc"] = false
+			fresh.Metadata["plan_type"] = "pro"
 			delete(fresh.Metadata, "id_token")
 			store := sdkAuth.NewFileTokenStore()
 			store.SetBaseDir(filepath.Dir(path))
-			if _, errSave := store.Save(context.Background(), fresh); errSave != nil {
+			h.tokenStore = store
+			if _, errSave := h.saveTokenRecord(context.Background(), fresh); errSave != nil {
 				t.Fatal(errSave)
 			}
 			// The OAuth file has been saved; its watcher update has not run yet.
@@ -187,6 +241,9 @@ func TestCodexCredentialIdentitySynchronizesOAuthSaveBeforeWatcher(t *testing.T)
 				}
 				if _, exists := metadata["id_token"]; exists {
 					t.Fatalf("%s resurrected the removed ID token", label)
+				}
+				if !reflect.DeepEqual(metadata["siwc"], fresh.Metadata["siwc"]) || metadata["use_siwc"] != false || metadata["plan_type"] != "pro" {
+					t.Fatalf("%s reverted SIWC credentials or explicit selection/plan fields", label)
 				}
 			}
 		})

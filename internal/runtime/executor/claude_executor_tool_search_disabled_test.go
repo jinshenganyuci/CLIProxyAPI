@@ -39,6 +39,11 @@ const toolSearchExecutorGoldenPayload = `{"model":"claude-sonnet-4-5","input":[`
 
 var toolSearchExecutorGoldenCCH = regexp.MustCompile(`cch=[0-9a-f]+;`)
 
+// toolSearchExecutorGoldenDate is the calendar day the dev golden was recorded
+// on. OAuth cloaking injects a currentDate reminder, so the render pins the
+// executor clock to this day to keep the golden comparison date-independent.
+var toolSearchExecutorGoldenDate = time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
+
 // renderToolSearchExecutorGolden captures the upstream bodies the Claude
 // executor sends for toolSearchExecutorGoldenPayload on every request path.
 func renderToolSearchExecutorGolden(t *testing.T) map[string]string {
@@ -46,7 +51,7 @@ func renderToolSearchExecutorGolden(t *testing.T) map[string]string {
 	// Keep the native golden's generated date deterministic without changing its bytes.
 	previousClock := claudeCodeCurrentTimeFunc
 	claudeCodeCurrentTimeFunc = func(_ *config.Config, _ *cliproxyauth.Auth) time.Time {
-		return time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
+		return toolSearchExecutorGoldenDate
 	}
 	helps.ResetClaudeDiagnosticsForTest()
 	t.Cleanup(func() {

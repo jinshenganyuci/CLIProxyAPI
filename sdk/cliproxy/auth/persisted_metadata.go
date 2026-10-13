@@ -8,6 +8,7 @@ import (
 	"time"
 
 	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 )
 
 // UpdateAndPersistMetadata applies operator edits to the latest credential and
@@ -85,7 +86,11 @@ func (m *Manager) saveMetadataUpdate(ctx context.Context, auth *Auth) error {
 	}
 	snapshot := auth.Clone()
 	nativeStorage := auth.Storage
-	snapshot.Storage = baseauth.WrapAtomicMetadataStorage(nativeStorage)
+	// Codex already performs atomic writes under the original file's process and
+	// OS locks. Staging it through another path would lock the wrong credential.
+	if _, nativeCodex := nativeStorage.(*codex.CodexTokenStorage); !nativeCodex {
+		snapshot.Storage = baseauth.WrapAtomicMetadataStorage(nativeStorage)
+	}
 	if _, errSave := store.Save(ctx, snapshot); errSave != nil {
 		return errSave
 	}

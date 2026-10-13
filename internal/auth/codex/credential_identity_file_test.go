@@ -16,6 +16,9 @@ func TestSaveTokenToFilePreservesConcurrentlyRotatedIdentity(t *testing.T) {
 		Metadata: map[string]any{CredentialIdentityVersionMetadataKey: 1, CredentialIdentityNamespaceMetadataKey: oldNamespace},
 	}
 	current := map[string]any{"type": "codex", "access_token": "old-access", CredentialIdentityVersionMetadataKey: 1, CredentialIdentityNamespaceMetadataKey: newNamespace}
+	// Refreshes now carry an explicit partition patch; ordinary snapshots must
+	// not replace credentials that another process has rotated in the meantime.
+	storage.RefreshPatch = NewCredentialRefreshPatch(current, map[string]any{"access_token": "new-access", "refresh_token": "new-refresh"}, true, false)
 	raw, errMarshal := json.Marshal(current)
 	if errMarshal != nil {
 		t.Fatal(errMarshal)

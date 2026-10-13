@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -502,9 +501,7 @@ func (h *Handler) applyCodexCredentialIdentityMutation(ctx context.Context, muta
 	if rollback {
 		original, replacement = replacement, original
 	}
-	commit := func(auth *coreauth.Auth) error {
-		unlock := credentialfile.Lock(mutation.path)
-		defer unlock()
+	commitLocked := func(auth *coreauth.Auth) error {
 		raw, errRead := os.ReadFile(mutation.path)
 		if errRead != nil {
 			return errRead
@@ -544,7 +541,7 @@ func (h *Handler) applyCodexCredentialIdentityMutation(ctx context.Context, muta
 			// OAuth may already have persisted fresh credentials while its
 			// watcher update is still queued. Publish these canonical fields with
 			// the identity so a later routine save cannot restore stale tokens.
-			for _, key := range []string{"access_token", "refresh_token", "id_token", "account_id", "email", "expired", "last_refresh", "proxy_url"} {
+			for _, key := range []string{"access_token", "refresh_token", "id_token", "account_id", "email", "expired", "last_refresh", "proxy_url", "plan_type", "siwc", "use_siwc"} {
 				if value, exists := current[key]; exists {
 					auth.Metadata[key] = value
 				} else {
@@ -560,6 +557,9 @@ func (h *Handler) applyCodexCredentialIdentityMutation(ctx context.Context, muta
 			auth.Storage = nil
 		}
 		return nil
+	}
+	commit := func(auth *coreauth.Auth) error {
+		return codex.WithFileLock(mutation.path, func() error { return commitLocked(auth) })
 	}
 	if h.authManager == nil {
 		return commit(nil)
