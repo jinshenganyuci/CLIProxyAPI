@@ -101,6 +101,8 @@ Antigravity Claude Sonnet/Opus 5.5 thinking 适用计划和 Meta 渠道的文字
 登录前代理、direct/require 与失败不回退、稳定身份、默认 10/自定义并发及占用、
 Access Guard、最终 payload 后身份映射、凭据保存分区及代际保护继续保留。普通
 metadata/refresh 保存的 JSON 内容不变时保留原文件；实际变更仍走原子保存。
+同账号重新登录更换凭据（含 SIWC 分区）后不再继承旧 NextRefreshAfter/LastRefreshedAt，避免旧
+刷新 pending 排期阻止新凭据及时刷新；仅控制字段更新仍保留既有刷新状态。
 本轮继续验收精确 quota_plugin_id 路由及登录弹窗规则，二开补修见本轮报告。
 Home 只读兼容结论与各专项兼容补修以本轮报告为准，不修改或部署 Home。
 
