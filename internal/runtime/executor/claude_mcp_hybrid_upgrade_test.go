@@ -17,6 +17,9 @@ func TestClaudeHybridMCPExplicitPassthroughWinsOverClientSuffix(t *testing.T) {
 	}
 	for _, scenario := range []struct{ input, want string }{
 		{virtual + "shell__Bash", "mcp__shell__Bash"},
+		{virtual + "mcp__shell__Bash", "mcp__shell__Bash"},
+		{virtual + "mcp__other__Bash", "mcp__other__Bash"},
+		{virtual + "ripple_middle__mcp__shell__Bash", "mcp__shell__Bash"},
 		{virtual + "other__Bash", "mcp__other__Bash"},
 		{virtual + "ripple_middle__shell__Bash", "mcp__shell__Bash"},
 		{virtual + "Bash", "Bash"},

@@ -212,7 +212,9 @@ accepted callback. The fork ports its proxy/direct/global choices into these dia
 for Codex, Devin, Meta and both Kimi regions. Their proxy controls remain locked during
 an attempt; closing the dialog, cancellation and success clear the secret input.
 Closing preserves the selected mode and any ongoing login; it does not start or cancel
-a server session. Reopening a custom proxy draft requires re-entering its URL before a
+a server session. The OAuth close callback remains stable across parent updates, so
+a notification disappearing during the native closing animation cannot reopen the
+dialog. The callback still reads the latest committed flow and clears its secret draft. Reopening a custom proxy draft requires re-entering its URL before a
 new login can start. Other providers retain
 native immediate-start behavior. Korean includes the fork controls alongside the other
 five locales.
@@ -264,7 +266,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-8b3e48d6f2025cd6b2023f1b784173067d5f551da07d761d541ecb2b647ec46f
+a9fbc3063f9db79f8eddf925ad3581f2ef8d1c395af1d8e5dc3ff6b0169b1af1
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

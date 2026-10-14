@@ -1,5 +1,122 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.28-codex-identity.1`，基于官方 `v8.0.28`
+（`0d18d3b365be000eeaee7de4615f9da596b2059d`），从已发布的
+`v8.0.27-codex-identity.1` 合入 28 个提交：25 个非 merge、3 个 merge。
+固定 Docker 标签为 `codex-identity-v8.0.28.1`，与 `latest` 使用同一验收镜像。
+发布及验收状态以本轮 Release 附件为准，本页不把历史通过数量作为本轮结果。
+
+管理页仍为官方 v1.26.2 基线 `390718ecfec90b674fed474862e497522273e129`。
+本轮没有官方 UI 源码增量。二开稳定 OAuth 弹窗的关闭回调，避免通知消失引发
+父组件重渲染时重置原有 350ms 关闭计时器。Close 清当前代理 URL/error 草稿，
+保留 mode/pending 且不发送 Cancel；显式 Cancel 保持原语义。重新测试、独立
+重建复现及实际后端验证均以本轮收据为准，不能沿用 v27 的通过记录。
+
+## v8.0.28 更新
+
+### 配置并发、启动与 HTTP 连接
+
+- 服务器、管理处理器、watcher、SDK 启动和模型注册通过锁保护的配置快照读取与
+  热更新；运行配置与调用方可变配置分离，模型注册缓存只用于对应配置快照。
+  `CurrentConfig` 返回当前不可变配置指针，不表示整个请求或连接永远固定所有配置。
+- watcher 补修把重复检测、加载、callback 和已处理 hash 登记串行化，hash 来自
+  本次实际解析的配置字节。避免长 callback 期间收到新的 PUT 后，旧配置仍在运行
+  却把新磁盘内容标记成已处理，也覆盖值改回原值与并发 reload 的次序；callback
+  仍保留原 void 合同，不额外承诺应用失败回滚。
+- 二开 HTTP fallback、串行 WS 和 duplex WS 补齐同一快照入口，避免继续裸读旧
+  `h.Cfg`。连接建立时读取 logging/steering 开关；凭据绑定、interrupt 和 duplex
+  准入仍检查当前有效代理与身份，不能因旧连接存在而绕过新的绑定约束。
+  凭据显式 direct/独立代理保持优先，无关全局代理修改不能扰动这类连接。
+- HTTP/2 client connection force closed / client conn is closed 及其包装错误按
+  临时连接生命周期中断处理，沿用既有重试策略，不因这种断连接口给凭据施加冷却；
+  明确带 401/429/500 等 HTTP 状态的上游错误继续按各自规则处理，重试仍受
+  request-retry 上限约束。
+- SDK 新增 request-scoped HTTP transport decorator，可随 context 传递或显式
+  关闭，在实际 transport/代理选定后包装，保留原连接池与路由。它是可选 SDK 钩子，
+  没有新增管理页代理开关或自动记录请求正文；实现者仍须委托已选 transport、支持
+  并发且避免消耗正文或留存秘密。升级后的 WS 消息不属于 HTTP wrapper 的观察范围。
+  二开合并保留 plain/uTLS/Devin 的严格代理选择，Antigravity 错误路径抑制中间包装，
+  避免同一请求被重复装饰；错误代理仍失败且不改走全局/环境出口。
+
+### Codex SSE 与工具 schema
+
+- Codex SSE scanner 能拼接多个 `data:` 行组成的 JSON 对象/数组，完整单行事件
+  立即输出，兼容缺少空行分隔的既有上游。`[DONE]` 和其他 SSE 行保持协议行为；
+  截断或畸形 JSON 不会被改造成成功事件。诊断只描述分帧，不打印原始 payload。
+  二开的响应身份映射在完整事件组装后执行，继续保持凭据 namespace、用量归属
+  和取消后的并发占用释放。
+- 流式单行及拼接事件沿用 50 MiB 上限，启动缓冲计量包含尚未组成完整事件的原始
+  字节/行。非流路径仍先读完整正文，所以这不是整个响应或进程内存上限，也没有
+  增加连接建立后的网络超时。
+- Codex 只移除工具 schema 中超出有符号 int64 范围的整数 minimum/maximum/
+  exclusiveMinimum/exclusiveMaximum，覆盖指数/小数记法；范围内数值与非整数
+  保留，不把 default/enum/description 中的用户数据误当 schema 关键字。
+
+### Claude、Gemini、Kimi 与协议转换
+
+- Claude OAuth 恢复被 virtual 包装的完整 `mcp__server__tool` 名称，必须精确匹配
+  调用方声明，精确全名恢复先于模糊 client 后缀匹配，不凭空恢复未知工具。
+  客户端 tool-search 从首轮加入固定 deferred
+  anchor，让首次发现工具前后的 tools 前缀更稳定；同名用户工具优先。发现的工具
+  保留 defer_loading，移除不兼容的 cache_control；这不保证供应商实际缓存命中。
+- OpenAI Chat 转 Claude 时，未设置或 null 的输出预算改读模型目录，未知模型回退
+  32000；Fable 保留 64000 保守上限并尊重目录中更小的限制。显式 max_tokens/
+  max_completion_tokens 仍优先，既有 payload.default 规则也不被翻译器合成默认值
+  挡住。需要固定输出预算的调用方可显式设置；默认预算变化不增加账号真实权益。
+- Gemini/Antigravity 接入 OpenAI Responses 的客户端执行 tool_search，通过独立
+  shim 映射声明、调用、结果和后续发现工具，兼容流式/非流及同名/namespace 用户
+  函数。搜索仍由客户端执行，与模型原生 web_search、服务端托管工具执行不同。
+- Gemini/Antigravity schema 清理保留多分支 anyOf；原生 Schema 不支持 oneOf 时
+  转为 anyOf，已有同级 anyOf 时将 oneOf 写成说明提示，不承诺保持“恰好一个”语义。
+  JSONSchema 载体保留 oneOf，nullable 与单分支仍按载体规则处理。
+- Kimi 对 namespace 的 tools/children 和 input 中 additional_tools/
+  tool_search_output 列表递归规范化 schema，保留对应工具上下文。
+- Interactions 缺少上游 item/call ID 时使用按响应随机生成的前缀，避免跨响应 ID
+  碰撞；同一响应内事件和 apply_patch 配对保持一致，明确的上游 ID 不被替换。
+
+### 模型目录与 README
+
+| 目录 | 本轮原生变化 |
+| --- | --- |
+| Meta | 新增 `muse-wonder-1.0`、`muse-wonder-1.0-contributor` |
+| Claude | 新增 `claude-haiku-5-5` |
+| Vertex | 新增 `gemini-4-argon`，移除 `gemini-3.7-flash` |
+| Gemini / AI Studio | 移除 `gemini-3.7-flash` |
+| Antigravity | 新增 `gemini-4-argon-high`；移除 `gemini-pro-agent`、`gemini-3.7-flash-high`、`gemini-3.6-flash-high`、`gemini-3.1-pro-low` |
+| 原生 web_search | 新增能力标记及门控，Antigravity `gemini-3.5-flash-lite` 标记支持 |
+
+三语 README 同步 Haiku 5.5、Gemini 4 Argon、Meta Muse Wonder 的模型清单，调整
+Antigravity Claude Sonnet/Opus 5.5 thinking 适用计划和 Meta 渠道的文字说明。
+这些是原生文档/目录声明，不是本次使用真实账号验证授权或付费权益；实际可用模型
+还受账号、远程目录、自定义模型和上游服务影响。使用移除条目的客户端应核对自己的
+实际 `/v1/models` 和配置，不通过简单改名假定另一模型可用。
+
+### v8.0.28.1 默认、迁移与二开边界
+
+本轮原生 `internal/config` 与 `config.example.yaml` 没有差异，没有新增配置字段
+或强制配置迁移，也不要求健康 OAuth 凭据重登/重建 namespace。v27 的请求体上限
+默认 0、首 Token 前心跳 false、亲和重绑定 any、SIWC identifier CLIProxyAPI 与
+显式 `--siwc-bind` 规则继续沿用；Claude 未指定输出预算的行为变化见上文。
+
+登录前代理、direct/require 与失败不回退、稳定身份、默认 10/自定义并发及占用、
+Access Guard、最终 payload 后身份映射、凭据保存分区及代际保护继续保留。普通
+metadata/refresh 保存的 JSON 内容不变时保留原文件；实际变更仍走原子保存。
+本轮继续验收精确 quota_plugin_id 路由及登录弹窗规则，二开补修见本轮报告。
+Home 只读兼容结论与各专项兼容补修以本轮报告为准，不修改或部署 Home。
+
+此前用户停止处理的 replay-cache/usage queue 内存问题，本轮没有独立修复或长期
+压力复测。新的 SSE 拼接与启动计量、配置快照和连接生命周期修正须单独描述，不能
+据此宣称全局内存问题已解决。已有终态历史固定摘要上限继续保留；源码相同和普通
+功能测试均不证明整个进程长期内存稳定。
+
+原 15 个业务容器保持用户预先停止状态，结束清理临时容器、监听和专用构建资源，
+不以恢复旧业务作验证。回退需配套镜像、config/auth、插件和计费快照，并核对
+OAuth/SIWC token 轮换及新增用量；进程内 WS 状态不会随镜像回退恢复。
+
+## v8.0.27.1 历史记录
+
+以下完整保留 v8.0.27.1 说明，版本号、当时新增行为和验收语境不代表本轮增量或结果。
+
 当前修订为 `v8.0.27-codex-identity.1`，基于官方 `v8.0.27`
 （`bf9341629ef2300ac9d846a2e80fe2756f63a671`），从已发布的
 `v8.0.24-codex-identity.1` 合入 v8.0.25 / v8.0.26 / v8.0.27 共 17 个提交：

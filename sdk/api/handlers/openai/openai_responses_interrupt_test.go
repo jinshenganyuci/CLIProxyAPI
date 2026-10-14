@@ -157,6 +157,12 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 			if _, errUpdate := manager.Update(context.Background(), auth); errUpdate != nil {
 				t.Fatal(errUpdate)
 			}
+			changedConfig := cfg.SDKConfig
+			changedConfig.ProxyURL = "http://127.0.0.1:1"
+			handler.UpdateClients(&changedConfig)
+			send(interrupt)
+			expect("error")
+			handler.UpdateClients(&cfg.SDKConfig)
 			for name, mutate := range map[string]func(*coreauth.Auth){
 				"proxy":    func(candidate *coreauth.Auth) { candidate.ProxyURL = "http://127.0.0.1:1" },
 				"token":    func(candidate *coreauth.Auth) { candidate.Attributes["api_key"] = "changed-synthetic-key" },

@@ -30,6 +30,18 @@ func LoadConfig(configFile string) (*Config, error) {
 // If optional is true and the file is missing, it returns an empty Config.
 // If optional is true and the file is empty or invalid, it returns an empty Config.
 func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+	return loadConfigOptional(configFile, optional, nil)
+}
+
+// LoadConfigWithSource returns the exact source bytes parsed for the config.
+// The source precedes any normalization writes performed by the loader.
+func LoadConfigWithSource(configFile string) (*Config, []byte, error) {
+	var source []byte
+	cfg, err := loadConfigOptional(configFile, false, &source)
+	return cfg, source, err
+}
+
+func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Config, error) {
 	// Read the entire configuration file into memory.
 	data, err := os.ReadFile(configFile)
 	if err != nil {
@@ -42,6 +54,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 			}
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	if source != nil {
+		*source = data
 	}
 
 	// In cloud deploy mode (optional=true), if file is empty or contains only whitespace, return empty config.

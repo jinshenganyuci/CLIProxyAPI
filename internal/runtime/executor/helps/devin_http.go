@@ -8,6 +8,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 )
 
@@ -21,7 +22,8 @@ var devinTransportCache = NewTransportCache[devinTransportKey](DefaultTransportC
 // NewDevinHTTPClient preserves Devin Connect-RPC connection reuse and disables
 // automatic gzip. A selected credential or global route takes precedence over
 // injected transports, and an invalid selected route never falls back to direct.
-func NewDevinHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, timeout time.Duration) (*http.Client, error) {
+func NewDevinHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth, timeout time.Duration) (clientOut *http.Client, errOut error) {
+	defer func() { clientOut = httptransport.Decorate(ctx, clientOut) }()
 	proxyURL, errResolve := ResolveExecutionProxy(ctx, cfg, auth)
 	if errResolve != nil {
 		return nil, errResolve

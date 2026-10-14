@@ -279,14 +279,21 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	c.Request = c.Request.WithContext(socketCtx)
 	// The reader owns the client socket so an in-flight interrupt is not stuck
 	// behind the response currently being forwarded.
-	requestLogEnabled := h != nil && h.Cfg != nil && h.Cfg.RequestLog
+	requestLogEnabled := false
+	codexResponseSteering := false
+	if h != nil {
+		if cfg := h.CurrentConfig(); cfg != nil {
+			requestLogEnabled = cfg.RequestLog
+			codexResponseSteering = cfg.CodexResponseSteering
+		}
+	}
 	wsTimelineLog := newWebsocketTimelineLog(requestLogEnabled, websocketTimelineSourceFromContext(c))
 	localInterrupt := newResponsesLocalInterrupt()
 	input, inputDone := readResponsesWebsocketInput(socketCtx, cancelSocket, conn, func(payload []byte) error {
 		return h.forwardResponsesWebsocketInterrupt(socketCtx, passthroughSessionID, payload, localInterrupt.authEnabled)
 	}, localInterrupt, writer, wsTimelineLog)
 	var duplexInput <-chan cliproxyexecutor.WebsocketInput
-	if h != nil && h.Cfg != nil && h.Cfg.CodexResponseSteering {
+	if codexResponseSteering {
 		duplexInput = input
 	}
 	downstreamSessionKey := websocketDownstreamSessionKey(c.Request)
@@ -382,6 +389,13 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	sessionAuthByID := func(authID string) (*coreauth.Auth, bool) {
 		auth, _, ok := sessionAuthByIDWithSource(authID)
 		return auth, ok
+	}
+	currentCredentialBinding := func(auth *coreauth.Auth) string {
+		globalProxy := ""
+		if cfg := h.CurrentConfig(); cfg != nil {
+			globalProxy = cfg.ProxyURL
+		}
+		return responsesWebsocketCredentialBinding(auth, globalProxy)
 	}
 	upstreamModeForAuth := func(auth *coreauth.Auth) string {
 		if auth != nil && websocketUpstreamSupportsIncrementalInput(auth.Attributes, auth.Metadata) {
@@ -711,7 +725,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 				duplexBindingMu.RLock()
 				bound := duplexBinding
 				duplexBindingMu.RUnlock()
-				return bound != "" && bound == responsesWebsocketCredentialBinding(current, h.Cfg.ProxyURL)
+				return bound != "" && bound == currentCredentialBinding(current)
 			})
 		}
 		if nativeWebsocketPassthrough && requestRequiresCurrentUpstreamWebsocket {
@@ -732,11 +746,11 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			if !ok || selectedAuth == nil {
 				return
 			}
-			boundCredential := responsesWebsocketCredentialBinding(selectedAuth, h.Cfg.ProxyURL)
+			boundCredential := currentCredentialBinding(selectedAuth)
 			localInterrupt.bindAuth(authID, func(candidateID string) bool {
 				current, exists := sessionAuthByID(candidateID)
 				return exists && current != nil && !current.Disabled && current.Status != coreauth.StatusDisabled &&
-					boundCredential == responsesWebsocketCredentialBinding(current, h.Cfg.ProxyURL)
+					boundCredential == currentCredentialBinding(current)
 			})
 			duplexBindingMu.Lock()
 			duplexBinding = boundCredential

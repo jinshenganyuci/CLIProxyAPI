@@ -49,11 +49,19 @@ func (w *Watcher) ReloadConfigIfChanged() {
 }
 
 func (w *Watcher) reloadConfigIfChanged() {
+	w.configApplyMu.Lock()
+	defer w.configApplyMu.Unlock()
+
 	data, err := os.ReadFile(w.configPath)
 	if err != nil {
 		log.Errorf("failed to read config file for hash check: %v", err)
 		return
 	}
+	w.reloadConfigIfChangedLocked(data)
+}
+
+// reloadConfigIfChangedLocked runs the check and application with configApplyMu held.
+func (w *Watcher) reloadConfigIfChangedLocked(data []byte) {
 	if len(data) == 0 {
 		log.Debugf("ignoring empty config file write event")
 		return
@@ -70,29 +78,33 @@ func (w *Watcher) reloadConfigIfChanged() {
 		return
 	}
 	log.Infof("config file changed, reloading: %s", w.configPath)
-	if w.reloadConfig() {
-		finalHash := newHash
-		if updatedData, errRead := os.ReadFile(w.configPath); errRead == nil && len(updatedData) > 0 {
-			sumUpdated := sha256.Sum256(updatedData)
-			finalHash = hex.EncodeToString(sumUpdated[:])
-		} else if errRead != nil {
-			log.WithError(errRead).Debug("failed to compute updated config hash after reload")
-		}
+	if source, ok := w.reloadConfigSnapshot(); ok {
+		// A newer file may be saved while the runtime callback is applying this
+		// reload. Only acknowledge the exact content parsed by the loader;
+		// hashing the file again here could mark unapplied settings as current.
+		appliedSum := sha256.Sum256(source)
 		w.clientsMutex.Lock()
-		w.lastConfigHash = finalHash
+		w.lastConfigHash = hex.EncodeToString(appliedSum[:])
 		w.clientsMutex.Unlock()
 		w.persistConfigAsync()
 	}
 }
 
 func (w *Watcher) reloadConfig() bool {
+	w.configApplyMu.Lock()
+	defer w.configApplyMu.Unlock()
+	_, ok := w.reloadConfigSnapshot()
+	return ok
+}
+
+func (w *Watcher) reloadConfigSnapshot() ([]byte, bool) {
 	log.Debug("=========================== CONFIG RELOAD ============================")
 	log.Debugf("starting config reload from: %s", w.configPath)
 
-	newConfig, errLoadConfig := config.LoadConfig(w.configPath)
+	newConfig, source, errLoadConfig := config.LoadConfigWithSource(w.configPath)
 	if errLoadConfig != nil {
 		log.Errorf("failed to reload config: %v", errLoadConfig)
-		return false
+		return nil, false
 	}
 
 	if w.mirroredAuthDir != "" {
@@ -140,5 +152,5 @@ func (w *Watcher) reloadConfig() bool {
 
 	log.Infof("config successfully reloaded, triggering client reload")
 	w.reloadClients(authDirChanged, affectedOAuthProviders, forceAuthRefresh)
-	return true
+	return source, true
 }
