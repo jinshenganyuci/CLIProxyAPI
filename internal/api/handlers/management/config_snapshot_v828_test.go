@@ -91,7 +91,11 @@ plugins:
 	if errDecode := expectedOpaque.Raw.Decode(&expectedPlugin); errDecode != nil {
 		t.Fatal(errDecode)
 	}
-	if !reflect.DeepEqual(snapshot, disk) || !reflect.DeepEqual(disk.CodexKey, expected.CodexKey) || !reflect.DeepEqual(savedPlugin, expectedPlugin) || !reflect.DeepEqual(disk.Codex, expected.Codex) {
+	// File loads carry a source fence; the management callback is parsed from
+	// in-memory bytes. Compare their configuration values independently of provenance.
+	snapshotValues, diskValues := snapshot.CloneForRuntime(), disk.CloneForRuntime()
+	snapshotValues.SourceHash, diskValues.SourceHash = "", ""
+	if !reflect.DeepEqual(snapshotValues, diskValues) || !reflect.DeepEqual(disk.CodexKey, expected.CodexKey) || !reflect.DeepEqual(savedPlugin, expectedPlugin) || !reflect.DeepEqual(disk.Codex, expected.Codex) {
 		t.Fatal("saved configuration lost credential controls or opaque plugin settings")
 	}
 	if disk.CodexKey[1].ConcurrencyLimit != nil || disk.MaxRequestBodyBytes != 4096 {

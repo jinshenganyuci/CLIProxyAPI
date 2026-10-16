@@ -17,6 +17,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var loadConfigFileFunc = config.LoadConfig
+
 func (w *Watcher) stopConfigReloadTimer() {
 	w.configReloadMu.Lock()
 	if w.configReloadTimer != nil {
@@ -49,6 +51,8 @@ func (w *Watcher) ReloadConfigIfChanged() {
 }
 
 func (w *Watcher) reloadConfigIfChanged() {
+	// File events and post-save reloads may arrive together; an older read must
+	// not apply after a newer one.
 	w.configApplyMu.Lock()
 	defer w.configApplyMu.Unlock()
 
@@ -78,13 +82,12 @@ func (w *Watcher) reloadConfigIfChangedLocked(data []byte) {
 		return
 	}
 	log.Infof("config file changed, reloading: %s", w.configPath)
-	if source, ok := w.reloadConfigSnapshot(); ok {
+	if appliedHash, ok := w.reloadConfigSnapshot(); ok {
 		// A newer file may be saved while the runtime callback is applying this
 		// reload. Only acknowledge the exact content parsed by the loader;
 		// hashing the file again here could mark unapplied settings as current.
-		appliedSum := sha256.Sum256(source)
 		w.clientsMutex.Lock()
-		w.lastConfigHash = hex.EncodeToString(appliedSum[:])
+		w.lastConfigHash = appliedHash
 		w.clientsMutex.Unlock()
 		w.persistConfigAsync()
 	}
@@ -97,15 +100,17 @@ func (w *Watcher) reloadConfig() bool {
 	return ok
 }
 
-func (w *Watcher) reloadConfigSnapshot() ([]byte, bool) {
+func (w *Watcher) reloadConfigSnapshot() (string, bool) {
 	log.Debug("=========================== CONFIG RELOAD ============================")
 	log.Debugf("starting config reload from: %s", w.configPath)
 
-	newConfig, source, errLoadConfig := config.LoadConfigWithSource(w.configPath)
+	newConfig, errLoadConfig := loadConfigFileFunc(w.configPath)
 	if errLoadConfig != nil {
 		log.Errorf("failed to reload config: %v", errLoadConfig)
-		return nil, false
+		return "", false
 	}
+	// Capture the parsed source before callbacks can publish another config.
+	appliedHash := newConfig.SourceHash
 
 	if w.mirroredAuthDir != "" {
 		newConfig.AuthDir = w.mirroredAuthDir
@@ -152,5 +157,5 @@ func (w *Watcher) reloadConfigSnapshot() ([]byte, bool) {
 
 	log.Infof("config successfully reloaded, triggering client reload")
 	w.reloadClients(authDirChanged, affectedOAuthProviders, forceAuthRefresh)
-	return source, true
+	return appliedHash, true
 }

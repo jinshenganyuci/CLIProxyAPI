@@ -3,13 +3,12 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.26.2`
-- commit: `390718ecfec90b674fed474862e497522273e129`
-- patch: `management-center-v1.26.2-credential-identity.patch`
+- tag: `v1.26.4`
+- commit: `13f94b47f3400e681dfdede65acf1a1242ee3fce`
+- patch: `management-center-v1.26.4-credential-identity.patch`
 
-Official UI tags `v1.26.1` and `v1.26.2` point to the same source commit. This
-release rebuilds the retained fork with the `v1.26.2` version label; it does not
-count prior native UI features as new upstream changes.
+This release integrates all 11 official commits from `v1.26.2` through `v1.26.4`,
+including `v1.26.3`, while preserving the fork controls described below.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login-dialog proxy selectors. Proxy-capable tiles open the dialog before starting a
@@ -54,9 +53,9 @@ resource backgrounds. Codex usage, renewal, and reset-credit requests all keep t
 auth index through the management API. Renewal lookup is optional and falls back to the
 credential date when unavailable. Search retains the shared concurrency polling context.
 
-Native regional login cards separate Kimi China (kimi.com) and Kimi International (kimi.ai) into
-separate featured cards, each with its own registration link. The fork retains one card
-per region and its existing POST proxy, cancellation, device-code, and expiry behavior.
+Native regional login actions separate Kimi China (kimi.com) and Kimi International (kimi.ai),
+each with its own registration link. The current shared sponsor card retains one independent
+flow per region and its existing POST proxy, cancellation, device-code, and expiry behavior.
 The quota search field and sorting now share a separate toolbar below provider navigation;
 its clear action restores input focus. Provider tabs support vertical mouse-wheel scrolling
 when horizontally overflowing, preserve horizontal gestures and zoom, and hide scrollbars.
@@ -148,7 +147,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Six locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.27 backend.
+its matching v8.0.30 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -250,13 +249,30 @@ The matching v8.0.27 backend also accepts `server.max-request-body-bytes`,
 these fields. Unrelated visual/provider saves preserve explicit zero/false values,
 custom identifiers and existing credential proxy/concurrency settings.
 
+The v1.26.3 and v1.26.4 native changes consolidate the two Kimi regions into one
+sponsor card with separate regional login and registration actions. Both routes
+retain their own proxy choices, device-code flows and cancellation semantics.
+Claude quota cards now show extra usage and independent dollar balances, retaining
+the previous successful observation while refreshing or after a failed read.
+Reset-grant card reads wait two seconds, share only concurrent requests for the same
+credential and connection, and display rate limiting without automatic retries.
+Spending still performs fresh eligibility and organization checks. The shared reader
+retains the selected auth index and server-side token placeholder; it never replaces
+the credential proxy with a page-level proxy or retries without a credential.
+
+Native quota refresh actions account for reset operations. Hour-based window labels,
+plan-less subscription display, xAI disabled pay-as-you-go display, quota amount
+typography, and Chinese session-affinity terminology are included. The upstream
+quota_plugin_id contract has converged with the fork's exact-plugin routing; the
+fork additionally retains connection-switch guards and raw-field compatibility.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 390718ecfec90b674fed474862e497522273e129
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.2-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.2 \
+git -C management-center checkout 13f94b47f3400e681dfdede65acf1a1242ee3fce
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.4-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.4 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -266,7 +282,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-a9fbc3063f9db79f8eddf925ad3581f2ef8d1c395af1d8e5dc3ff6b0169b1af1
+dbff094fbd8f7b6f63e48f5722bf2d4901c510c3656aca7c1396203d233a68ae
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

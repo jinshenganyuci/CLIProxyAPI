@@ -63,3 +63,47 @@ func TestUpdateModelRegistrationAuthRejectsStaleSnapshot(t *testing.T) {
 		})
 	}
 }
+
+func TestV830ConditionalRegistrationUpdateRejectsInvalidConcurrency(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	ctx := WithSkipPersist(context.Background())
+	base, errRegister := manager.Register(ctx, &Auth{ID: t.Name(), Provider: "codex", Metadata: map[string]any{"access_token": "original", "concurrency_limit": 3}})
+	if errRegister != nil {
+		t.Fatal(errRegister)
+	}
+	changed := base.Clone()
+	changed.Metadata["concurrency_limit"] = 0
+	if updated, committed, errUpdate := manager.UpdateIfRegistrationCurrent(ctx, base, changed); errUpdate == nil || committed || updated != nil {
+		t.Fatalf("invalid plugin update committed: %+v %t %v", updated, committed, errUpdate)
+	}
+	current, _ := manager.GetByID(base.ID)
+	if EffectiveConcurrencyLimit(current) != 3 || current.Generation != base.Generation {
+		t.Fatal("rejected update changed existing credential")
+	}
+}
+
+func TestV830ConditionalRegistrationUpdatePreservesNewCredentialControls(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	ctx := WithSkipPersist(context.Background())
+	base, errRegister := manager.Register(ctx, &Auth{ID: t.Name(), Provider: "codex", ProxyURL: "direct", Metadata: map[string]any{"access_token": "old", "concurrency_limit": 3, "codex_identity_namespace": "old-identity"}})
+	if errRegister != nil {
+		t.Fatal(errRegister)
+	}
+	fresh := base.Clone()
+	fresh.ProxyURL = "http://new.invalid:8080"
+	fresh.Metadata["access_token"] = "new"
+	fresh.Metadata["concurrency_limit"] = 2
+	fresh.Metadata["codex_identity_namespace"] = "new-identity"
+	if _, errUpdate := manager.Update(ctx, fresh); errUpdate != nil {
+		t.Fatal(errUpdate)
+	}
+	stale := base.Clone()
+	stale.Metadata["access_token"] = "old-plugin-result"
+	if updated, committed, _ := manager.UpdateIfRegistrationCurrent(ctx, base, stale); committed || updated != nil {
+		t.Fatal("old plugin discovery overwrote newer token and controls")
+	}
+	current, _ := manager.GetByID(base.ID)
+	if current.Metadata["access_token"] != "new" || current.Metadata["codex_identity_namespace"] != "new-identity" || current.ProxyURL != fresh.ProxyURL || EffectiveConcurrencyLimit(current) != 2 {
+		t.Fatal("new credential controls changed")
+	}
+}

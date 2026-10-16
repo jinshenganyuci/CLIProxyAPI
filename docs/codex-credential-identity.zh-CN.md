@@ -1,5 +1,132 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.30-codex-identity.1`，基于官方 `v8.0.30`
+（`5be2cdab0869cbaa3d401891f740aebf7e15aa99`），从已发布的 `v8.0.28-codex-identity.1`
+合入 v8.0.29 与 v8.0.30 共 25 个提交：23 个非 merge、2 个 merge。
+固定镜像标签为 `codex-identity-v8.0.30.1`；固定/latest 的最终摘要和验收状态以本轮
+Release 附件为准，不把历史通过数量或预计检查数当成本轮结果。
+
+## v8.0.29 / v8.0.30 更新
+
+### 模型目录与测试样例
+
+`a19a8ecd / f9ac397b / 74592556`：Gemini provider 新增 gemini-4-argon，目录上下文/最大输出均记为 1,048,576；Meta 新增 muse-wonder-full-1.0 与 muse-wonder-full-1.0-contributor，四个 Muse 变体的目录上下文改为 1,007,997、最大输出 128,000。a19a8ecd 虽标题声称新增 Gemini 3.8，实际仅改 AI Studio/Antigravity 两个测试文件中的模型样例，没有新增该目录项。目录上限与模型名不等于已实测的供应商额度、账号权益或已部署 Home/远程/自定义目录。
+
+### Gemini 转 Claude 的工具 ID
+
+`58257007`：Gemini 转 Claude 的非流式 tool_use ID 改用进程内原子序号，避免每个响应从 1 重新计数导致同名工具跨轮复用 ID；不承诺跨进程重启的永久唯一性。
+
+### 畸形函数调用错误与用量
+
+`7f2f17d7`：Gemini 以 MALFORMED_FUNCTION_CALL 结束且没有真正工具调用时，转为 Claude api_error，不再伪装拒答或成功空回答。AI Studio、Gemini、Vertex 执行器把转换错误传为非流式 502/流式终态错误，并计入失败用量；Claude handler 避免重复终态错误。已经包含实际工具调用仍用 tool_use。重试仍受执行/流启动策略约束，不能撤回已交付内容。
+
+### Antigravity 缓存 Token 计量
+
+`912a038b`：Antigravity 转 Claude 的流式计量将非缓存输入最小限制为 0；由总 Token 反算生成/输出时减去包含缓存的原始 prompt 数，不把缓存输入误算成输出。修正的是协议换算，不改变供应商账单。
+
+### Antigravity 备用版本
+
+`8fb633c9`：内置 Antigravity 客户端备用版本提高到 2.23.0；显式配置/探测版本仍按既有优先级使用，不代表安装或升级了真实客户端。
+
+### 插件配置默认值元数据
+
+`50eaed0d`：插件 SDK ConfigField 及管理描述新增可选 default 元数据；快照深拷贝复合默认值，避免插件后续修改已公布描述。展示默认值不等于自动写入或应用用户缺失的配置。
+
+### 可选 TLS 握手等待上限
+
+`345cc9d5 / b3dc6c3f`：共享 uTLS 增加可选的握手等待上限：v8 YAML 使用 requests.tls-handshake-timeout-seconds；SDK/旧布局是根字段 tls-handshake-timeout-seconds，最终位置不在 upstream.claude.header-defaults。默认 0 关闭，负数按 0，极大值饱和。覆盖 Claude Code Anthropic 与 Chrome ChatGPT/Codex uTLS，从 TCP/代理连接建立返回后开始；不限制拨号、代理 CONNECT、标准 fallback transport 或握手成功后的推理/长流。内部类型化超时按可重试临时传输故障处理且不触发凭据冷却；调用方取消/截止及 errors.Join 中的外部取消优先，仍受 request-retry 约束。
+
+### Antigravity Claude 工具 union
+
+`5efe9758`：仅 Antigravity Claude 的工具声明输入 schema 将多分支 anyOf/oneOf 展平为最强非 null 分支（同分取首个），保留 nullable 与类型提示；Gemini 模型、工具返回 schema 和生成响应 schema 保持各自的 union 行为，不遍历对话实参。展平是兼容折衷，不能声称完整保留 union 语义。
+
+### 模型注册与插件发布隔离
+
+`08e5762a`：模型注册增加 epoch/身份检查、最终发布串行化及替换/删除/配置变更失效机制。慢速模型查询/插件结果只在其捕获的凭据注册输入仍有效时发布；插件旧结果不能套用到删除后重新注册的身份。目录发布和调度刷新拒绝过期工作。这是进程内生命周期保护，不是分布式事务，也不改变选路策略。
+
+### 凭据文件删除与重建
+
+`5fc580b1`：watcher 区分整文件删除与内容变化移除单个 ID，并提供严格单文件重新合成。执行延迟删除前复查当前本地文件/远程镜像：重建且仍包含的 ID 保留，确认不存在的 ID 移除，读取或解析不确定时保守保留。其他文件的同 ID 不会代替原文件证明，远程存储仅在具有本地镜像路径时复查。
+
+### Claude header 默认覆盖
+
+`9db0729f / 4e8a4125`：upstream.claude.header-defaults 新增 anthropic-beta-strip/append、inject-diagnostics、client-request-id。beta 名称精确匹配、去空白/去重，先 strip 后 append，保留顺序，列表默认空。inject-diagnostics 默认 true，仅适用伪装后的第一方 CLI 路径；false 停止自动注入及其 body 派生 cache-diagnosis beta，不删除调用方或 payload 显式提供内容。client-request-id 默认 on（非法值警告后回默认），passthrough 只转发调用方 ID，off 关闭自动/调用方处理。凭据自身 headers 的既有高优先级保留：自定义网关的 Anthropic-Beta 和所有路径的 x-client-request-id，因此显式凭据 header 仍可能在 off 后重新添加 ID。任意 beta 组合可能被上游拒绝。
+
+### 远程配置初始化密钥处理
+
+`f9437700`：Postgres/object-store 初次上传配置前先运行 PrepareConfigFileForUpload，将明文管理密钥转为 bcrypt 并清理冲突旧布局，准备后的本地/远程字节一致。若 anchor 或其他 scalar 仍含同一明文则拒绝，保留原文件，不冒险上传。范围是配置初始播种，不是所有 secret 加密、清理已有远程对象或轮换 OAuth token；云启动相关路径也使用相同准备步骤。
+
+### 管理保存与热更新次序
+
+`1631875b`：Config.SourceHash 记录实际解析字节；watcher 串行化检查/加载/callback/hash 确认，管理保存登记预期磁盘 hash，旧热更新快照不能覆盖较新已保存的管理值。服务接线触发保存后重载，文件更新共享串行保护。这是在此前二开 reload 次序补修上的原生完善，不代表跨设置原子事务或 callback 失败回滚。
+
+### Vertex 尾部纯思考回合
+
+`ceb4397f`：Vertex 的 API-key/服务账号、流式/非流式生成请求，在补用户边界回合前删除尾部纯 thought 模型回合；含可见文本/工具调用的混合内容保留。countTokens 不做这项仅针对生成的移除；内置清理必须先于最终 payload 规则。
+
+### Gemini schema discriminator
+
+`e9ba5c50`：在 Gemini/Antigravity 实际 schema 节点移除不受支持的 discriminator；description/default/enum/历史数据中同名业务字段应保留，不代表新增按 discriminator 分发 union 的能力。
+
+### xAI web_search 参数
+
+`bbfd7886`：xAI Responses 的 web_search 清理不支持的 external_web_access 与 search_context_size，保留 filters、user_location、search_content_types 等；日志仅记被移除字段名。内置清理仍先于操作员最终 payload 规则。
+
+### 未完成工具输出
+
+`59930ba3`：OpenAI Responses function_call_output 的 status=incomplete 转为 Claude tool_result.is_error=true；重复 call_id 使用最后一个输出条目的内容及状态，孤立输出和已完成条目保持既有语义。
+
+### 旧成功结果不能清除新冷却
+
+`35af74f9`：上游派发携带单调 execution 序号；模型/凭据冷却记下派发水位，较早在途请求的成功不能清除后来仍有效的冷却，包括凭据级冷却传播到兄弟模型的情况。水位随进程内 clone/merge 保留，状态重置时清理，重启不持久化；不新增冷却时长，也不改变操作员重置语义。
+
+### Vertex API-key 完整地址
+
+`2d7f5377`：Vertex API-key 的生成/流式/countTokens 接受已包含 /publishers/ 的完整 models 资源前缀，仅追加 model:action；以 /v1 或 /v1beta1 结尾的地址不重复版本段，短 host 保留默认 /v1/publishers/google/models 后缀。配置条目保留完整前缀；服务账号 URL 构造独立。
+
+### 管理页 v1.26.3 / v1.26.4
+
+官方管理页从 v1.26.2 升至 v1.26.4，共 11 个非 merge 提交（v1.26.3 为 5、v1.26.4 为 6）。Claude 额度页新增 extra_usage 与独立 dollar balance，保留原始窗口 key、未知值和重置时间；刷新或读取失败保留上一份观测并标记状态，不把未知当成 0。Claude 重置券卡片读取延迟 2 秒、按连接代次与 auth_index 合并在途读取，429 为脱敏类型错误且不自动重试；真实消费仍做独立的新鲜预检。认证文件卡片统一刷新入口并阻止重置中重复刷新。
+
+插件额度优先使用后端指定 quota_plugin_id，保留大小写并编码路径，失败不另选其他插件；旧后端缺少 ID 时继续兼容探测。Kimi 国内/国际登录合为同品牌卡，站点入口、注册链接及减少动态效果设置保留。Muse 隐藏冗余订阅 active 状态，整小时窗口按小时显示；xAI 周额度显示剩余百分比，关闭的按量付费状态放到套餐行；金额字形/尺寸与额度元信息统一，并调整中简/中繁会话亲和术语。这些界面观测不构成真实供应商权益或兑换证明。
+
+### 本轮二开对应处理
+
+合并保留原生冷却水位、模型注册 fence、文件删除重建和配置保存次序保护，并与二开并发/身份/代理分支衔接。新的条件式插件更新会直接进入共享 locked commit，因此在该边界继续执行并发值校验，同时保留 Generation CAS；同 registration epoch 下的旧插件完整 AuthUpdate 不能覆盖较新的 token、代理、namespace 或并发控制。模型发布使用注册 epoch/输入检查，不能把仅执行期 Generation 变化误判为注册失效。Execute/CountTokens/流启动与终态/Home 路径传递 execution 序号；默认 10/自定义限额、共享占用及取消/失败释放保持既有语义。
+
+Claude uTLS 建连补上调用方取消传递：net/http 的脱离请求生命周期的 dial context 原先会让默认无限握手等待在调用方取消后留下静默连接；现在只在连接取得阶段关联原请求取消，离开该阶段即注销关联。默认 0 仍不启用内部握手计时，正值只限制 HandshakeContext；握手完成后不把首个调用方的取消留在连接池连接上，不给后续复用流添加截止时间。Chrome ChatGPT/Codex 路径继续直接使用请求 context。凭据选定代理/显式 direct/require 以及不回退全局或环境代理的规则保留，HTTP decorator 仍作用于最终选定 transport。
+
+AI Studio/Gemini/Vertex 原生畸形函数错误传递与二开终态、用量、取消释放衔接；Vertex 尾部纯思考清理和 schema/xAI 工具规范化仍发生在 payload finalizer 之前，显式 payload 规则继续作为最终业务字段屏障，其后再做身份映射。translator/util、auth/store 生产逻辑按原生合入，本轮新增跨层回归而没有独立改写这几组认证/存储语义；稳定 namespace、外层/SIWC token 分区意图、跨进程凭据锁、控制三方合并、无变化 JSON 保原文件继续适用。此前已发布的重新登录刷新排期修复保留，不重复算成本轮新修复。
+
+源码专项覆盖真实 fsnotify 同字节/变 token 重建、延迟删除、插件旧代次拒绝，及经真实 MinIO 客户端发送到本地 S3 fixture 的配置初始 PUT/重启读取。后一项仅证明受控 HTTP 边界的 bcrypt/旧明文清理及 local/remote/SourceHash 一致，不代表外部 S3、Postgres、Git 服务或真实账号已连通。全部源码、最终镜像与发布结果分别由本轮附件给出，专项与全量重叠不累加。
+
+管理页整合官方 v1.26.3/v1.26.4，并保留登录前瞬态代理选择、区域独立的 Kimi flow、凭据身份/并发占用、Home 归属与窄范围编辑、精确 quota_plugin_id/auth_index 及连接代次保护。原 v28 稳定 Close 回调修复继续保留：Close 清代理 URL/error 草稿、保留 mode/pending 且不发送 Cancel；显式 Cancel 保持原语义。通知重渲染关闭计时器负控使用历史 v8.0.27.1 HTML，不能把已修复的 v28 写为失败版本。本轮新增 reset reader 的真实 serializer 绑定、429 不做无绑定重试及连接切换回归；最终 HTML、完整测试/额外兼容、受控浏览器及官方源码加 patch 的独立重建均使用本轮收据。受控 OAuth API 不代表真实供应商登录；source-YAML 与普通字段保存不是全局原子 CAS。
+
+本轮以 fresh Home main `aadf006b487e6a58a28207983d73a2777d52643f` 只读核对。当前 Home strict schema 拒绝本轮五个新选项：requests.tls-handshake-timeout-seconds 及 upstream.claude.header-defaults 下的 anthropic-beta-strip、anthropic-beta-append、inject-diagnostics、client-request-id。此前四个 CPA-only 字段（请求体上限、亲和重绑定、首 Token 前心跳、SIWC identifier）仍不被该 Home validator 接受；基础配置及既有 Claude tool-search 对照可接受。Home 管理节点不能假定通过该控制面启用新字段，但独立 CPA 不因此需要迁移 Home。本轮不修改或部署 Home；既有 web_search 三态/选中 route 能力序列化及目录 clone 验证不代表已部署 Home 获得新模型或真实供应商权益。
+
+### v8.0.30.1 默认、迁移与二开边界
+
+普通已发布 v8.0.28.1 部署无需批量重新登录健康 OAuth 凭据或重新初始化 namespace。新增配置均为可选，但本轮有配置字段变化，不能写成“配置 schema 未变”。
+
+| 项目 | 默认与升级边界 |
+| --- | --- |
+| TLS 握手上限 | `requests.tls-handshake-timeout-seconds: 0`，默认关闭；只限制共享 uTLS 握手，成功后解除，不是整个请求超时；不要放入 Claude header-defaults |
+| Claude beta | `upstream.claude.header-defaults.anthropic-beta-strip/append` 默认空列表；先 strip 再 append，按精确名匹配 |
+| Claude diagnostics | `inject-diagnostics` 默认 true，适用于既有 CLI 伪装路径；false 只停止自动注入 |
+| Claude request ID | `client-request-id: "on"` 默认；可选 passthrough/off；凭据自身显式 header 仍遵循既有高优先级，off 不会抹去该显式覆盖 |
+| 配置布局 | 旧布局单独存在时 Load 不强制整文件迁移；仅清除被 canonical 覆盖的冲突旧项；v8 成功保存时迁移 |
+| 远程配置初始播种 | 管理密钥先 bcrypt；YAML anchor/重复值若仍泄露同一明文会阻止上传，需先消除该复用；不自动清理旧远程对象 |
+| 模型与完整 Vertex 地址 | 检查实际 `/v1/models` 与账号；API-key full `/publishers/` prefix 应指到 models 资源，不重复添加版本段；a19a8ecd 不新增 Gemini 3.8 目录 |
+| 保留的既有默认 | 请求体上限 0、首 Token 前心跳 false、亲和重绑定 any、SIWC identifier CLIProxyAPI；SIWC 仍显式启用；Claude 未显式给定的输出预算仍按此前目录默认规则 |
+| 二开身份、并发与代理 | 已有稳定 namespace、默认 10/自定义限额和占用、登录前代理、显式 direct、require/错误不回退、Access Guard、最终 payload 后身份映射继续保留；验证结果只由本轮收据提供 |
+| 身份与存储 | 普通保存保护磁盘最新外层/SIWC token，显式登录/刷新保留分区意图；控制三方合并与无变化 JSON 不重写继续适用 |
+
+回退需要同一时点的镜像、config/auth、插件和计费快照，并核对 OAuth/SIWC token 轮换及新增用量。新可选配置不能假定被旧版识别，进程内 WS/thread 状态不会随镜像回退恢复。Go module 仍为 `/v8`；跨 v7 用户参考既有 [Devin 迁移表](https://github.com/jinshenganyuci/CLIProxyAPI/releases/download/v8.0.2-codex-identity.1/devin-v8-model-id-migration.md)。
+
+本轮没有独立修复或长期压力复测用户此前停止处理的 replay-cache/usage queue 问题。三份 replay-cache、usage 队列片段和 WS 保留文件按本轮 Git 与最终源码摘要核对；模型注册、配置保存、文件删除、冷却水位及 TLS 握手变化单独说明。既有 128 个固定 SHA-256 终态摘要上限是保留行为，不重复算新修复。源码相同和普通功能测试不证明整个进程长期内存稳定。
+
+## v8.0.28.1 历史记录
+
 当前修订为 `v8.0.28-codex-identity.1`，基于官方 `v8.0.28`
 （`0d18d3b365be000eeaee7de4615f9da596b2059d`），从已发布的
 `v8.0.27-codex-identity.1` 合入 28 个提交：25 个非 merge、3 个 merge。

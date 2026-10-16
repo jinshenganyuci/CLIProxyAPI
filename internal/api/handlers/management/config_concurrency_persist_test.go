@@ -21,7 +21,10 @@ func TestPersistRejectsInvalidCredentialConcurrencyLimit(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPut, "/v0/management/config", nil)
-	if h.persist(ctx) || recorder.Code != http.StatusBadRequest {
+	h.mu.Lock()
+	persisted := h.persistLocked(ctx)
+	h.mu.Unlock()
+	if persisted || recorder.Code != http.StatusBadRequest {
 		t.Fatalf("persist returned status %d, want 400", recorder.Code)
 	}
 	after, errRead := os.ReadFile(path)

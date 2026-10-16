@@ -181,7 +181,7 @@ func TestDuplexLocalBusyStreamErrorDoesNotCoolCredential(t *testing.T) {
 			chunks := make(chan cliproxyexecutor.StreamChunk, 1)
 			chunks <- cliproxyexecutor.StreamChunk{Err: terminal}
 			close(chunks)
-			stream := m.wrapStreamResult(ctx, auths[0], "test", models[0], models[0], nil, nil, chunks, OAuthModelAliasResult{}, false, cliproxyexecutor.Options{})
+			stream := m.wrapStreamResult(ctx, auths[0], "test", models[0], models[0], nil, nil, chunks, OAuthModelAliasResult{}, false, cliproxyexecutor.Options{}, m.nextExecutionSeq())
 			chunk := awaitCredentialConcurrencySignal(t, stream.Chunks)
 			if IsCredentialConcurrencyError(chunk.Err) != local {
 				t.Fatalf("typed error classification changed: %v", chunk.Err)

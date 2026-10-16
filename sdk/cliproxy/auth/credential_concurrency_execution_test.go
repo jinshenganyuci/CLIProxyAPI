@@ -388,7 +388,7 @@ func TestCredentialConcurrencyStreamTerminalErrorReleasesBeforeConsumerRetry(t *
 	source := make(chan cliproxyexecutor.StreamChunk, 1)
 	source <- cliproxyexecutor.StreamChunk{Err: errors.New("terminal stream error")}
 	streamCtx := context.WithValue(upstreamCtx, credentialConcurrencyLeaseContextKey{}, lease)
-	wrapped := m.wrapStreamResult(streamCtx, auths[0], "test", "model", "model", nil, nil, source, OAuthModelAliasResult{}, false, cliproxyexecutor.Options{})
+	wrapped := m.wrapStreamResult(streamCtx, auths[0], "test", "model", "model", nil, nil, source, OAuthModelAliasResult{}, false, cliproxyexecutor.Options{}, m.nextExecutionSeq())
 	chunk := awaitCredentialConcurrencySignal(t, wrapped.Chunks)
 	if chunk.Err == nil {
 		t.Fatal("terminal error disappeared")
