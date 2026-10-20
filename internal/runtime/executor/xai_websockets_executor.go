@@ -1704,6 +1704,7 @@ func applyXAIWebsocketHeaders(ctx context.Context, headers http.Header, auth *cl
 	} else {
 		req = &http.Request{Header: headers}
 	}
+	ensureXAIUserAgent(req, clientHeaders...)
 	util.ApplyCustomHeadersFromAttrs(req, attrs, clientHeaders...)
 	return headers
 }

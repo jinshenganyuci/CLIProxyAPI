@@ -1,5 +1,77 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.36-codex-identity.1`，基于官方 `v8.0.36`（`20c9095cac089c6a8e40554debe4dd8a19d4c14f`）。从已发布 v8.0.35.1 合入全部20个提交：18个非 merge、2个 merge，涉及83个文件。固定镜像标签为 `codex-identity-v8.0.36.1`；固定/latest 的最终摘要和本轮验收结果以附件为准。
+
+## v8.0.36 更新
+
+- **OpenAI 转 Claude 工具回放**（`c449529e`）：非流式回答只要确有 tool call，普通 stop/缺失结束原因都映射为 tool_use；length/content_filter 仍保留原有限制或过滤语义。流式上游省略 tool_calls.index 时，按位置跟踪并用新非空 ID 区分后续并行工具，已发出的 ID 不再被改写；并非为所有畸形流推断工具身份。
+
+- **推理 Token 用量**（`7db0935a / e198f3cd`）：Chat Completions 转 Responses 的非流式 usage 同时接受 completion_tokens_details.reasoning_tokens 与 output_tokens_details.reasoning_tokens，已有 output 字段优先。执行器用量解析另接受 SGLang 等 usage.reasoning_tokens 平铺字段，优先级仍是 completion 明细、output 明细、最后平铺字段；是字段兼容，不改变账单或供应商计量。
+
+- **上游 README 与资源**（`3f0cef01`）：三种 README 增加 Xcode 赞助入口和 xcode.gif，日文 README 补充 kedaya.ai。仅同步上游文档与静态资源；不把广告中的价格、退款、发票或服务承诺当作本项目验证结论。
+
+- **首 Token 时间**（`9d463e39 / f434192a`）：Meta 流在翻译和失败发布前，用有效 Responses 内容事件记录 TTFT；只有完成时才带非空 summary/content 文本的 reasoning item 也可确定首 Token 时间。空 reasoning、仅加密数据、元数据和订阅用量遥测不当作可见 Token；先前已记录时间不被后续完成项覆盖。这是计时修正，不是响应延迟优化承诺。
+
+- **调用方 User-Agent**（`5026f365`）：OpenAI compatible 的普通/图片/流式请求优先透传调用方 User-Agent，缺失时保留 cli-proxy-openai-compat 默认值；xAI API、自定义非 CLI relay、图片及 WebSocket 路径补调用方 UA 或 xai-grok-workspace/<version>。官方 CLI chat-proxy 仍使用其固定身份头；显式凭据 header 最后覆盖，大小写不同的 header map 也可解析。
+
+- **Antigravity Hub 指纹与目录**（`02e9e852`）：内置 Hub 备用版本由 2.23.0 升至 2.24.0，UA 使用 aidev_client、os_type/arch 及匹配版本的 changelist；未知在线版本不套用其他版本的 changelist。loadCodeAssist 对齐 daily/custom 路由并不再主动设置 Accept:*/*。模型能力缓存加入实际探测 UA 快照，版本变化使旧探测失效并取消迟到工作，旧持久化目录仍可作过期回退；未安装客户端，也不证明新模型权益。
+
+- **Claude 结束原因与暂停搜索**（`aadb34f9`）：Responses 将 refusal 转为 incomplete/content_filter，model_context_window_exceeded 转为 failed/context_length_exceeded，保留此前输出；标准客户端也保留完整 response.failed 事件/envelope，仅错误字段脱敏，不再改写为通用 error。pause_turn 改为 completed 且 end_turn=false，等待客户端继续。未完成 web search 保留同 ID 的待续调用；同一 assistant run 内的后续结果合并为一对，跨用户或工具输出边界不合并。Chat 的上下文溢出为非流 HTTP 400/流式单一错误终态，不再追加成功或重复截断错误；refusal 仍为带 content_filter 的正常结果。Responses parallel_tool_calls=false 在有效工具选择下映射 disable_parallel_tool_use，不强加到 none、空工具或已过滤的强制工具。
+
+- **Claude 转 Codex 解析开销**（`77af3795`）：同一请求的 replay 目标模型只解析一次，再供各 thinking block 使用；签名家族判断及保留规则不变。该局部优化没有新增跨请求缓存，不作为旧 replay-cache 内存问题修复。
+
+- **SIWC 相对路径**（`bb2d8f82`）：SIWC 的相对 auth-dir 和显式 path/source 按工作目录规范化；仅 FileName 回退按 auth-dir 解释。目录别名可以解析，目标文件本身的 symlink、目录外路径和不存在文件仍拒绝。
+
+- **凭据扫描读错误**（`5fe203d5`）：全目录扫描遇到权限等非 ErrNotExist 读错误时，将该路径标为未完整读取并保留已有凭据，避免误当删除；真实不存在文件仍走删除语义。此保护不保证读取立即恢复，也不隐藏显式删除。
+
+- **Claude 搜索缓存按凭据隔离**（`cddc9bb8`）：启用的 Claude Responses web-search-result-cache 在原 session key 前加入可解析凭据身份的摘要，优先 auth.ID，再用既有身份 seed/API key/base URL 回退；Execute、Stream 与 CountTokens 使用同一作用域。相同会话切换凭据不再恢复另一凭据的结果；取不到身份时仍沿用原 session key。默认关闭、24h TTL、1024 条本地 LRU 和 Home KV 语义不变，新 key 不迁移旧缓存，不是字节上限或长期内存修复。
+
+- **SIWC 账号替换保护**（`6bbd2cb7`）：开始绑定时同时捕获 account_id 和 registration epoch，提交时再次核对内存凭据及磁盘账号；即使替换账号未改变 epoch，旧会话也不能覆盖新账号。SDK 的 BindCodexSIWC 增加 expectedAccount 参数，直接使用该方法的嵌入式调用方需传入启动授权时捕获的账号；管理 HTTP 请求格式不因此增加用户可改的 target/account 字段。
+
+- **xAI 图片别名**（`8a3e7622`）：开启 force-model-prefix 时，xai/x-ai/grok 厂商别名前缀仍可按既有图片模型规则回退；显式注册优先，普通自定义 namespace 仍遵守强前缀要求。不泛化为任意前缀绕过，也不新增模型授权。
+
+- **Gemini 工具 thoughtSignature 往返**（`38706390`）：Gemini functionCall 的 thoughtSignature 经 OpenAI Chat tool_calls 的 extra_content.google.thought_signature 携带，响应再恢复到 Gemini；兼容几种既有拼写位置。流式累积签名、处理同帧文本/工具/终态，并按工具 index 稳定输出顺序；只搬运不透明签名，不验证供应商真实性或跨模型通用性。
+
+- **旧上传与 SIWC 提交锁**（`88041f0c`）：旧凭据上传在目标为现有或新 Codex 时加入同一文件锁，与 SIWC 提交串行；锁路径解析文件或父目录别名。绑定提交除 inode/路径检查外再次比较完整文件字节，拒绝等待期间的同 inode 原位改写。它依赖合作写入方的锁约定，不是任意外部进程的文件事务。
+
+- **Claude sdk-ts 与显式 never**（`20c9095c`）：sdk-ts 加入已验证原生入口，但仍需相应 UA、X-App、beta/metadata 等联合形状，复制 UA 不足以获得透传。新增窄化的 Haiku 5.5 helper 识别。适用 CLI/OAuth profile 的显式 cloak_mode=never 可保留已确认形状的调用方软件头，不强制套稳定设备 profile；非 CLI API key 的 never/uncloak 去伪装仍保留。OAuth helper 补必要 oauth beta 而不自动加 extended-cache-ttl；默认识别规则及显式 header 覆盖边界分别保留。
+
+### 本轮二开适配
+
+本轮合并继续保留凭据身份/namespace、凭据代理与 direct/require、默认10/自定义并发及共享 lease、Access Guard、最终 payload 后身份映射、文件锁和 token 分区语义。SIWC 新增账号/文件内容保护与原目标代理固定、刷新 gate 清理衔接；v35 已发布的 Codex 大整数保存精度修复是保留基线，不再次列为本轮新修复。
+
+Claude 新增的 Chat 上下文溢出 HTTP 400 路径曾在成功用量发布之后判断错误，可能出现请求失败却计成功。本轮将该判断移到成功发布之前，按失败记录已经观察到的 Token；普通 refusal 仍保留成功响应语义，上下文错误不因此跨凭据重试。这里只调整用量结果与实际返回的一致性，不改变供应商账单。源码和最终镜像是否通过分别以本轮收据为准。
+
+另修复上游省略 tool_calls.index 且分片 ID 按 A→B→A→B 再次出现时的工具累积：先按已知非空 ID 复用原工具，再更新位置映射，后续无 ID 的参数片段继续跟随对应工具，避免两个工具被拆成四个；显式 index 路径保持原规则。
+
+### 管理页 v1.26.6
+
+管理页仍为官方 v1.26.6 加原二开 patch，本轮无 UI 原生提交或产品源码变更。相同源文件和 HTML 的构建复现、本轮选定兼容/API 联调、最终镜像浏览器分别记录；v35 完整 UI 套件及此前 OAuth/SIWC 受控浏览器结果保留为历史证据，不冒充本轮重新执行。
+
+保留 UI 的 Antigravity quota/loadCodeAssist 请求显式携带旧 `antigravity/hub/2.23.0 darwin/arm64`，通过 generic APICall 出站；它不会自动被新的 Go 推理 Hub 2.24.0 指纹覆盖。本轮记录实际 header/代理边界，不据此推断供应商已拒绝该 UI 请求，也不声称所有 Antigravity 流量均已改用新 UA。
+
+### 默认、迁移与回退
+
+没有新增 YAML 配置字段或必须执行的普通配置迁移；健康 OAuth 无需因本轮升级批量重新登录。下列行为变化需由调用方区分：
+
+| 项目 | 默认与迁移边界 |
+| --- | --- |
+| Responses 终态 | 客户端需处理完整 `response.failed` 事件；`pause_turn` 的 completed/end_turn=false 表示继续而非结束会话 |
+| SIWC SDK | 直接调用 `BindCodexSIWC` 的嵌入式代码须增加授权开始时捕获的 `expectedAccount`；HTTP API 不新增用户可改账号参数 |
+| SIWC 路径 | 显式相对 path/source 依工作目录，FileName 回退依 auth-dir；仍禁止目标 symlink 与目录越界 |
+| Web search 缓存 | 仍默认关闭、TTL 24h、本地1024条；启用后凭据作用域 key 变化可导致冷启动，旧项不迁移；Home KV 不新增容量保证 |
+| User-Agent | OpenAI compatible/xAI 适用路径优先调用方 UA，显式凭据 header 仍最后覆盖；官方 CLI chat-proxy 保留专属指纹 |
+| Claude 客户端 | sdk-ts 仍需联合请求形状；显式 never 的适用边界与非CLI API key uncloak 分开，不是任意 UA 的信任开关 |
+| Antigravity | Go Hub 备用版本2.24.0及新指纹；UI quota请求的旧UA单独保留，动态目录版本变化需重新探测 |
+
+Claude 搜索缓存的凭据作用域在 CPA executor 产生并传入现有本地/Home KV 路径，本轮没有新增 Home API 或配置字段；Home 本身配置能力以本轮只读审查为准，没有部署或迁移 Home。回退应使用配套镜像/配置/auth/插件/用量快照，并核对 token 轮换及新增用量，不能只回退二进制。
+
+### 此前停止处理的内存问题
+
+此前停止处理的 replay-cache/usage queue 内存问题没有新增修复或长期压力复测。本轮相关缓存/队列实现与原生 v35 比较保持原样；新增的是 executor 的凭据缓存 key 和请求内单次目标解析。既有本地 LRU 只限条目、Home KV 只沿用其 TTL/既有后端语义，插件单行缓冲及不可卸载 shadow 映射也没有新增字节上限；不据普通测试或局部性能优化承诺长期进程内存稳定。
+
+## v8.0.35.1 历史记录
+
 当前修订为 `v8.0.35-codex-identity.1`，基于官方 `v8.0.35`（`ae3ee3be303fb07fb8173279923413005bf32177`）。从已发布 `v8.0.30-codex-identity.1` 合入 v31—v35 全部 68 个提交（62 非 merge、6 merge）。固定镜像标签 `codex-identity-v8.0.35.1` 与 latest 的最终摘要/验收以本轮附件为准，不复用历史通过结果。
 
 ## v8.0.31—v8.0.35 更新

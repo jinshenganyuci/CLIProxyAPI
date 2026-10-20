@@ -791,6 +791,35 @@ func TestConvertClaudeRequestToCodex_AssistantRoutedMetaSignatureToReasoningItem
 	}
 }
 
+func TestConvertClaudeRequestToCodex_ResolvesReplayTargetModelOncePerRequest(t *testing.T) {
+	extraAllocations := func(thinkingBlocks int) float64 {
+		var body strings.Builder
+		body.WriteString(`{"messages":[{"role":"assistant","content":[`)
+		for i := 0; i < thinkingBlocks; i++ {
+			if i > 0 {
+				body.WriteByte(',')
+			}
+			body.WriteString(`{"type":"thinking","thinking":"step","signature":"x"}`)
+		}
+		body.WriteString(`,{"type":"text","text":"done"}]}],"model":"MY-DEPLOYMENT"}`)
+		payload := []byte(body.String())
+		mappedAllocs := testing.AllocsPerRun(20, func() {
+			_, _ = ConvertClaudeRequestToCodex("gpt-5", payload, false)
+		})
+		unmappedAllocs := testing.AllocsPerRun(20, func() {
+			_, _ = ConvertClaudeRequestToCodex("my-deployment", payload, false)
+		})
+		return unmappedAllocs - mappedAllocs
+	}
+
+	// Compare scaling rather than a fixed per-request allocation allowance:
+	// constant routing overhead can differ across toolchains and fork metadata.
+	small, large := extraAllocations(8), extraAllocations(64)
+	if large-small > 4 {
+		t.Fatalf("unmapped model allocation overhead grew from %v to %v across 8 and 64 thinking blocks; expected O(1) target model resolution per request", small, large)
+	}
+}
+
 func TestConvertClaudeRequestToCodex_IgnoresGrokSignatureForNonGrokTargets(t *testing.T) {
 	signature := "HmlYdr2aCAqCYP/m9mr8PS6KOsdMs72FGDigmydR+Jsmuv8KX97yWPlbOwmXJgWn0CbHaCacdQD3+n5EvpgLfPNmafS3kdICBjRuDf4bzHy7uBiUhNVhqPtp/ee1y9q4imPE4LYgD1VZ4J+bp9mTeqA1+nC9Oue58CiNEMV9SVaGenCD+aBnVuSTzQhD32Y+68i6HLJW0Dx6ifaRfb8hxYtA/sPM+/FTvAMW11nRho5a2BBSkpnzfqqAz/e/vGJ77/bygpXM823QA9wL9i0X"
 	payload := []byte(`{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"summary","signature":""},{"type":"text","text":"answer"}]},{"role":"user","content":"next"}]}`)

@@ -37,7 +37,7 @@ func TestV835SIWCBindingResetsOldRefreshGateAndPreservesControls(t *testing.T) {
 	defer release()
 	tokens := bindingTokens("new-bound-siwc")
 	tokens.Expire = now.Add(time.Minute).Format(time.RFC3339)
-	got, err := m.BindCodexSIWC(context.Background(), base.ID, base.RegistrationEpoch, tokens)
+	got, err := m.BindCodexSIWC(context.Background(), base.ID, base.RegistrationEpoch, "account", tokens)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestV835SIWCBindingResetsOldRefreshGateAndPreservesControls(t *testing.T) {
 func TestV835SIWCBindingSupportsLongCredentialBasename(t *testing.T) {
 	name := strings.Repeat("a", 244) + ".json"
 	m, base, path, _ := setupSIWCBinding(t, name)
-	if _, err := m.BindCodexSIWC(context.Background(), base.ID, base.RegistrationEpoch, bindingTokens("long-name-bound")); err != nil {
+	if _, err := m.BindCodexSIWC(context.Background(), base.ID, base.RegistrationEpoch, "account", bindingTokens("long-name-bound")); err != nil {
 		t.Fatal(err)
 	}
 	if readBindingDisk(t, path)["siwc"].(map[string]any)["access_token"] != "long-name-bound" {

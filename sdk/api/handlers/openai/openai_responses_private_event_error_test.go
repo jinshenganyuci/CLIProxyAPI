@@ -21,12 +21,12 @@ import (
 func TestResponsesSSEPrivateFilteringPreservesTerminalErrors(t *testing.T) {
 	for _, codexClient := range []bool{false, true} {
 		for _, scenario := range []struct {
-			name, frame string
+			name, frame, standardTerminalEvent string
 		}{
-			{"private_event_public_failure", "event: responsesapi.websocket_timing\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}}\n\n"},
-			{"private_event_error_object", "event: codex.rate_limits\ndata: {\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}\n\n"},
-			{"public_error_private_type", "event: error\ndata: {\"type\":\"responsesapi.websocket_timing\",\"message\":\"provider busy\"}\n\n"},
-			{"data_only_private_type_error", "data: {\"type\":\"codex.rate_limits\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}\n\n"},
+			{"private_event_public_failure", "event: responsesapi.websocket_timing\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}}\n\n", "response.failed"},
+			{"private_event_error_object", "event: codex.rate_limits\ndata: {\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}\n\n", "error"},
+			{"public_error_private_type", "event: error\ndata: {\"type\":\"responsesapi.websocket_timing\",\"message\":\"provider busy\"}\n\n", "error"},
+			{"data_only_private_type_error", "data: {\"type\":\"codex.rate_limits\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"provider busy\"}}\n\n", "error"},
 		} {
 			t.Run(fmt.Sprintf("codex=%t/%s", codexClient, scenario.name), func(t *testing.T) {
 				var output bytes.Buffer
@@ -35,13 +35,17 @@ func TestResponsesSSEPrivateFilteringPreservesTerminalErrors(t *testing.T) {
 					failureEvent = "response.failed"
 				}
 				framer := &responsesSSEFramer{failureEvent: failureEvent, isCodexClient: codexClient}
+				expectedTerminalEvent := scenario.standardTerminalEvent
+				if codexClient {
+					expectedTerminalEvent = "response.failed"
+				}
 				// Exercise frame reassembly rather than invoking the filter directly.
 				split := len(scenario.frame) / 2
 				framer.WriteChunk(&output, []byte(scenario.frame[:split]))
 				framer.WriteChunk(&output, []byte(scenario.frame[split:]))
 				framer.WriteChunk(&output, []byte("data: {\"type\":\"response.completed\",\"response\":{\"output\":[]}}\n\n"))
 				framer.Flush(&output)
-				if framer.terminalError == nil || framer.terminalEvent != failureEvent || framer.dataFrames != 1 {
+				if framer.terminalError == nil || framer.terminalEvent != expectedTerminalEvent || framer.dataFrames != 1 {
 					t.Fatalf("private filtering lost terminal error: event=%q error=%v frames=%d output=%q", framer.terminalEvent, framer.terminalError, framer.dataFrames, output.String())
 				}
 				if !strings.Contains(output.String(), "provider busy") || strings.Contains(output.String(), "event: responsesapi.") || strings.Contains(output.String(), "event: codex.") || strings.Contains(output.String(), "response.completed") {

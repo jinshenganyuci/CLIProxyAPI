@@ -3,7 +3,9 @@ package synthesizer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,6 +53,9 @@ func (s *FileSynthesizer) Synthesize(ctx *SynthesisContext) ([]*coreauth.Auth, e
 		full := filepath.Join(ctx.AuthDir, name)
 		data, errRead := credentialfile.ReadFile(full)
 		if errRead != nil {
+			if !errors.Is(errRead, fs.ErrNotExist) {
+				ctx.RecordIncompleteFile(full)
+			}
 			continue
 		}
 		if !json.Valid(data) {

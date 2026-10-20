@@ -297,7 +297,7 @@ func (h *Handler) writeAuthFile(ctx context.Context, name string, data []byte) e
 	}
 	release := h.beginSIWCFileMutation(ctx, dst)
 	defer release()
-	writeFile := func() error { return os.WriteFile(dst, data, 0o600) }
+	writeFile := func() error { return h.writeAuthFileBytes(dst, data, auth) }
 	if isCodexOAuth {
 		writeFile = func() error {
 			return codex.WithFileLock(dst, func() error {
@@ -408,6 +408,28 @@ func (h *Handler) findCodexCredentialIdentityNamespaceOwner(namespace string, de
 func uploadedMetadataLooksOAuth(metadata map[string]any) bool {
 	for _, key := range []string{"access_token", "refresh_token", "id_token"} {
 		if authMetadataStringValue(metadata, key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// writeAuthFileBytes also locks provider replacements of an existing Codex file.
+func (h *Handler) writeAuthFileBytes(dst string, data []byte, auth *coreauth.Auth) error {
+	if h.shouldLockCodexAuthFile(auth) {
+		return codex.WithFileLock(dst, func() error {
+			return os.WriteFile(dst, data, 0o600)
+		})
+	}
+	return os.WriteFile(dst, data, 0o600)
+}
+
+func (h *Handler) shouldLockCodexAuthFile(auth *coreauth.Auth) bool {
+	if coreauth.IsCodexAuthRecord(auth) {
+		return true
+	}
+	if h != nil && h.authManager != nil && auth != nil && auth.ID != "" {
+		if existing, ok := h.authManager.GetByID(auth.ID); ok && coreauth.IsCodexAuthRecord(existing) {
 			return true
 		}
 	}
