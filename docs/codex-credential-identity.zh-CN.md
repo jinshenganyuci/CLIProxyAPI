@@ -1,5 +1,128 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.35-codex-identity.1`，基于官方 `v8.0.35`（`ae3ee3be303fb07fb8173279923413005bf32177`）。从已发布 `v8.0.30-codex-identity.1` 合入 v31—v35 全部 68 个提交（62 非 merge、6 merge）。固定镜像标签 `codex-identity-v8.0.35.1` 与 latest 的最终摘要/验收以本轮附件为准，不复用历史通过结果。
+
+## v8.0.31—v8.0.35 更新
+
+- **流式请求快照**（`7a511e4d / 5de9de9a / 030d17ed`）：Claude/Gemini→Responses 与 OpenAI→Claude 转换把已校验请求、工具映射和流偏好固定在单次 stream 状态中，减少每个 chunk 重复解析；不跨请求缓存，也不承诺整进程内存下降。
+
+- **配置 ETag 并发保护**（`fa68946a`）：v8 ConfigV8 读取返回磁盘原始字节 SHA-256 的强 ETag；写入可携带 If-Match，过期值返回 412 且不写，成功后回传实际保存字节的 ETag。缺少 If-Match 仍无条件写；空/弱/畸形标签不匹配，单独 * 匹配当前版本。覆盖该配置 handler，非所有管理变更或外部磁盘写入的全局事务。
+
+- **插件 shadow 加载**（`355fd10e`）：动态插件从按内容摘要命名的每进程临时 shadow 副本加载，使原始 .so/.dll 可替换，并隔离不同内容；校验完整摘要后复用。只清理已退出进程遗留目录。已加载的 Go plugin 不能卸载，热更不保证释放旧代码映射或降低内存。
+
+- **README 生态文档**（`e7003d2a / 8071ef59`）：英文/中文/日文 README 增加 kedaya.ai 介绍/图片及 Hermes 集成入口；是上游生态文档，未验证第三方价格、服务或权益。
+
+- **Claude 工具参数清理**（`202b8b8c`）：返回 Claude 客户端的工具实参按原始 schema 与实际发送的转换 schema 清理注入的占位字段，递归处理对象/数组、本地引用与可判定分支；保留合法同名属性、开放对象及无法安全判定的 union，不能当作任意参数强制验证器。
+
+- **Claude 会话日期锚**（`7604d3df`）：upstream.claude.session-date-pin-days 未设置默认 7 天，显式 0/非正值保留旧 continuity 的约 1 小时行为；独立 session 日期锚使用滑动保留，已有锚优先，首个合法调用方 currentDate 可作为初始值，跨闲置/凭据切换保持前缀。只影响适用 cloaking 日期，不保证供应商缓存命中。
+
+- **Meta 终态与遥测**（`088e4457 / 3a072298`）：Meta 在已收到 response.completed/incomplete 后的连接中断不再改判成功终态；过滤 subscription usage telemetry，不把这些记录转为用户输出，仍保留真实终态和用量。088e4457 虽以 test 开头，也修改了生产流式断连处理。
+
+- **Devin 账号配额**（`b946d54e`）：明确 daily/weekly quota exhausted 转为凭据级冷却并传播到模型，使用可信未来重置时间（最多 8 天）或原退避。耗尽凭据约每小时重查，只有更新且同时确认日/周可用的观测才提前恢复；保留无关模型冷却与未授权状态，普通限速/容量错误不泛化为账号配额耗尽。
+
+- **Claude adaptive 与思考绑定**（`911f49cb / e13bc9a1 / ad9e456d`）：保留思考的 Claude 模型回放带签名 thinking/redacted history 时，在适用 thinking 模式下补 prefix_mismatch_behavior=drop_block 与对应 beta；未给 thinking 可补 adaptive，强制工具选择、无类型对象及显式 binding 不被覆盖。Sonnet 5.5 关闭用 between_tools；不能彻底关闭的 Opus 5.5/Fable 等回落最低支持 effort 并隐藏思考显示。仍走 canonical thinking→provider applier，用户最终 payload 优先。本轮内嵌目录只调整六个既有 Claude 条目的 thinking 元数据，没有新增/删除模型 ID。
+
+- **Gemini schema 与处理效率**（`a43026d7 / b8d4e14a / c558d320 / 154d5144`）：Gemini/Antigravity schema 清理移除不支持的 contentMediaType/contentEncoding/readOnly/writeOnly，并解析 schema 内本地 $ref，保留 default/enum/const/examples 等字面值；外部/循环引用有保守处理。Antigravity 按声明批处理减少重复整文档拷贝，目标为线性扩展，不是长期内存稳定证明；Claude union 限制保留。
+
+- **流式截断检测**（`4f2e5270`）：Claude、Gemini、Vertex、Kimi、OpenAI compatible 与 Claude proxy handler 按各协议终态识别提前 EOF/截断，避免缺终态仍报告成功或重复终态错误；只有真正终态后断连可视作完成。保留已收到用量和取消语义，不保证已交付内容可重试。
+
+- **watcher 快照保护**（`c4c1d43e / 7484a521`）：watcher 保存与文件快照携带 revision/来源身份，迟到快照不能覆盖更新的已保存凭据；不完整或原位写入产生的空/无效未索引快照不当作删除。确认删除与逐 ID 内容更新仍区分，不能以保守处理承诺永不需要重同步。
+
+- **模型注册重协调**（`16b53545 / f75ea073`）：模型注册在等待插件/动态目录期间若凭据或配置被更新，重取最新状态并按 epoch/配置 fence 发布；旧结果不能覆盖新注册，必要时重新调度。16b53545 仅稳定测试同步，不单列新功能。
+
+- **Claude 短期限流**（`db1bab01`）：仅三种完整 RPM/输入 TPM/输出 TPM 错误文案，且单一短 Retry-After、没有明确配额状态时，避免泛化 unified reset 把分钟限速拉长；真正被拒绝的窗口和其他配额信号保持保守冷却。
+
+- **排除模型优先级**（`b015f208 / 94d1a9a0 / 1a28c61e / bb428247 / 3e309fb4 / d7005b63`）：非空凭据 excluded_models 优先，替代而非合并 provider 全局排除；缺失/空/null 继承当前全局规则并随热更新。加载畸形列表采取容错，管理写入仍验证；插件合成、静态/动态注册和配置 fence 也遵守此优先级。bb428247 同步澄清了配置模板注释。
+
+- **推理签名承载**（`7a0b7563 / 88ac14f3 / a4660260 / cc5682c5 / 772df04b / 674dbe8f / be9fbd94 / a68c7d8e`）：识别 Meta Muse envelope 及 GPT/Grok/Meta router suffix，按实际目标模型家族决定 reasoning 能否回放；Gemini thoughtSignature 与 Interactions 的承载保序、避免破坏 SDK 支持字段。OpenRouter 私有 suffix 仅在相应路由保留，官方或其他上游剥离。基于 envelope 结构分类而非解密验证供应商签名；原生 Meta 路径继续拒绝带 router suffix 的 Meta 签名，不允许跨家族盲转，也不证明真实供应商接受。
+
+- **插件目录与注册锁**（`adc436ff / a7608a8a / 1ad175b6`）：仅提供目录的插件模型也绑定实际凭据和排除规则，原生 executor/catalog 优先于冲突插件；相对 auth 路径保持稳定身份。注册 executor 前快照 scheduler，并在外部注册调用时释放 host 锁，降低重入/锁顺序问题；目录存在不等于凭据可调用。
+
+- **插件流单行缓冲**（`66c27581`）：插件流观察移除原 64 KiB lineBuffer 清空阈值，防止较大单行用量事件被截断或丢失；该路径未新增单行字节上限，不能称为内存上限修复。
+
+- **Antigravity SDK**（`acaab599`）：SDK 暴露 Antigravity 当前/默认 User-Agent helper，让插件复用原生格式；不安装真实客户端。
+
+- **mDNS 发现**（`294ed097`）：mDNS 改用自有 responder 处理主机冲突探测/改名、A/AAAA/NSEC、服务 PTR/SRV/TXT、单播/多播应答、known-answer suppression 和退出生命周期；显式绑定 IP 在自动接口筛选为空时仍可作为广播候选。最多八次主机冲突尝试；不自动改公网 DNS，也不保证每个实际局域网发现成功。
+
+- **访问日志**（`4337f1f0`）：访问日志路径用转义格式，避免控制字符注入；结合 SIWC 提交对 v8 OAuth 查询整体隐藏，并将 value 查询参数列入敏感掩码。不承诺清理历史日志。
+
+- **安全凭据修改**（`d69962e4`）：Manager.Modify 在凭据变更锁及 registration epoch 检查下读取最新 auth、执行窄修改与持久化，管理控制编辑避免旧完整快照覆写新状态；不等于跨进程/所有后端事务。
+
+- **模型定义 channel**（`50cfd238`）：管理模型定义优先查静态 channel；无静态结果再查插件/运行目录，结果排序；未知或空 channel 仍明确报错。模型定义与实际可用模型列表不同。
+
+- **Codex 主动刷新**（`feb63984`）：Codex 外层 token 主动刷新提前量由 24 小时改为 96 小时；已拒绝刷新 token 的处理避免反复失败，保留嵌套 SIWC 分区/外层独立刷新语义。普通健康凭据无需因此重登。
+
+- **Antigravity credits 提示**（`904ec710`）：AI credits 已知负面提示超过 10 分钟可重新验证，避免余额恢复后一直跳过；凭据选择/实际请求按最新结果决定，不把陈旧负提示当永久否决，也不证明实际额度恢复。
+
+- **Claude 搜索结果缓存**（`9d453bc0 / ab9c06b4`）：client.codex.web-search-result-cache 默认 enabled=false、ttl=24h、limit=1024；数字 TTL 按秒，零/缺失回默认，负值/非法值拒绝。适用 Claude Responses 会话按隔离 session+tool_use_id 恢复缺失/空 web_search_tool_result，已有内容不覆盖；本地 LRU 按条目数限制且读取续期，不限制每条字节。Home 模式用 KV get/set/expire，写入best-effort、读取错误在恢复路径跳过，不回退本地，也不在此执行本地limit上限；不承诺旧 replay-cache/usage queue 问题修复。
+
+- **Home 空模型目录**（`07feedf7 / 4d34502f`）：Home 合法空对象/空分组可返回空目录；null、error envelope 或非空却无有效模型 ID 的数据继续拒绝，避免把上游错误当模型。
+
+- **Vertex OpenAPI**（`d9451cb6`）：Vertex 非 Google partner/open 模型可走 endpoints/openapi，识别 publisher/model 或 publishers/.../models/... 并规范化；显式 openapi 控制保留，Imagen 不误转。官方 Google partner 路径要求服务账号；API-key 用于第三方兼容 relay，模型条目仅需 name、alias 可省略。Google 原路径保持；不保证所有第三方模型具备全部工具/思考能力。
+
+- **Claude 去伪装**（`084b9ca7`）：非 CLI API-key 的 cloak never/uncloak 除停止伪装外，还移除已识别的 Claude Code 身份/计费归属 system、metadata、diagnostics/header；普通用户内容保留，OAuth/显式 CLI profile 不泛化为此分支，最终 payload 规则仍优先。
+
+- **xAI 图片模型前缀**（`45ccd9c3`）：OpenAI image 路由保留用于定位 xAI provider 的模型前缀，避免在选路前过早去掉命名空间；不改变图片模型权益。
+
+- **Codex 客户端能力**（`8df4e42a`）：非原生 Codex 目录明确 tool_mode=direct、use_responses_lite=false、supports_reasoning_effort_updates=false；SIWC 对拒绝 configuration_update 的路径折叠到末个有效顶层 effort，显式模型后缀仍优先，接受可能的 prompt-cache 前缀变化。不是新增用户 YAML 请求模式开关。
+
+- **Codex 搜索历史**（`e7d4c731`）：回放 web_search_call 与当前工具声明对齐，修复历史有搜索而当前工具集不一致的请求；不等于自动执行第三方搜索或新增供应商权限。
+
+- **远程压缩 v2**（`344e0ef9`）：Kimi/Meta 普通 Responses 流/非流路由支持 Codex v2 压缩触发、摘要生成与 capsule 展开，token count 同样理解 capsule；复用 Claude/Antigravity 的公共处理。旧 /responses/compact 入口仍返回不支持，不能把 v2 支持写成任意 compact API 开放。
+
+- **SIWC 管理绑定**（`d50a1995 / ae3ee3be`）：新增 POST /v8/management/oauth/siwc/bind，以已有本地文件 Codex OAuth 凭据 name/ID 发起五分钟服务端会话，固定target/epoch/PKCE/device/redirect；不监听1455，远程浏览器将完整loopback回调URL交给v8 callback，必须使用实际issued client_id。提交只替换siwc并use_siwc=true，保留其他字段；取消与提交竞争有门控，重复/并行绑定409，删除/替换目标使会话失效。拒绝凭据symlink、越界路径和旧callback，Home/非file存储不支持；列表仅非秘密摘要，bound不代表实时有效。没有独立解绑/启停管理操作，也不回退普通 Codex 登录；本轮配套 UI v1.26.6 已提供专属绑定入口和状态展示。
+
+### 管理页 v1.26.5 / v1.26.6
+
+官方 UI v1.26.4→v1.26.5 完整合入 5 个非 merge 提交：认证文件额度刷新按钮仅在非 idle 状态显示；Antigravity 请求 UA 更新为 hub/2.23.0 darwin/arm64；Remaining 后缀及 window 字段正确本地化；Gemini quota 分组描述补 Gemini Argon；同组周额度耗尽时，五小时桶即使 remainingFraction=1 也不显示“额度可用”。这些只是展示/请求兼容，不证明真实账号额度或模型授权。
+
+官方 v1.26.6 再加入 4 个提交，本轮 UI 总计 9 个非 merge 提交。OAuth 页新增 SIWC 绑定入口，选取后端明确支持的已有 Codex 凭据，开始后锁定目标；校验固定 loopback 回调地址、state、issued client_id，404 显示不支持且不回退普通登录。SIWC 关闭会取消未完成会话，start 晚回也用捕获的原管理连接清理；连接切换后旧响应不更新新连接版本/插件状态或触发其退出。认证卡展示 active/bound/unbound 与过期时间，状态来自保存摘要，不是实时 token 有效性证明。与此不同，原有普通 OAuth Close 保留 pending 的二开行为继续单独保留。
+
+Claude quota 将套餐与剩余重置券放到同一行，券详情跟随套餐，其余 extra usage/dollar balance 使用统一额度行。重置券失败按 organization/status/eligibility/request_id/operation 阶段显示本地产生的脱敏原因，401/403 与 429 分别分类；已有显式重试窗口、连接防护与不确定结果处理保留，不增加自动兑换或真实权益承诺。
+
+### 本轮二开适配
+
+新增 SIWC 管理绑定按目标凭据选择代理：require 缺失拒绝、畸形代理拒绝、显式 direct 保持直连；授权会话保存开始时确定的路线，后续全局配置变更不能改变该次 token 交换出口；浏览器打开授权页仍使用浏览器自己的网络。代理和密钥仅保留服务端，不放进授权 URL。原生提交前 epoch/文件路径校验、取消与持久化门控继续保留；新 SIWC token 写入后清旧 NextRefreshAfter 并更新时间，避免旧 token 的刷新 backoff 继续拖住新分区。既有外层 token、namespace、proxy、并发及控制字段不能被绑定流程覆盖。
+
+新的 scheduler 快照和模型重协调与二开并发准入衔接：先过滤可用性与占用，插件跨优先级选择只使用同次 scheduler 快照；默认 10、自定义限额及共享 lease 仍保留。条件式插件完整 AuthUpdate 继续检查 Generation 与 registration 输入；旧结果返回 superseded 状态，让原生重协调重新计算最新凭据一次，而非覆盖新凭据/控制状态。纯模型发布仍用 auth/config/registry fence，不把普通执行 Generation 变化误当注册失效。watcher 原生 revision 与二开 identityConflictOnly 组合，已确认的 UUID 冲突和不完整写入不能互相误判。
+
+执行链合并保留 credential-scoped Claude 工具别名、取消/转换失败用量、严格代理与最终 payload 屏障；WebSocket 过滤 subscription_usage 遥测时仍保留 localInterrupt 观测；OpenAI compatible 请求沿已选择的 compat 配置完成工具结果规范化。新思考绑定、schema、web-search 恢复、SIWC configuration_update 处理及压缩摘要均应先完成内置处理，再执行显式 payload 规则及原有身份映射。实际源码、最终镜像、代理和插件验证以本轮各自收据为准，不从上述实现说明推导通过。
+
+兼容 Responses 的 keepForeign 分支原先保留 unknown reasoning 时会绕过路由尾标清理，可能将 OpenRouter 私有 suffix 发给其他上游。本轮仅对已经获准保留、且符合既有高熵无填充 base64 加单一字母数字尾标结构的 encrypted_content，在非 OpenRouter URL 清除该尾标；无尾标、不能识别的 opaque 值及用户/工具字面文本保持原样。不把结构检查升级成 Grok/Meta 来源识别，不放宽目标家族的拒绝规则，也不承诺密文可解密。
+
+Devin 既有测试按原生新增账号配额提前恢复语义扩展，正观测可恢复而日额度仍为 0 时继续冷却；这是兼容新行为的回归调整，不伪装成另一个生产缺陷修复。此前 TLS 握手/取消、稳定 namespace、token 分区保存与 JSON 无变化不重写等二开能力继续保留，不重复列为本轮新功能。
+
+二开为配置 source、visual 和 provider-group 保存绑定各自最近读取的 ETag，If-Match 随成功步骤推进，412 停止且不盲重试，旧无 ETag 后端保持原行为。该保护范围不等于所有管理操作，多步骤保存仍不是事务。真实 Axios→Go 联调覆盖 source/visual/provider 保存及过期写入的 412；最终场景和单测结果以 v1.26.6 收据为准，与完整 UI、额外兼容、镜像浏览器分别记录。
+
+本轮新增 SIWC 弹窗的关闭回调改用稳定引用，并在 layout effect 更新到最新外层关闭逻辑，避免关闭动画期间的通知/轮询重渲染取消退出计时器。关闭成功后继续作废本次尝试并取消未完成的绑定会话，不改变 SIWC 的取消语义。
+
+登录前代理/direct、稳定 Close/Cancel、凭据身份/并发占用、Home 归属、精确 plugin/authIndex 和连接代次保护保留。普通 OAuth 浏览器与通知重渲染分别验收，结果绑定最终 HTML；负控仍是历史 v8.0.27.1 HTML，不是上次已修复的 v30。官方 v1.26.6 已增加 SIWC 专属绑定和状态展示，SIWC Close 按新流程取消未完成会话；与原普通 OAuth Close 保留 pending 的行为分别处理。新 UI 的完整测试、独立重建与 SIWC 受控交互/后端证据必须绑定最终 v1.26.6 HTML。
+
+### v8.0.35.1 默认与迁移
+
+普通 v8.0.30.1 用户无需批量重登健康 OAuth 或重复初始化 namespace，但本轮包含配置默认行为变化。
+
+| 项目 | 默认与迁移 |
+| --- | --- |
+| Claude 日期锚 | `upstream.claude.session-date-pin-days` 缺省 7 天；显式 0 使用旧 continuity 约 1 小时，不表示取消日期注入 |
+| Web search 缓存 | `client.codex.web-search-result-cache` 默认关闭；ttl=24h、limit=1024，零回默认而非禁用；本地 limit 是条目数，Home KV 不执行该本地限额 |
+| Thinking | 适用 Claude 模型的关闭请求可能回落最低 effort；Sonnet 5.5 使用 between_tools；已有明确 payload 规则仍最终优先 |
+| Codex 刷新与 client 能力 | 外层主动刷新提前 96 小时；非 Codex route 显式 direct/no-lite/no-effort-update 是目录能力字段，未新增 YAML request-mode 开关 |
+| 配置并发保存 | 新客户端应带所读 ETag 的 If-Match；412 后重读/人工处理冲突；旧调用不带 header 继续无条件保存；多步保存不是事务 |
+| OAuth 模型排除 | 非空凭据列表替代全局规则；缺失/空/null 继承，修改全局规则会影响继承凭据 |
+| SIWC 管理绑定 | 显式选择已有本地文件 Codex OAuth；五分钟会话、v8 callback、issued client_id；不启动1455 listener，配套 UI v1.26.6 提供专属绑定入口、无旧普通登录fallback，Home/非文件后端不支持 |
+| 既有二开默认 | namespace、登录前代理、direct/require/错误不回退、默认10/自定义并发与占用、Access Guard、最终 payload 后身份映射保持；TLS handshake默认0、先前Claude header默认仍适用 |
+
+当前 Home main `ad49a63f2e112096e143f80d5fb339d67e50e5f0` 已接受 TLS handshake timeout 和首 Token 前 keepalive，不能沿用上轮“两项拒绝”结论。新 date-pin/cache 与四项 Claude header-default 控制仍被 strict schema 拒绝；body limit、affinity rebind、SIWC identifier 的既有差距仍在。独立 CPA 无强制 Home 迁移，本轮未部署 Home。
+
+回退需配套镜像、配置、auth、插件及用量快照，并核对 token 轮换/新增用量。旧版不能假定识别新字段；SIWC 会话和 WS/thread 进程状态不随镜像恢复。Go module 仍 `/v8`，v7 用户沿用既有 [Devin 迁移表](https://github.com/jinshenganyuci/CLIProxyAPI/releases/download/v8.0.2-codex-identity.1/devin-v8-model-id-migration.md)。
+
+### 此前停止处理的内存问题
+
+此前停止处理的 replay-cache/usage queue 问题没有独立修复或长期压力复测。本轮旧 Codex replay cache 的签名接纳从 GPT-only 改为 GPT/Meta，属于兼容性判定，不改变容量/TTL/淘汰；Codex duplex 也新增 SIWC configuration_update 过滤，因此不能写“旧保留文件全未变”。usage queue 片段与其他 replay cache 按本轮摘要分别核对。新 Claude web-search LRU 是条目数上限，Home KV 使用 TTL 且不执行该本地限额；插件流移除旧 64 KiB lineBuffer 清空阈值后没有替代字节上限。stream 请求快照、schema 批处理、日期 pin、不可卸载的 plugin shadow 映射均单独说明，不把它们或常规测试当作整进程长期内存稳定证明；原 128 SHA-256 终态历史上限仍为保留行为。
+
+## v8.0.30.1 历史记录
+
 当前修订为 `v8.0.30-codex-identity.1`，基于官方 `v8.0.30`
 （`5be2cdab0869cbaa3d401891f740aebf7e15aa99`），从已发布的 `v8.0.28-codex-identity.1`
 合入 v8.0.29 与 v8.0.30 共 25 个提交：23 个非 merge、2 个 merge。

@@ -3,12 +3,12 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.26.4`
-- commit: `13f94b47f3400e681dfdede65acf1a1242ee3fce`
-- patch: `management-center-v1.26.4-credential-identity.patch`
+- tag: `v1.26.6`
+- commit: `603539ab5c5343f32c3945c6e0cdb8333991c493`
+- patch: `management-center-v1.26.6-credential-identity.patch`
 
-This release integrates all 11 official commits from `v1.26.2` through `v1.26.4`,
-including `v1.26.3`, while preserving the fork controls described below.
+This release integrates all nine official commits from `v1.26.4` through `v1.26.6`,
+while preserving earlier native functionality and the fork controls described below.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login-dialog proxy selectors. Proxy-capable tiles open the dialog before starting a
@@ -97,8 +97,13 @@ from upstream groups under top-level `api-keys`. Provider writes preserve group 
 null inheritance, unknown fields and credential row identity, with connection-switch guards.
 Visual edits use targeted PATCH/DELETE/PUT operations. Recovery after partial writes does
 not replay stale list indexes; conflicting list or payload replacements require a refresh.
-Source YAML mode still replaces the entire supplied document. This is not an atomic
-compare-and-swap guarantee against writes occurring after the current snapshot.
+Source YAML mode still replaces the entire supplied document. Configuration-page source/visual saves and provider-group writes bind the last read
+ETag to their own save operation. Each successful visual mutation advances that
+operation to the returned ETag; a 412 response stops it without an automatic retry.
+Concurrent reads cannot replace another operation's ETag. A missing ETag after a
+conditional write blocks subsequent mutations instead of guessing a revision.
+Older v8 responses without ETags retain their existing behavior. Multiple mutations
+remain non-transactional, and writers outside the backend lock are not covered.
 
 Codex identity operations use `/credentials/codex-identity`, with initialization and rotation
 subpaths. Login proxy passwords remain in POST JSON bodies; only the provider name is a
@@ -147,7 +152,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Six locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.30 backend.
+its matching v8.0.35 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -162,7 +167,8 @@ and historical hyphen spellings are recognized for selected-credential operation
 Provider saves remove these fields only at group/key boundaries, and snapshot comparisons
 ignore index-only changes. Actual changes to proxies, concurrency or nested headers still
 reject stale edits. Same-named header and plugin fields remain ordinary configuration.
-This does not make provider editing an atomic compare-and-swap operation.
+Provider writes also send the ETag from their own immediate configuration read.
+They retain the existing identity/stale-form checks before sending that conditional write.
 
 The retained v1.25.3 native update names Codex subscription tiers Pro 200 and Pro 100 in all
 four locales while retaining their existing quota mappings. Plugin cards choose logos
@@ -266,13 +272,39 @@ typography, and Chinese session-affinity terminology are included. The upstream
 quota_plugin_id contract has converged with the fork's exact-plugin routing; the
 fork additionally retains connection-switch guards and raw-field compatibility.
 
+The v1.26.5 native update adds Gemini Argon to the Antigravity Gemini quota group,
+updates its hub user-agent compatibility, translates Remaining bucket labels, and
+corrects availability and refresh-action visibility. All five official commits are
+included.
+
+The v1.26.6 native interface adds a separate SIWC binding tile, a picker restricted
+to backend-capable Codex files, locked targets during authorization, and binding
+status/expiry on credential cards. Start sends only the selected filename; the
+backend retains that credential's proxy policy, identity and concurrency settings.
+Callbacks preserve the original loopback URL and require the active state and issued
+client ID. Callback URL parameters cannot retarget the server-owned binding session.
+An unsupported backend is displayed explicitly without ordinary-login fallback.
+
+SIWC Close and Cancel both cancel the active binding session. This differs from
+ordinary OAuth Close, which preserves a pending login. A late SIWC start response
+after closing or switching connections is cancelled through its captured original
+connection; stale responses cannot update the new connection or trigger its logout.
+The fork stabilizes the SIWC close callback so notification-driven parent rerenders
+cannot interrupt the native close animation. No native Modal or visual layout was
+changed. The ordinary OAuth stable Close fix remains in place.
+
+Native Claude quota cards now place reset-grant content after plan items. Reset
+preflight failures use localized, locally generated stage/reason messages and never
+show raw upstream error details. Unknown spending outcomes keep the existing
+explicit-retry journal and selected credential binding.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 13f94b47f3400e681dfdede65acf1a1242ee3fce
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.4-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.4 \
+git -C management-center checkout 603539ab5c5343f32c3945c6e0cdb8333991c493
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.6-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.6 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -282,7 +314,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-dbff094fbd8f7b6f63e48f5722bf2d4901c510c3656aca7c1396203d233a68ae
+9ee4ba96ef2fabc701741a0c2177cc6dded7cb744299d5071dffddd9b75362dc
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

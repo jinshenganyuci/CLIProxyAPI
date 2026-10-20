@@ -128,9 +128,9 @@ func credentialConcurrencySelectionError(err error, filteredBusy bool) error {
 	return err
 }
 
-func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context, selector Selector, candidates []*Auth, provider, model string, now time.Time) ([]*Auth, []*Auth, bool, error) {
+func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context, selector Selector, candidates []*Auth, provider, model string, now time.Time, schedulerAcross bool) ([]*Auth, []*Auth, bool, error) {
 	if ctx == nil || ctx.Value(credentialConcurrencyAdmissionKey{}) != true {
-		available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, now)
+		available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, now, schedulerAcross)
 		return available, selectorAuths, false, errAvailable
 	}
 	// Check capacity before choosing the highest priority tier so a full tier cannot
@@ -143,7 +143,7 @@ func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context
 	available = cloneAuthSlice(available)
 	highest := highestPriorityAuths(available)
 	pluginAuths := highest
-	if m.pluginSchedulerWantsAcrossPrioritiesLocked() {
+	if schedulerAcross {
 		// The plugin opt-in applies only after availability and capacity filtering.
 		// Native fallback keeps its existing highest-priority or affinity behavior.
 		pluginAuths = available

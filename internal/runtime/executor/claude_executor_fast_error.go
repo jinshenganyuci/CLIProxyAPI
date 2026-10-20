@@ -155,7 +155,7 @@ func newClaudeFastDirectResponseError(resp *http.Response, body []byte, modelLev
 	credentialScoped := false
 	modelScoped := false
 	if resp.StatusCode == http.StatusTooManyRequests {
-		retryAfter = helps.ParseClaudeRateLimitReset(resp.Header, time.Now())
+		retryAfter = helps.ParseClaudeRateLimitResetForError(resp.Header, body, time.Now())
 		if helps.ClaudeHeadersIndicateUnifiedRateLimitRejection(resp.Header) {
 			credentialScoped = !modelLevelCooling
 			modelScoped = modelLevelCooling

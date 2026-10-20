@@ -175,6 +175,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 				// Missing and optional: return empty config (cloud deploy standby).
 				cfg := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 				cfg.NormalizePluginsConfig()
+				cfg.NormalizeClaudeConfig()
 				return cfg, nil
 			}
 		}
@@ -188,6 +189,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 	if optional && len(bytes.TrimSpace(data)) == 0 {
 		cfg := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 		cfg.NormalizePluginsConfig()
+		cfg.NormalizeClaudeConfig()
 		return cfg, nil
 	}
 
@@ -195,6 +197,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 		if optional {
 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 			cfgOptional.NormalizePluginsConfig()
+			cfgOptional.NormalizeClaudeConfig()
 			return cfgOptional, nil
 		}
 		return nil, errValidate
@@ -204,6 +207,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 		if optional {
 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 			cfgOptional.NormalizePluginsConfig()
+			cfgOptional.NormalizeClaudeConfig()
 			return cfgOptional, nil
 		}
 		return nil, errValidate
@@ -235,6 +239,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 			// In cloud deploy mode, if YAML parsing fails, return empty config instead of error.
 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
 			cfgOptional.NormalizePluginsConfig()
+			cfgOptional.NormalizeClaudeConfig()
 			return cfgOptional, nil
 		}
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
@@ -310,6 +315,7 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 	}
 
 	cfg.NormalizePluginsConfig()
+	cfg.NormalizeClaudeConfig()
 	if errResolvePluginsDir := cfg.ResolvePluginsDir(); errResolvePluginsDir != nil && cfg.Plugins.Enabled {
 		return nil, errResolvePluginsDir
 	}

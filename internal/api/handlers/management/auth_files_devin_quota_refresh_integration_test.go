@@ -3,6 +3,7 @@ package management_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,16 +27,20 @@ import (
 
 func TestRefreshAuthFiles_DevinQuotaObservationSurvivesManagerAndList(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
-	for _, activeCooldown := range []bool{false, true} {
-		name := "available"
-		if activeCooldown {
-			name = "active_credential_quota"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		activeCooldown bool
+		dailyRemaining uint64
+	}{
+		{name: "available", dailyRemaining: 95},
+		{name: "restored_credential_quota", activeCooldown: true, dailyRemaining: 95},
+		{name: "still_exhausted_credential_quota", activeCooldown: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			const token = "devin-session-token$quota-http-fixture"
 			const targetURL = "http://127.0.0.1:1"
 			var statusCalls atomic.Int32
-			statusPayload := devinManagementQuotaStatusFixture()
+			statusPayload := devinManagementQuotaStatusFixture(tc.dailyRemaining)
 			// This local server acts as the selected HTTP proxy. It never forwards
 			// requests; bypassing it reaches only a closed loopback port.
 			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -78,7 +83,7 @@ func TestRefreshAuthFiles_DevinQuotaObservationSurvivesManagerAndList(t *testing
 					Signals:    map[string]string{"daily_quota_remaining_percent": "1%", "weekly_quota_remaining_percent": "2%"},
 				},
 			}
-			if activeCooldown {
+			if tc.activeCooldown {
 				auth.Status = coreauth.StatusError
 				auth.StatusMessage = "credential quota cooling down"
 				auth.Unavailable = true
@@ -115,7 +120,7 @@ func TestRefreshAuthFiles_DevinQuotaObservationSurvivesManagerAndList(t *testing
 			if !exists {
 				t.Fatal("refreshed credential missing from manager")
 			}
-			if !current.Quota.ObservedAt.After(oldObservedAt) || current.Quota.Signals["daily_quota_remaining_percent"] != "95%" || current.Quota.Signals["weekly_quota_remaining_percent"] != "45%" {
+			if !current.Quota.ObservedAt.After(oldObservedAt) || current.Quota.Signals["daily_quota_remaining_percent"] != fmt.Sprintf("%d%%", tc.dailyRemaining) || current.Quota.Signals["weekly_quota_remaining_percent"] != "45%" {
 				t.Fatalf("manager lost refreshed quota observation: %+v", current.Quota)
 			}
 			if !refreshed.Auth.Quota.ObservedAt.Equal(current.Quota.ObservedAt) || !reflect.DeepEqual(refreshed.Auth.Quota.Signals, current.Quota.Signals) {
@@ -124,8 +129,11 @@ func TestRefreshAuthFiles_DevinQuotaObservationSurvivesManagerAndList(t *testing
 			if current.ProxyURL != proxy.URL || current.Metadata["proxy_url"] != proxy.URL || current.Prefix != auth.Prefix || current.Attributes["weight"] != "3" || current.Metadata["weight"] != 3 || current.Metadata["request_retry"] != 2 {
 				t.Fatal("refresh changed configured proxy or credential controls")
 			}
-			if activeCooldown && (!current.Unavailable || current.Status != coreauth.StatusError || current.StatusMessage != auth.StatusMessage || !current.NextRetryAfter.Equal(recoverAt) || !current.Quota.Exceeded || current.Quota.Reason != "credential_quota" || !current.Quota.NextRecoverAt.Equal(recoverAt) || current.Quota.BackoffLevel != 4) {
+			if tc.activeCooldown && tc.dailyRemaining == 0 && (!current.Unavailable || current.Status != coreauth.StatusError || current.StatusMessage != auth.StatusMessage || !current.NextRetryAfter.Equal(recoverAt) || !current.Quota.Exceeded || current.Quota.Reason != "credential_quota" || !current.Quota.NextRecoverAt.Equal(recoverAt) || current.Quota.BackoffLevel != 4) {
 				t.Fatalf("refresh changed active credential cooldown: status=%s unavailable=%t quota=%+v", current.Status, current.Unavailable, current.Quota)
+			}
+			if tc.activeCooldown && tc.dailyRemaining > 0 && (current.Unavailable || current.Status != coreauth.StatusActive || current.StatusMessage != "" || !current.NextRetryAfter.IsZero() || current.Quota.Exceeded || current.Quota.Reason != "" || !current.Quota.NextRecoverAt.IsZero() || current.Quota.BackoffLevel != 0) {
+				t.Fatal("authoritative positive quota observation did not release the credential cooldown")
 			}
 
 			list := httptest.NewRecorder()
@@ -169,7 +177,7 @@ func TestRefreshAuthFiles_DevinQuotaObservationSurvivesManagerAndList(t *testing
 	}
 }
 
-func devinManagementQuotaStatusFixture() []byte {
+func devinManagementQuotaStatusFixture(dailyRemaining uint64) []byte {
 	appendBytes := func(dst []byte, field protowire.Number, value []byte) []byte {
 		return protowire.AppendBytes(protowire.AppendTag(dst, field, protowire.BytesType), value)
 	}
@@ -178,7 +186,7 @@ func devinManagementQuotaStatusFixture() []byte {
 	for _, field := range []struct {
 		number protowire.Number
 		value  uint64
-	}{{14, 95}, {15, 45}, {17, 1789200000}, {18, 1789286400}} {
+	}{{14, dailyRemaining}, {15, 45}, {17, 1789200000}, {18, 1789286400}} {
 		planStatus = protowire.AppendVarint(protowire.AppendTag(planStatus, field.number, protowire.VarintType), field.value)
 	}
 	userStatus := appendBytes(nil, 7, []byte("quota-fixture@example.test"))

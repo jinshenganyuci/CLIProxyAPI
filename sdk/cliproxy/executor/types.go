@@ -226,6 +226,9 @@ type Options struct {
 	// A conflicting explicit credential route is rejected.
 	// Credential refresh and token exchange must ignore it.
 	ProxyURL string
+	// KeepTopLevelEffort tells SIWC request-body rules to keep the resolved
+	// top-level reasoning.effort when configuration_update items are collapsed.
+	KeepTopLevelEffort bool
 }
 
 // EnsureMetadata initializes and returns Metadata, ensuring it is non-nil.
