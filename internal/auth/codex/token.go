@@ -58,9 +58,14 @@ func WithFileLock(authFilePath string, fn func() error) error {
 	return fn()
 }
 
-// WriteJSONFileAtomic writes data as JSON to authFilePath atomically via a temporary file in the same directory.
+// WriteJSONFileAtomic writes data atomically while retaining unchanged JSON values
+// from the existing file. Read-modify-write callers must hold WithFileLock.
 func WriteJSONFileAtomic(authFilePath string, data map[string]any) error {
-	raw, errMarshal := json.Marshal(data)
+	existing, errRead := os.ReadFile(authFilePath)
+	if errRead != nil && !os.IsNotExist(errRead) {
+		return fmt.Errorf("failed to read credential JSON: %w", errRead)
+	}
+	raw, errMarshal := MarshalJSONPreservingUnchanged(existing, data)
 	if errMarshal != nil {
 		return fmt.Errorf("failed to marshal token data: %w", errMarshal)
 	}

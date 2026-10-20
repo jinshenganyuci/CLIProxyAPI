@@ -84,6 +84,8 @@ Claude quota 将套餐与剩余重置券放到同一行，券详情跟随套餐�
 
 新增 SIWC 管理绑定按目标凭据选择代理：require 缺失拒绝、畸形代理拒绝、显式 direct 保持直连；授权会话保存开始时确定的路线，后续全局配置变更不能改变该次 token 交换出口；浏览器打开授权页仍使用浏览器自己的网络。代理和密钥仅保留服务端，不放进授权 URL。原生提交前 epoch/文件路径校验、取消与持久化门控继续保留；新 SIWC token 写入后清旧 NextRefreshAfter 并更新时间，避免旧 token 的刷新 backoff 继续拖住新分区。既有外层 token、namespace、proxy、并发及控制字段不能被绑定流程覆盖。
 
+本轮受控镜像验收发现并修复一个 v30 与修复前 v35 均存在的 Codex 常规保存缺陷：SIWC 绑定本身保留原始 JSON，但首次成功请求触发 MarkResult 保存时，未知嵌套整数 9007199254740993 可被舍入为 9007199254740992。修复在 Codex 写入及无变化比较边界，按对象键/数组位置保留未修改的原始值，同时允许显式精确数值编辑；正常 disabled=false 规范化继续保留，无变化保存仍保留原文件字节及时间。此修复不恢复历史已丢失的精度，也不扩大为其他存储后端或数组重排的通用无损保证；详细边界见独立补修审查。
+
 新的 scheduler 快照和模型重协调与二开并发准入衔接：先过滤可用性与占用，插件跨优先级选择只使用同次 scheduler 快照；默认 10、自定义限额及共享 lease 仍保留。条件式插件完整 AuthUpdate 继续检查 Generation 与 registration 输入；旧结果返回 superseded 状态，让原生重协调重新计算最新凭据一次，而非覆盖新凭据/控制状态。纯模型发布仍用 auth/config/registry fence，不把普通执行 Generation 变化误当注册失效。watcher 原生 revision 与二开 identityConflictOnly 组合，已确认的 UUID 冲突和不完整写入不能互相误判。
 
 执行链合并保留 credential-scoped Claude 工具别名、取消/转换失败用量、严格代理与最终 payload 屏障；WebSocket 过滤 subscription_usage 遥测时仍保留 localInterrupt 观测；OpenAI compatible 请求沿已选择的 compat 配置完成工具结果规范化。新思考绑定、schema、web-search 恢复、SIWC configuration_update 处理及压缩摘要均应先完成内置处理，再执行显式 payload 规则及原有身份映射。实际源码、最终镜像、代理和插件验证以本轮各自收据为准，不从上述实现说明推导通过。

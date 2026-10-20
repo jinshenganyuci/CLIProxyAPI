@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -195,15 +196,24 @@ func PersistCodexAuthFile(ctx context.Context, path string, auth *Auth) (bool, e
 	}
 }
 
-// Preserve the original bytes and mtime when only JSON formatting or numeric
-// Go types differ. This comparison runs inside the same lock as the final write.
+// Preserve the original bytes and mtime when the lossless writer would keep
+// the same values. This comparison runs inside the lock used for the final write.
 func codexMetadataJSONEqual(existing []byte, metadata map[string]any) bool {
-	raw, errMarshal := json.Marshal(metadata)
+	if !json.Valid(existing) {
+		return false
+	}
+	raw, errMarshal := codex.MarshalJSONPreservingUnchanged(existing, metadata)
 	if errMarshal != nil {
 		return false
 	}
+	// Compare the same lossless representation the writer will use. A plain
+	// float64 comparison would swallow an explicit json.Number or integer edit.
+	beforeDecoder := json.NewDecoder(bytes.NewReader(existing))
+	beforeDecoder.UseNumber()
+	afterDecoder := json.NewDecoder(bytes.NewReader(raw))
+	afterDecoder.UseNumber()
 	var before, after any
-	return json.Unmarshal(existing, &before) == nil && json.Unmarshal(raw, &after) == nil && reflect.DeepEqual(before, after)
+	return beforeDecoder.Decode(&before) == nil && afterDecoder.Decode(&after) == nil && reflect.DeepEqual(before, after)
 }
 
 // Refresh retains the SDK's control-field three-way merge while native patches
