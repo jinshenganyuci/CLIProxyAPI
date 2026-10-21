@@ -3,11 +3,11 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.26.6`
-- commit: `603539ab5c5343f32c3945c6e0cdb8333991c493`
-- patch: `management-center-v1.26.6-credential-identity.patch`
+- tag: `v1.26.7`
+- commit: `714de0760a3ce86094b178fb46f834d34bc4a2a5`
+- patch: `management-center-v1.26.7-credential-identity.patch`
 
-This release integrates all nine official commits from `v1.26.4` through `v1.26.6`,
+This release integrates all ten official commits from `v1.26.4` through `v1.26.7`,
 while preserving earlier native functionality and the fork controls described below.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
@@ -152,7 +152,7 @@ does not grant unsupported upstream capability. Backend normalization migrates l
 multi-agent paths before displaying the configuration. Explicit false values remain false,
 and unrelated visual/provider saves preserve the client settings. Six locales and the
 configuration search index use the same client scope. This bundled panel is verified with
-its matching v8.0.35 backend.
+its matching v8.0.37 backend.
 
 The v8.0.12 adapter reads shared provider behavior from `upstream.codex`,
 `upstream.claude` and `upstream.xai`, including Claude header defaults. Older OAuth
@@ -298,13 +298,33 @@ preflight failures use localized, locally generated stage/reason messages and ne
 show raw upstream error details. Unknown spending outcomes keep the existing
 explicit-retry journal and selected credential binding.
 
+The v1.26.7 native credential editor adds a Codex-only `use_siwc` toggle in all
+six locales. Untouched and unchanged values produce no patch. Toggling sends only
+the selected filename/auth index and explicit boolean; binding tokens, the outer
+credential, proxy, identity namespace and concurrency limit remain unchanged.
+Disabling preserves binding data for later re-enabling. The existing full editor
+still downloads credential JSON; the narrow write is not a secret-free read path.
+The backend's new SIWC status endpoint is separate and is not called by this editor.
+Its local off/valid/invalid observation does not refresh or validate tokens online.
+
+The fork stabilizes the credential editor's close callback so confirming a dirty
+SIWC draft discard completes even when notification updates rerender the parent.
+Save failures retain the draft with an explicit error. A late save from an old
+management connection cannot close or update a newly opened editor. Generic Sheet
+behavior and existing OAuth/SIWC dialog cancellation semantics are retained.
+
+The v8.0.37 Vertex `openapi` and `openapi-location` key settings and model-level
+explicit `openapi: false` can be edited through source YAML. Existing visual and
+provider saves preserve these fields, credential proxy and concurrency settings;
+this UI does not add dedicated Vertex controls for them.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 603539ab5c5343f32c3945c6e0cdb8333991c493
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.6-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.6 \
+git -C management-center checkout 714de0760a3ce86094b178fb46f834d34bc4a2a5
+git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.7-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.7 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -314,7 +334,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-9ee4ba96ef2fabc701741a0c2177cc6dded7cb744299d5071dffddd9b75362dc
+fb02523d1b9474b9ba3de6d2db48ec418a6f2fc211876bb96ffbac333909a00c
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

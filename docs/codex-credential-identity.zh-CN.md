@@ -1,5 +1,62 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.37-codex-identity.1`，基于官方 `v8.0.37`（`ce07d189b3de2a39d37fd68ae093b102ce3aabee`）。从已发布 v8.0.36.1 合入实际 Git 全部14提交（11非merge、3merge），涉及76文件；发布页13条 changelog 漏列末项文档删除，本说明以 Git 范围为准。固定镜像标签 `codex-identity-v8.0.37.1` 与 latest 的最终摘要及本轮验收以附件为准。
+
+## v8.0.37 更新
+
+- **Vertex 按模型/凭据选择 OpenAPI**（`d44f8682`）：Vertex key 新增 openapi 三态与 openapi-location；模型项、OAuth model-alias/settings 也可指定 openapi。未设置保留自动识别，显式 false 是关闭该层 OpenAPI，模型规则优先于凭据规则；别名按原请求及精确后缀匹配，避免影响同底模的其他别名，OAuth 全局规则不套到 API-key 凭据。Imagen 仍不走 OpenAPI。显式 location 可替换已有 URL 的 location，Google host 随区域调整，第三方 relay host 保留；未显式指定时保留已有路径区域或依既有默认（最终 us-central1）。官方 Google endpoints/openapi 仍要求服务账号，API key 仅用于兼容 relay。配置规范化、模型 hash、热更新及展示能力同步；缺省 OpenAPI 模型的 low/medium/high 是目录能力回退，不证明供应商模型支持。
+
+- **插件按凭据查询模型**（`4846a289`）：新增 host.auth.models 回调及 SDK 请求/响应类型。空 auth_index 返回 manager 中所有凭据（含配置 API key、runtime-only），指定 index 只返回该凭据；结果含 ID、auth_index、provider 与当前 registry 模型 ID，空模型为 []。未知 index/畸形请求报错，无 manager 的无筛选请求返回空列表；可由 response interceptor 调用。它返回注册目录，不是实时可用性/额度/授权判断，也不新增用户 HTTP 接口或凭据 Token 字段。
+
+- **SIWC 本地状态及拒绝记录**（`06fd5b8b`）：新增 GET /v8/management/oauth/siwc/status（另有 /credentials/siwc/status 别名），以 name/id 或 auth_index/authIndex 查询 off/valid/invalid，凭据列表也带 siwc_status；只读本地数据和运行期拒绝状态，不刷新、不请求供应商。SIWC 新保存 expires_at 真实到期时间，expired 仍是带提前量的刷新时间；状态可从 expires_at、expires_in 加签发时间或 JWT exp 判断，不拿旧 expired 充当真实到期。无法确认有效期、缺 Token、已到期或同 Token 已被401拒绝则 invalid；关闭则 off，valid 不是在线验证。提交同时按执行时实际 Token 记录拒绝、区分 SIWC/外层分区，外层刷新或关闭再开启不能洗掉仍未替换的 SIWC 拒绝，换入新 Token 才清对应拒绝。运行期标记不持久化，epoch 防护仍优先。
+
+- **Claude 空文本与缓存断点**（`df07b1e5`）：OpenAI Chat/Responses 转 Claude 时丢弃空或纯空白 text 内容，合法图片、工具及非空文本保持；空文本携带的有效 cache_control 在允许时转交同组前一个合格块，不覆盖其显式值。message/system 自动断点跳过空文本与 thinking/redacted_thinking；assistant 尾部为 thinking 时仍不跨越它强加滚动断点。纯空白 tool result 不再把原 JSON 数组当文字发出。这不是删除用户所有空白，也不保证每个请求都有可缓存断点。
+
+- **Gemini 终态后取消用量**（`b12db8c3`）：Gemini 流记录已实际交付下游的协议终态；交付终态后的 context.Canceled 不再将已完成结果改记失败，仍发布已观察用量。终态前取消或 scanner 错误按失败发布并保留已累计 Token，未完成/截断检测继续保留。Vertex 共用终态识别 helper；不能把上游发出但未交付下游的终态当成功，也不将所有终态后错误一律忽略。
+
+- **预计算工具名碰撞策略**（`80d04e19 / 83189e5f`）：工具名 canonical 碰撞在请求初始化时预计算：有歧义的键使用空映射，MapToolName 保留上游名字，避免 Read/read 等声明被误合并。Gemini→Claude 流/非流改用该映射，响应工具块不再每次重扫原请求；既有 sanitized-name 恢复和唯一工具 ID 规则保留。
+
+- **Antigravity 单流元数据**（`c0e619d5`）：Antigravity→Claude 在同一 stream 初始化时解析模型和 web-search 模式一次，包括空模型/关闭搜索的结果；后续 chunk 使用固定值，不重扫两种请求格式。调用方须在流内保持请求语义一致；未增加跨请求缓存或改变 signature/grounding 输出合同。
+
+- **Codex 单流工具反向映射**（`95e15777`）：Codex→Claude 首次工具调用时建立缩短名到客户端原名的反向映射并按流缓存，空映射也只解析一次；每个工具仍沿原 ID/顺序/参数规则发出。只是该流内避免重复解析，不改变全局 replay-cache 容量或淘汰策略。
+
+- **Responses 回显与请求保留**（`3b153145`）：OpenAI Chat→Responses 一次遍历请求顶层提取需要回显的字段，流状态不再持有整段 RequestJSON；终态按原字段顺序和类型写回。必要 instructions/tools/metadata 等回显数据和工具索引仍保留；非流 max_tokens 回退、重复键首值及原数字转换语义仍沿旧合同。减少该转换状态对无关请求内容的保留，不代表整条执行链释放所有原请求，也不是长时间内存问题修复。
+
+- **赞助文档与图片删除**（`ce07d189`）：删除英文/中文/日文 README 的 FluxA 与百度智能云赞助段及 assets/fluxa-baidu-ai-cloud.png。该末提交未出现在发布页列出的13条 changelog 中，但属于 v36→v37 实际 Git 范围，因此本轮按14提交完整审核；仅同步文档/资源，不判断供应商服务质量。
+
+### 本轮二开适配
+
+本轮合并保留凭据 identity/namespace、目标代理/direct/require、默认10与自定义并发/共享lease、Access Guard、最终payload后的身份映射及已发布数字精度保护。新SIWC拒绝分区与原本的refresh gate、事务保存及注册epoch一起处理，不把旧修复重新计为本轮功能。
+
+本轮补齐早期401处理的注册epoch检查：Execute、CountTokens、Stream启动阶段的旧请求即使遇到相同ID和Token的重新注册，也不能把新注册标成拒绝；在凭据变更锁内核对请求时的epoch后才更新或刷新。二开窄范围元数据事务同时保留未更换SIWC Token的拒绝状态，普通控制项/外层Token更新不能清除该状态，真正替换对应SIWC Token再清理；非SIWC既有恢复语义保留。
+
+原生取消RequestJSON字段后，gjson返回的短字符串/工具声明仍可引用整段请求底层存储。本轮只复制流状态实际保留的回显字符串、复合字段自身Raw及工具声明/名字，使这些状态不再因子串引用保留无关input历史；不复制整个input。必要的大instructions、tools等仍按自身大小保留，原回显类型和内容合同不变。这是本轮单流优化的局部补齐，不是此前停止的replay-cache/usage queue内存任务或长期内存稳定证明。
+
+### 管理页 v1.26.7
+
+官方管理页 v1.26.6→v1.26.7 只有一个提交 `714de076`，在 Codex 凭据详情增加 use_siwc 开关及六种语言文案。只有手动改动且值与原文件不同才提交该字段；缺失默认关闭，关闭保留已有绑定数据，不代替授权绑定。界面沿用原凭据编辑流程，官方没有新增本地 SIWC status 接口调用或在线校验。二开将开关纳入既有 concurrencyOnly 权限边界，配置来源凭据仍只能修改并发；保留 ETag、普通 OAuth Close 和 SIWC Close 的既有区别。本轮还将凭据编辑器的 closePrefixProxyEditor 改为稳定回调，修复改动 SIWC 开关后 X→放弃更改时，父组件重渲染取消关闭计时器而留下弹层的问题；不改通用 Sheet。完整 UI 测试、独立构建、当前浏览器与 API 联调分别以本轮收据为准。
+
+### 默认、迁移与回退
+
+普通用户不必为升级批量重新登录 OAuth；本轮新增的是可选 Vertex 路由控制和 SIWC 状态数据，未设置新选项时沿用自动路由。
+
+| 项目 | 默认、位置与迁移 |
+| --- | --- |
+| Vertex key | `api-keys.vertex[].keys[]` 的 `openapi` 为未设/true/false 三态，`openapi-location` 为可选区域；两者不是 group 顶层共享继承字段，legacy vertex-api-key 仍可读取 |
+| Vertex model | key 内 `models[].openapi`、`oauth.model-alias.vertex[]` 和 `oauth.settings.vertex[]` 的同名字段覆盖凭据级选择；显式 false 必须保留，不能当省略 |
+| Vertex 区域 | 显式 OpenAPI 区域可改已有 URL 路径；没有覆盖值时保留已有路径区域或既有默认，Google host 才随区域变更；第三方 host 不改 |
+| SIWC 到期 | 新获取/刷新写入真实 `expires_at`，旧 `expired` 继续用于提前刷新；旧文件若无真实到期信息可显示 invalid，不自动发起在线验证或强制重登 |
+| SIWC 开关 | 只选择使用已绑定分区，关闭不删除绑定；运行期401拒绝不会因开关或外层刷新自动消失，替换对应SIWC token后恢复判断 |
+| 插件 callback | `host.auth.models` 是可选新增方法；已有插件无需调用它即可保留原路径，新插件依赖此方法时应核对宿主版本，目录不是可用性证明 |
+
+本轮只读检查的 Home main `862e13fe65906b273ddbe06d7b4ed20133167168` 仍拒绝新 Vertex key/model/alias/settings 的 openapi（包括显式 false）及 openapi-location；既有 body cap、affinity rebind、SIWC identifier、四项 Claude header、date pin/web-search cache 配置差距也保留。独立 CPA 接受这些字段不代表 Home strict schema 已接受，本轮没有部署或修改 Home。回退须配套镜像、配置、auth、插件与用量快照，旧程序不保证识别新 Vertex 字段；运行期拒绝标记及 OAuth 会话不随镜像回退自动恢复。
+
+### 内存边界
+
+本轮确有单流性能/保留范围变化：预计算工具名、固定元数据及 Responses 不再存整段 RequestJSON。但必要回显字段、工具索引和执行链其他请求引用仍在；这些变化不修改原 replay-cache/usage queue 容量、TTL 或淘汰，不新增 Home KV/本地缓存字节上限，也没有继续用户此前停止的旧内存修复或长期压力测试。不得从局部 benchmark 或常规测试推导整进程长期内存稳定。
+
+## v8.0.36.1 历史记录
+
 当前修订为 `v8.0.36-codex-identity.1`，基于官方 `v8.0.36`（`20c9095cac089c6a8e40554debe4dd8a19d4c14f`）。从已发布 v8.0.35.1 合入全部20个提交：18个非 merge、2个 merge，涉及83个文件。固定镜像标签为 `codex-identity-v8.0.36.1`；固定/latest 的最终摘要和本轮验收结果以附件为准。
 
 ## v8.0.36 更新

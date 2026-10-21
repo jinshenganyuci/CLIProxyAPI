@@ -33,6 +33,12 @@ func newResponsesToolIndex(root gjson.Result) *responsesToolIndex {
 		custom:     make(map[string]struct{}),
 	}
 	walkResponsesToolDeclarations(root, func(d responsesToolDeclaration) bool {
+		// The index outlives parsing; retain each declaration without pinning
+		// the full request, including unrelated input history.
+		d.tool = gjson.Parse(strings.Clone(d.tool.Raw))
+		d.chatName = strings.Clone(d.chatName)
+		d.localName = strings.Clone(d.localName)
+		d.namespace = strings.Clone(d.namespace)
 		idx.declarations = append(idx.declarations, d)
 		identity := responsesToolIdentity{d.namespace, d.localName}
 		if _, exists := idx.byIdentity[identity]; !exists {

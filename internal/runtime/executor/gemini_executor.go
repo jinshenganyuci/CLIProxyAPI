@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -370,9 +371,10 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		scanner.Buffer(nil, streamScannerBuffer)
 		claudeInputTokens := helps.NewClaudeInputTokenState(from, to, responseFormat, originalPayload)
 		var streamUsage helps.StreamUsageBuffer
+		var terminalDelivered bool
 		defer func() {
-			if ctx.Err() != nil {
-				streamUsage.PublishFailure(ctx, reporter, ctx.Err())
+			if errContext := ctx.Err(); errContext != nil && !terminalDelivered {
+				streamUsage.PublishFailure(ctx, reporter, errContext)
 				return
 			}
 			streamUsage.Publish(ctx, reporter)
@@ -408,6 +410,9 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			for i := range lines {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: lines[i]}:
+					if helps.IsGeminiTerminalStreamChunk(lines[i]) {
+						terminalDelivered = true
+					}
 				case <-ctx.Done():
 					return
 				}
@@ -423,6 +428,9 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 			return
 		}
 		if errScan := scanner.Err(); errScan != nil {
+			if terminalDelivered && errors.Is(errScan, context.Canceled) {
+				return
+			}
 			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			streamUsage.PublishFailure(ctx, reporter, errScan)
 			select {
@@ -454,6 +462,9 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		for i := range lines {
 			select {
 			case out <- cliproxyexecutor.StreamChunk{Payload: lines[i]}:
+				if helps.IsGeminiTerminalStreamChunk(lines[i]) {
+					terminalDelivered = true
+				}
 			case <-ctx.Done():
 				return
 			}

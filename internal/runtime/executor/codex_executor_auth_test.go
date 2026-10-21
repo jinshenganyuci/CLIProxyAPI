@@ -410,10 +410,12 @@ func TestCodexExecutorRefreshSelectiveAndDual(t *testing.T) {
 				"client_id":     "oaiapp_test1",
 				"device_id":     "e61bbe28-07ef-466d-8e5d-a344f94ab305",
 				"expired":       now.Add(2 * time.Minute).Format(time.RFC3339),
+				"expires_at":    now.Add(-time.Hour).Unix(),
 			},
 		},
 	}
 	beforeref1 := authSIWCOnly.Clone()
+	priorSIWCSnapshot := authSIWCOnly.Metadata["siwc"].(map[string]any)
 	ref1, err1 := executor.Refresh(context.Background(), authSIWCOnly)
 	if err1 != nil {
 		t.Fatalf("Refresh (SIWC only) error: %v", err1)
@@ -428,6 +430,14 @@ func TestCodexExecutorRefreshSelectiveAndDual(t *testing.T) {
 	siwc1 := ref1.Metadata["siwc"].(map[string]any)
 	if siwc1["access_token"] != "siwc-access-refreshed" || siwc1["device_id"] != "e61bbe28-07ef-466d-8e5d-a344f94ab305" || siwc1["client_id"] != "oaiapp_test1" {
 		t.Fatalf("siwc1 unexpected: %#v", siwc1)
+	}
+	realExpiryText, _ := siwc1["expires_at"].(string)
+	realExpiry, errExpiry := time.Parse(time.RFC3339, realExpiryText)
+	if errExpiry != nil || !realExpiry.After(now.Add(59*time.Minute)) {
+		t.Fatalf("successful SIWC refresh did not replace stale expiry: %v, err=%v", siwc1["expires_at"], errExpiry)
+	}
+	if priorSIWCSnapshot["expires_at"] != beforeref1.Metadata["siwc"].(map[string]any)["expires_at"] {
+		t.Fatal("refresh mutated the caller's expiry snapshot")
 	}
 
 	// 2. Only outer needs refresh (outer expires in 2 hours, SIWC expires in 30 minutes)

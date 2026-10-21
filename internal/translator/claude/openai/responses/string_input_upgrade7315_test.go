@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -29,8 +30,18 @@ func TestStringInputUpgrade7315PreservesTextAndAuthority(t *testing.T) {
 						t.Fatalf("request translation failed: %v", errConvert)
 					}
 					root := gjson.ParseBytes(out)
-					if root.Get("messages.#").Int() != 1 || root.Get("messages.0.role").String() != "user" || root.Get("messages.0.content").String() != input {
+					if root.Get("messages.#").Int() != 1 || root.Get("messages.0.role").String() != "user" {
 						t.Fatalf("string input lost text or authority: %s", out)
+					}
+					content := root.Get("messages.0.content")
+					if strings.TrimSpace(input) == "" {
+						// Empty input is filtered before the native system-only
+						// fallback adds one empty user text block.
+						if !content.IsArray() || len(content.Array()) != 1 || content.Get("0.type").String() != "text" || content.Get("0.text").Type != gjson.String || content.Get("0.text").String() != "" {
+							t.Fatalf("blank input lost the native user fallback: %s", out)
+						}
+					} else if content.Type != gjson.String || content.String() != input {
+						t.Fatalf("nonempty string input text changed: %s", out)
 					}
 					if root.Get("system.#").Int() != 1 || root.Get("system.0.text").String() != instruction || root.Get("stream").Bool() != stream || root.Get("max_tokens").Int() != 17 {
 						t.Fatalf("request controls changed: %s", out)

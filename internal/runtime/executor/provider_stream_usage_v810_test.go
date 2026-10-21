@@ -64,7 +64,7 @@ func TestProviderV810StreamUsageSurvivesTermination(t *testing.T) {
 					payload := `{"candidates":[{"content":{"role":"model","parts":[{"text":"observed"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}`
 					// Native accepts cancellation after a delivered terminal for these providers;
 					// retain coverage of cancellation that interrupts partial output here.
-					if ending == "cancel" && (provider == "antigravity" || provider == "vertex") {
+					if ending == "cancel" && (provider == "antigravity" || provider == "vertex" || provider == "gemini") {
 						payload = strings.Replace(payload, `,"finishReason":"STOP"`, "", 1)
 					}
 					if provider == "antigravity" {

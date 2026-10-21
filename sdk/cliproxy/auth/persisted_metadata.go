@@ -197,7 +197,17 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	if credentialChanged {
 		updated.CredentialVersion++
 		updated.RejectedAccessToken = ""
-		if !updated.Disabled && updated.Status != StatusDisabled {
+	} else {
+		updated.RejectedAccessToken = latest.RejectedAccessToken
+	}
+	// Operator edits cannot erase a rejection of an unchanged SIWC token.
+	// Keep the existing non-SIWC credential replacement recovery behavior.
+	updated.RejectedSIWCAccessToken, _ = shouldPreserveRejectedSIWCAccessToken(latest, updated)
+	if updated.RejectedSIWCAccessToken != "" && IsCodexUseSIWC(updated) {
+		updated.RejectedAccessToken = updated.RejectedSIWCAccessToken
+	}
+	if credentialChanged {
+		if !updated.Disabled && updated.Status != StatusDisabled && (updated.RejectedAccessToken == "" || authAccessToken(updated) != updated.RejectedAccessToken) {
 			if hasUnauthorizedAuthFailure(latest) || (updated.LastError != nil && isUnauthorizedError(updated.LastError)) {
 				updated.Unavailable = false
 				updated.LastError = nil
@@ -215,8 +225,6 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 				}
 			}
 		}
-	} else {
-		updated.RejectedAccessToken = latest.RejectedAccessToken
 	}
 	updated.Generation = latest.Generation + 1
 	updated.UpdatedAt = time.Now()
