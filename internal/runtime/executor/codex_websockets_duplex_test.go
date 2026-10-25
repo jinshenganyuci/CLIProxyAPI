@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -221,6 +222,10 @@ func TestCodexDuplexSIWCSteerStripsConfigurationUpdates(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	ginCtx.Request.Header.Set("User-Agent", "curl/8.7.1")
+	ctx = context.WithValue(ctx, "gin", ginCtx)
 	input := make(chan core.WebsocketInput, 1)
 	ctx = core.WithWebsocketInput(core.WithDownstreamWebsocket(ctx), input)
 	exec := NewCodexWebsocketsExecutor(&config.Config{Codex: config.CodexConfig{ResponseSteering: true}})
@@ -248,6 +253,10 @@ func TestCodexDuplexSIWCSteerStripsConfigurationUpdates(t *testing.T) {
 			event := gjson.GetBytes(chunk.Payload, "type").String()
 			id := gjson.GetBytes(chunk.Payload, "response.id").String()
 			if event == "response.created" && id == "r1" {
+				// A reused Gin request must not change the established SIWC socket's
+				// steering rules. The input channel orders this replacement before use.
+				ginCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+				ginCtx.Request.Header.Set("User-Agent", "codex_cli_rs/0.120.0")
 				input <- core.WebsocketInput{Payload: []byte(`{"type":"response.steer","previous_response_id":"r1","input":[{"type":"configuration_update","reasoning":{"effort":"high"}},{"role":"user","content":[{"type":"input_text","text":"STEER_OK"}]}]}`)}
 			}
 			completed = event == "response.completed" && id == "r1"

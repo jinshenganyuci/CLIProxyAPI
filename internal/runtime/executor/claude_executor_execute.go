@@ -419,17 +419,6 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 		return cliproxyexecutor.Response{}, errTranslation
 	}
-	// Chat Completions has no failed-response object. Record the mapped
-	// request failure before successful usage can consume the reporter.
-	if responseFormat == sdktranslator.FormatOpenAI && gjson.GetBytes(out, "error.code").String() == "context_length_exceeded" {
-		errContext := statusErr{code: http.StatusBadRequest, msg: string(out)}
-		if upstreamStream {
-			streamUsage.PublishFailure(ctx, reporter, errContext)
-		} else {
-			reporter.PublishFailureWithDetail(ctx, helps.ParseClaudeUsage(data), errContext)
-		}
-		return cliproxyexecutor.Response{}, errContext
-	}
 	if upstreamStream {
 		streamUsage.Publish(ctx, reporter)
 	} else {

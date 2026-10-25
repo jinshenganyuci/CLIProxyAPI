@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,18 +74,16 @@ func TestV836ClaudeChatStopOutcomeKeepsUsageRouteAndLease(t *testing.T) {
 			})
 			req := coreexecutor.Request{Model: model, Payload: []byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hello"}]}`)}
 			resp, errExecute := manager.Execute(ctx, []string{"claude"}, req, coreexecutor.Options{SourceFormat: sdktranslator.FormatOpenAI})
-			wantFailure := stop == "model_context_window_exceeded"
-			if wantFailure {
-				var status interface{ StatusCode() int }
-				if !errors.As(errExecute, &status) || status.StatusCode() != http.StatusBadRequest || gjson.Get(errExecute.Error(), "error.code").String() != "context_length_exceeded" {
-					t.Fatalf("context failure = %v, want 400/context_length_exceeded", errExecute)
-				}
-			} else if errExecute != nil || gjson.GetBytes(resp.Payload, "choices.0.finish_reason").String() != "content_filter" {
-				t.Fatalf("refusal response = %s, err=%v", resp.Payload, errExecute)
+			wantFinish := "content_filter"
+			if stop == "model_context_window_exceeded" {
+				wantFinish = "length"
+			}
+			if errExecute != nil || gjson.GetBytes(resp.Payload, "choices.0.finish_reason").String() != wantFinish {
+				t.Fatalf("stop response = %s, err=%v, want %s", resp.Payload, errExecute, wantFinish)
 			}
 			records := antigravityUsageRecordsAfterDelivery815(t, capture)
-			if len(records) != 1 || records[0].Failed != wantFailure || records[0].Detail.InputTokens != 5 || records[0].Detail.OutputTokens != 2 || (wantFailure && records[0].Fail.StatusCode != http.StatusBadRequest) {
-				t.Fatalf("usage outcome = %+v, want one failed=%t record with 5/2 tokens", records, wantFailure)
+			if len(records) != 1 || records[0].Failed || records[0].Detail.InputTokens != 5 || records[0].Detail.OutputTokens != 2 {
+				t.Fatalf("usage outcome = %+v, want one successful record with 5/2 tokens", records)
 			}
 			if active, limit := manager.CredentialConcurrencySnapshot(authID); active != 0 || limit != 10 {
 				t.Fatalf("settled lease = %d/%d", active, limit)

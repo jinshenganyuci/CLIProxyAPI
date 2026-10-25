@@ -165,3 +165,39 @@ func TestCodexRequiredWebsocketRejectsChangedProxy(t *testing.T) {
 		})
 	}
 }
+
+func TestV842CodexRequiredWebsocketRejectsForcedOuterPartition(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream_%t", stream), func(t *testing.T) {
+			cfg := codexCredentialIdentityTestConfig(false)
+			exec := NewCodexWebsocketsExecutor(cfg)
+			exec.store = &codexWebsocketSessionStore{}
+			auth := codexCredentialIdentityTestAuth(t.Name(), "0bdfb02c-eaf4-4bea-a449-c66074b475aa")
+			auth.ProxyURL = "direct"
+			auth.Attributes = map[string]string{"base_url": "https://shared-origin.invalid"}
+			auth.Metadata["use_siwc"] = true
+			auth.Metadata["siwc"] = map[string]any{"access_token": "synthetic-inner"}
+			sess := exec.getOrCreateSession(t.Name())
+			conn := &websocket.Conn{}
+			sess.conn, sess.connCloser = conn, newWebsocketConnectionCloser(conn)
+			sess.authID, sess.wsURL, sess.useSIWC = auth.ID, "wss://shared-origin.invalid/responses", true
+			sess.connectionKey = helps.CodexWebsocketConnectionKey(cfg, auth)
+			sess.resetUpstreamDisconnectError(conn)
+			ctx := cliproxyexecutor.WithRequiredUpstreamWebsocket(cliproxyexecutor.WithDownstreamWebsocket(t.Context()))
+			req := cliproxyexecutor.Request{Model: "gpt-5.5", Payload: []byte(`{"model":"gpt-5.5","input":[]}`)}
+			opts := cliproxyexecutor.Options{SourceFormat: translator.FormatOpenAIResponse, Headers: http.Header{"User-Agent": []string{"codex_cli_rs/0.120.0"}}, Metadata: map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: t.Name()}}
+			var err error
+			if stream {
+				_, err = exec.ExecuteStream(ctx, auth, req, opts)
+			} else {
+				_, err = exec.Execute(ctx, auth, req, opts)
+			}
+			if !cliproxyexecutor.IsUpstreamWebsocketReplayRequired(err) {
+				t.Fatalf("forced outer reused the SIWC connection: %v", err)
+			}
+			if retained, _ := existingWebsocketSessionConn(sess, auth.ID, sess.wsURL, sess.connectionKey, true); retained != conn {
+				t.Fatal("rejected required turn mutated the retained connection")
+			}
+		})
+	}
+}

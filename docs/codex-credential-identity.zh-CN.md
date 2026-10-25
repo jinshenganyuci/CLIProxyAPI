@@ -1,5 +1,107 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.42-codex-identity.1`，基于官方 `v8.0.42`（`bc0643405a1d0adf77dd0f109972ac3313d66397`）。从已发布 v8.0.37.1 合入 v38—v42 实际 Git 全部55提交（51非merge、4merge），涉及220文件；末项README清理未列入v42发布正文，本说明以Git范围为准。固定镜像标签 `codex-identity-v8.0.42.1` 与 latest 的摘要及本轮验收以附件为准。
+
+## v8.0.42 更新
+
+- **Home 计划迁移、延迟遥测与取消**（`befcba23 / e45f9426 / 50147aec`）：受管、集群发现启用、非 legacy membership 且 lifecycle revision 有效时，新增 CLUSTER BALANCE ENABLE/CLAIM/RESULT 和 rebalance 订阅；先领取精确计划、探测目标，再由新 lifetime 接管。旧 lifetime 停止新分配但保留已确认 membership 的最终并发释放，未确认的新连接不继承释放权；失败报告、回源和订阅失联仍受现有恢复栅栏约束。旧 Home 明确返回 unsupported 时禁用该能力，其他错误不伪装成不支持。仅声明 cpa_latency_swap_v1 后采样/上报 RTT，保留至多64节点、2分钟样本，失败探测退避；遥测失败不直接结束健康订阅。取消专用 RPC 同步关闭底层 transport，不给已建立的模型输出增加超时。
+
+- **保留显式并行工具关闭**（`99d1698f`）：OpenAI Chat/Responses→Codex 不再覆盖显式 parallel_tool_calls:false；缺省仍沿既有默认，false 与省略必须区分。
+
+- **单流工具与回显解析**（`f4a2d040 / 74e7ff60 / ac3cd66f`）：Claude→Responses 将请求回显一次提取到 typed state，并从已建工具 winner/name 表恢复 namespace；Codex→Chat 每流缓存工具原名、类型和 apply_patch 属性，空表也不重复构建。Responses 反向工具身份映射跳过无关 Gemini schema 清理。目标是减少重复遍历及该 state 的整请求保留；必要回显字段仍保留，gjson 子字符串及执行链其他引用需单独审查，不能据此宣称旧内存问题解决。
+
+- **Antigravity 工具往返及调用方隔离**（`80aa2b1d / da21f1e5`）：完善 function call ID/索引与 reasoning signature 往返，非流也恢复工具签名；流中每次调用保留稳定索引。回放按调用方分隔，保留请求连续性和工具配对；这不是取消隔离或扩大跨用户共享。
+
+- **Guardian 跨模型继承父凭据**（`2f6f2924`）：session-affinity 和 subagent-affinity 开启时，X-Openai-Subagent: guardian 可继承父会话在同一真实 provider 上最近一次实际选中的、当前仍合格的凭据，支持 mixed pool。已有子绑定优先；结果触发的 TTL 刷新不重排选择顺序，查父绑定不延长其 TTL。普通子代理仍按同模型规则，关闭亲和不启用此路径。
+
+- **独立 Claude effort 传入 Codex**（`009f8d7a`）：没有 thinking 字段时显式 output_config.effort 仍是跨协议可用意图；后缀继续优先。原生 Claude→Claude 没有显式 thinking/后缀时保留模型默认激活状态，避免单纯 effort 隐式开启 thinking；summary 仍走既有规范化。
+
+- **Codex 客户端与 Alpha Search 固定外层凭据**（`0db19025 / d946c4fb`）：按 User-Agent 中 codex-desktop、codex desktop、codex-rs、codex_cli_rs、codex-tui 或 codex_exec 识别的请求忽略 use_siwc，采用非 SIWC/外层 OAuth 分区；不删除开关或绑定数据，其他客户端继续按开关选分区。启用 SIWC 但缺外层 access_token 的 Codex 客户端报401，不回落到 SIWC。精确 https://chatgpt.com/backend-api/codex/alpha/search 同样要求原始外层 OAuth；不是对任意相似 host/path 放宽 token 转发。HTTP、stream、compact、图片及原生 WS 的 token、header、拒绝记录应保持同一请求分区。
+
+- **WebSocket 逐轮鉴权与插件解码体**（`b9bb031d / 13874f1f`）：Responses WebSocket 每个执行 turn 重新向 AccessManager 鉴权，复用升级请求身份但以当前 payload（必要时补当前模型）构造 POST，移除握手头；原生 passthrough 的后续 turn 也有 authorizer，拒绝后不执行该轮。插件可返回 DenyStatusCode/DenyMessage，缺省 denied 为403，未处理仍可继续原 provider 链。FrontendAuthRequest.Body 保持原始压缩体，新增 DecodedBody 仅用于 handler 真正解码的 POST 路由；zstd 窗口8MiB、解码体至多64MiB且受更小配置限制、speech为1MiB、最多2编码层与2并发槽；超限413，其他解码失败不伪造解码内容。
+
+- **文件快照不覆盖运行态冷却**（`d5816d5e / 57a12996`）：文件合成快照更新配置/凭据时保留已发生的运行态冷却；冷却序列、磁盘快照与 generation 检查区分过期文件观测和真实变更。被丢弃/已持久化但重叠的观测会失效 hash 并重新读取，避免同字节事件被永久抑制。全目录扫描遇到不可读错误保留已知文件凭据并待重读；真实目录不存在与权限/IO错误仍区分，不把所有删除一律忽略。
+
+- **Codex bootstrap 缓冲 metadata**（`9e79552f`）：response.metadata 归入首个实质输出前的 bootstrap 缓冲，避免元数据先泄漏给下游后阻止安全重试；不将真实输出后的失败伪装为可无损重试。
+
+- **Claude 上下文耗尽的返回合同变更**（`c2dfec28 / d495e24c / 43f27e3a`）：v8.0.39 起，成功响应中的 model_context_window_exceeded stop_reason 改映射 Chat finish_reason=length（即使已有工具调用也保持length），Responses 改为 response.incomplete/status=incomplete，incomplete_details.reason=max_output_tokens，并保留已有输出和用量；替代旧 Chat HTTP400/Responses failed 合同。真实上游 prompt-overflow 错误仍是错误，Responses stream 补 context_length_exceeded code，不能与成功生成后的停止混为一类。
+
+- **cloak_mode never 与配置 header 基线**（`d2e61d19`）：确认的 Claude Code 调用方在 cloak_mode:never 下允许符合验证规则的新版本 header，校验基于配置默认基线；其他稳定设备策略仍固定其配置基线，不把任意调用方字符串当作可信设备。
+
+- **请求级401规则不误拒绝 token**（`4138edb1`）：被请求级错误规则或 -and-cooldown 规则接管的401，不再自动将执行 token 标记拒绝或触发认证刷新；规则要求的冷却仍保留。普通真实401仍按实际 token 分区处理，epoch/版本栅栏不取消。
+
+- **Vertex us/eu 多区域 endpoint**（`88732ad5`）：location为us/eu时普通与OpenAPI路径使用 aiplatform.us.rep.googleapis.com / aiplatform.eu.rep.googleapis.com；global仍用全局host，普通region保留 region-aiplatform.googleapis.com，默认仍us-central1。REP被纳入官方Google host识别和服务账号限制，第三方relay不据此变成Google。
+
+- **Claude 延迟 web search 连续性**（`df860eb9`）：Claude tool_use 暂停且尚无结果的 web_search 保持 in_progress，跨后续 tool outputs 延续；不能提前标 completed。原 pause_turn 和真实已完成搜索仍按各自终态处理。
+
+- **OAuth 管理流程读取锁定配置快照**（`8bd17955`）：Claude/Codex/Antigravity 登录与token保存辅助在h.mu下读取配置指针，单次流程复用该快照的AuthDir/代理配置，避免与SetConfig换指针竞争；不是保存过程中强制采用后来配置，也不新增配置迁移。
+
+- **用量区分请求、实际出站和响应档位**（`07b5a7a1 / b90190db / 8289ec4c`）：Usage Record/插件UsageRecord新增 EffectiveServiceTier，记录翻译及最终payload规则之后的 service_tier（含request/interaction包装）；ServiceTier仍是原客户端请求，ResponseServiceTier仍为上游响应，Claude usage.speed进入后者。没有对应出站字段时不凭空认定priority，response档位也不等于用户请求。Interactions流用量合并保留其token口径，避免把含reasoning的输出量再次相加。
+
+- **工具混用、空对象与Gemini schema/signature**（`45501610 / e1fb2521 / e5434f65 / 29150a22`）：Gemini混用内置工具与function时启用server-side调用；Claude隐式开放的空object schema不再删掉真实工具参数。Gemini text之后第一个function call也正确携带signature。内联本地$ref时兄弟约束按合取保留，冲突用allOf而非覆盖定义，循环/展开预算仍受限；native Schema和JSON Schema清理区分，避免错误推断type/items破坏交集，不是取消schema校验。
+
+- **Codex commentary 转 Claude thinking**（`376015c3`）：Codex commentary phase消息映射Claude thinking块，最终答案仍为text；流与非流保持阶段、顺序及内容边界，不把commentary混入最终可见回答。
+
+- **Gemini 模型目录token上限**（`83cb1b95`）：Gemini目录输出已知inputTokenLimit/outputTokenLimit，Home多section合并顺序稳定且补齐缺失目录元数据；只有实际已有正值才输出，不推断模型的真实供应商权限。
+
+- **Gemini/Vertex 非内容终态和prompt block**（`3f5d3a16`）：保留无正文但有finishReason的终态，候选为空且promptFeedback给出blockReason时显式报502并记录失败用量，而不是空成功。Chat与Claude目标流缺finishReason都作为截断；正常非内容finish reason按对应目标协议映射，不用虚构文本填补。
+
+- **RESP边界与日志路径保护**（`888f2382 / 179d43dc`）：Redis兼容入口限制array至1024项、bulk/line及累计参数payload至64KiB，检查负长度和CRLF，并对连接/订阅读取panic收敛；Home证书RESP另有1MiB bulk、64KiB line边界。请求日志清理正反斜杠、..及危险文件名，最终仅能在日志目录创建basename；这是协议/文件名输入边界，不是全进程内存上限。
+
+- **Git损坏识别与Home可取消连接**（`0d3ca1d3`）：Git store将缺失idx及packhandle底层文件归入已有仓库损坏恢复路径，不对任意IO错误执行恢复。Home独立plugin-status/同步操作使用可取消dialer，取消只关闭该命令的连接，不碰dispatch或并发release连接。
+
+- **Kimi K3.1 Pro变体回放**（`ab139b45`）：K3.1 Pro各变体归入同一thinking replay模型族，保留调用方/会话隔离和既有缓存容量/TTL；不是所有Kimi模型互通。
+
+- **插件HTTP跨源跳转清理凭据**（`9d08f0d4`）：目标或任一中间跳转离开最初scheme+host+有效port后，删除Authorization/Cookie及名称含api-key/token/secret/credential等凭据header，返回原源也不重新恢复；同源保留，已有redirect回调及默认10跳限制保留。范围是宿主插件HTTP桥，不代表任意第三方HTTP库都被覆盖。
+
+- **插件token计数与Retry-After**（`44d1ddf5 / 35e834da`）：插件count_tokens回复在识别合法非负整数计数、没有completion输出且存在目标token-count transformer时按计数转换，不再包装成普通completion；其他形状沿原回退。ABI error新增可选retry_after_seconds，RPC与stream error_detail传到冷却及安全Retry-After响应头，非正值忽略、溢出钳制。schema版本不协商新字段，旧宿主可忽略，插件不可依赖该提示保证正确性。
+
+- **插件执行遵循thinking和最终payload规则**（`e42eee6e / c9af5290`）：插件Execute/stream/count在输入协议翻译后调用统一canonical thinking管线，再执行用户payload规则作为宿主交付插件前最后一次修改；规则匹配去后缀底模和原客户端协议，Antigravity使用request根。插件模型目录可作能力回退、provider专属applier优先，未知模型族不冒充内置族校验。插件自身收到请求后仍可变更内容，因此宿主记录不等于插件最终网络出站证明。
+
+- **构建基线与测试稳定性**（`633a294f / ceb045a1 / ad09c779 / a014ba0e`）：go.mod和release workflow升级Go 1.26.10，更新go-git/go-billy及x依赖和示例模块；本地构建需满足新最低版本。allocation预算测试在race下跳过，plugin load/取消测试修正同步时序；跳过不等于执行通过，不沿用旧版本测试数字。
+
+- **README赞助及扩展目录更新**（`d232ee10 / bc064340`）：三种语言README加入Chenju赞助条目和assets/chenju.png；末提交删除Claude Proxy VSCode与ZeroLimit旧第三方扩展/应用介绍。后者未列入v42发布正文但属于实际tag范围。仅同步上游文档和资源，不推荐或认证这些第三方服务。
+
+### 本轮二开适配
+
+合并本轮原生策略时，继续保留凭据独立身份/namespace、严格凭据代理与禁止隐式回落、并发lease及配置/认证持久化边界；旧v35数值保真和v37局部保留修复是已发布基线，不当作本轮新修复。针对本轮组合路径补充以下修复，测试结果另由当前验收收据提供。
+
+- **文件快照与新token刷新门限**：保留原生运行态cooldown、Quota及ModelStates；只有凭据未变化时继承LastRefreshedAt、NextRefreshAfter和RefreshFailures，实际外层或SIWC新token不再继承旧刷新门限而被阻挡。
+- **流式执行固定实际token分区**：在启动结果包装goroutine前同步选择本次实际token，成功/错误Result均携带捕获标记；连“已捕获为空”也不再触发后来读取Gin.Request的回退，避免Gin对象池复用与错误分区拒绝记录。原生WS steering使用已捕获的initial.useSIWC，连接复用同时保留实际分区与fork proxy/namespace检查。
+- **媒体用量取最终出站值**：Codex direct images在业务payload规则及identity处理后采集档位；该路径转为JSON的multipart输入也按最终JSON读取。OpenAICompat仍以multipart发出的请求只提取service_tier/reasoning_effort标量，不把prompt或文件内容复制为用量字段，不改业务body。成功/失败共用发请求前快照，原始ServiceTier和上游ResponseServiceTier语义保留。
+- **新单流state的局部内存保留**：Claude→Responses仅在构造state时复制必要echo字符串、各复合字段自身Raw、选中工具声明及名称映射；Codex→Chat的新customPatchWinners缓存只复制名称key，避免子字符串间接保留无关完整input。必要字段本身很大仍会保留；不复制整请求，不扩展旧cache内存任务。
+- **混合服务器工具的签名分组**：Gemini清理器和快速检测在非thought的toolCall/tool_call/toolResponse/tool_response边界重置function-call组，与新Validator一致；其后的首个普通function可正确补签名。服务器工具块和参数原样保留，thought不拆组，不放宽验证规则。
+
+### 管理页 v1.26.7
+
+官方管理页仍为 v1.26.7，本轮没有新增上游 UI 提交，也未修改已发布的 HTML、patch 与 WebUI 说明。沿用 SIWC 开关、配置来源凭据只能改并发、ETag 乐观锁，以及普通 OAuth、SIWC 绑定和凭据编辑器的关闭修复。SIWC status 仍是后端只读本地接口，不宣称官方 UI 新增在线状态验证。本轮完整 UI 套件、兼容测试、独立重建及受控浏览器均以当前收据为准，不把 v37 测试结果当作本轮结果。Antigravity UI quota/APICall 的显式 User-Agent 与后端推理指纹仍是不同路径。
+
+### 默认、迁移与回退
+
+本轮 `internal/config` 与 v37 无原生差异，没有新 YAML 字段、默认值或强制配置格式迁移；无需仅因升级批量重新登录 OAuth。不过以下运行合同发生变化，不能用“配置不变”推导“行为全不变”。
+
+| 项目 | 当前行为与兼容边界 |
+| --- | --- |
+| Claude 上下文耗尽 | 从 v39 起，成功生成的 `model_context_window_exceeded` 停止改为 Chat `length`、Responses `incomplete/max_output_tokens`，保留输出/用量；不再按旧 HTTP400/failed 处理。真实 prompt-overflow 错误仍是错误 |
+| Codex 客户端 | 由列出的 Codex User-Agent 标记识别，忽略 `use_siwc`，使用外层 OAuth；该行为不是新的全局配置开关，SIWC 绑定与其他客户端选择不删除。缺外层 token 不自动回落 SIWC |
+| Alpha Search | 精确 HTTPS `chatgpt.com/backend-api/codex/alpha/search` 使用原始外层 OAuth；相近URL不扩大授权范围 |
+| WebSocket 鉴权 | Responses 后续执行轮次重新鉴权，运行中权限变化可使下一轮被拒；插件显式 denied 缺省403，不能只按升级握手一次放行 |
+| Guardian 亲和 | 已启用 session/subagent affinity 时可跨模型继承父会话同真实provider最近的合格凭据；已有子绑定优先，普通子代理仍遵循同模型规则 |
+| 插件请求 | canonical thinking 先于最终用户 payload 规则；若此前插件依赖绕过规则的旧行为，升级后应检查实际插件收到的请求。`DecodedBody`、拒绝status/message、`EffectiveServiceTier`及`retry_after_seconds`为新增SDK/ABI能力 |
+| Retry-After | 可选提示，旧宿主可忽略，schema版本一致不等于协商支持；插件仍需在提示缺失时正确工作 |
+| 用量档位 | `ServiceTier`=原始请求，`EffectiveServiceTier`=最终宿主出站payload，`ResponseServiceTier`=上游回报；`auto`或缺字段不是实际priority证明 |
+| Vertex | 新增识别us/eu的REP host，global及普通区域规则保留；没有新增OpenAPI配置字段，旧版本已存在的字段及Home兼容差距按当前只读审查说明 |
+| Home | 计划迁移依赖新Home命令与membership能力，延迟遥测还需明确声明能力；旧端明确unsupported会禁用计划迁移。Home遥测/取消不代表业务模型请求增加超时 |
+| 构建 | 最低Go由1.26.0升至1.26.10；发布workflow同步，既有已发布插件原二进制兼容性须由当前镜像单独验收 |
+
+本轮只读检查 Home main `a8d691bc3782fc8500e9de166375bff6e6ffed7d`：新BALANCE/LATENCY协议形状与能力协商已实现，strict schema仍拒绝Vertex OpenAPI等既有差距（22场景中4接受、18预期拒绝），并非本轮新增配置不兼容；没有修改或部署Home，也没有实测线上集群或Postgres并发。回退需匹配镜像、配置、auth、插件和用量快照；旧程序未必理解新增SDK字段，运行期拒绝状态与会话不因切换镜像自动恢复。
+
+### 内存边界
+
+本轮原生改动包含 Claude→Responses 单次回显解析、Codex→Chat 单流工具缓存、Antigravity/Kimi 回放连续性和有限 Home 延迟采样。原 replay-cache 实现与 Claude 搜索结果缓存容量/TTL 未改变；usage manager 新增3行档位元数据，插件 adapter 新增处理管线，不能把这些文件统称“完全未变”。必要回显值与执行链引用仍可能占用内存；本轮局部保留范围审查、协议输入限制和普通测试不证明整进程长期恒定内存。用户此前停止的 replay-cache/usage-queue 内存任务未恢复，也不承诺旧问题已修复或已做长期负载测试。
+
+## v8.0.37.1 历史记录
+
 当前修订为 `v8.0.37-codex-identity.1`，基于官方 `v8.0.37`（`ce07d189b3de2a39d37fd68ae093b102ce3aabee`）。从已发布 v8.0.36.1 合入实际 Git 全部14提交（11非merge、3merge），涉及76文件；发布页13条 changelog 漏列末项文档删除，本说明以 Git 范围为准。固定镜像标签 `codex-identity-v8.0.37.1` 与 latest 的最终摘要及本轮验收以附件为准。
 
 ## v8.0.37 更新

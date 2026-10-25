@@ -88,6 +88,9 @@ type Result struct {
 	SkipQuotaObservation bool
 	// AccessToken captures the active access token under which the request was executed.
 	AccessToken string
+	// accessTokenCaptured distinguishes an intentionally empty token from an
+	// uncaptured result, so stream completion never re-reads a recycled request.
+	accessTokenCaptured bool
 	// CredentialVersion captures the credential version under which the request was executed.
 	CredentialVersion uint64
 	// RegistrationEpoch captures the registration epoch under which the request was executed.

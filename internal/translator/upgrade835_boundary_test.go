@@ -78,7 +78,7 @@ func TestUpgrade835ReasoningRoundTripFamilyIsolation(t *testing.T) {
 }
 
 func TestUpgrade835SchemaReferencesAndOriginalArgumentContract(t *testing.T) {
-	original := []byte(`{"tools":[{"name":"Inspect","input_schema":{"type":"object","properties":{"nested":{"$ref":"#/$defs/object"},"contentMediaType":{"type":"string"}},"$defs":{"object":{"type":"object","properties":{"readOnly":{"type":"string"},"writeOnly":{"type":"string"},"contentEncoding":{"type":"string"},"reason":{"type":"string","readOnly":true,"contentMediaType":"text/plain","contentEncoding":"base64"}},"additionalProperties":false}}}},{"name":"Empty","input_schema":{"type":"object","properties":{}}}],"messages":[{"role":"user","content":"inspect"}]}`)
+	original := []byte(`{"tools":[{"name":"Inspect","input_schema":{"type":"object","properties":{"nested":{"$ref":"#/$defs/object"},"contentMediaType":{"type":"string"}},"$defs":{"object":{"type":"object","properties":{"readOnly":{"type":"string"},"writeOnly":{"type":"string"},"contentEncoding":{"type":"string"},"reason":{"type":"string","readOnly":true,"contentMediaType":"text/plain","contentEncoding":"base64"}},"additionalProperties":false}}}},{"name":"Empty","input_schema":{"type":"object","properties":{},"additionalProperties":false}}],"messages":[{"role":"user","content":"inspect"}]}`)
 	translated, errTranslate := geminiclaude.ConvertClaudeRequestToGemini("gemini-test", original, false)
 	if errTranslate != nil {
 		t.Fatal(errTranslate)

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func TestV837LateUnauthorizedCannotRejectReplacementRegistration(t *testing.T) {
-	for _, mode := range []string{"execute", "count", "stream-bootstrap"} {
+	for _, mode := range []string{"execute", "count", "stream-bootstrap", "codex-client/execute", "codex-client/count", "codex-client/stream-bootstrap"} {
 		t.Run(mode, func(t *testing.T) {
 			m := NewManager(nil, &FillFirstSelector{}, nil)
 			m.SetRetryConfig(0, 0, 0)
@@ -53,13 +54,17 @@ func TestV837LateUnauthorizedCannotRejectReplacementRegistration(t *testing.T) {
 			}
 			m.RegisterExecutor(e)
 			req := cliproxyexecutor.Request{Model: model}
-			switch mode {
+			opts := cliproxyexecutor.Options{}
+			if strings.HasPrefix(mode, "codex-client/") {
+				opts.Headers = http.Header{"User-Agent": {"codex_cli_rs/0.154.0"}}
+			}
+			switch strings.TrimPrefix(mode, "codex-client/") {
 			case "execute":
-				_, err = m.Execute(t.Context(), []string{"codex"}, req, cliproxyexecutor.Options{})
+				_, err = m.Execute(t.Context(), []string{"codex"}, req, opts)
 			case "count":
-				_, err = m.ExecuteCount(t.Context(), []string{"codex"}, req, cliproxyexecutor.Options{})
+				_, err = m.ExecuteCount(t.Context(), []string{"codex"}, req, opts)
 			case "stream-bootstrap":
-				_, err = m.ExecuteStream(t.Context(), []string{"codex"}, req, cliproxyexecutor.Options{})
+				_, err = m.ExecuteStream(t.Context(), []string{"codex"}, req, opts)
 			}
 			if err == nil || replacement == nil {
 				t.Fatal("expected an executed stale request failure")

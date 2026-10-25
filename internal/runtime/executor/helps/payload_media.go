@@ -118,3 +118,53 @@ func mediaPayloadJSON(body []byte, contentType string) ([]byte, bool, error) {
 	view, errMarshal := json.Marshal(fields)
 	return view, true, errMarshal
 }
+
+// SetTranslatedMediaRequestMetadata reads the final business fields without
+// changing multipart framing or copying file contents into the usage view.
+func (r *UsageReporter) SetTranslatedMediaRequestMetadata(body []byte, contentType, format string) {
+	r.SetTranslatedRequestMetadata(body, format)
+	if r == nil || json.Valid(body) {
+		return
+	}
+	mediaType, params, errParse := mime.ParseMediaType(contentType)
+	if errParse != nil || mediaType != "multipart/form-data" {
+		return
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	fields := make(map[string]any)
+	for {
+		part, errNext := reader.NextPart()
+		if errNext == io.EOF {
+			break
+		}
+		if errNext != nil {
+			return
+		}
+		name := part.FormName()
+		// Image forms expose these usage fields as scalars. Other fields,
+		// including prompts and file parts, are drained without being copied.
+		if part.FileName() == "" && (name == "service_tier" || name == "reasoning_effort") {
+			data, errRead := io.ReadAll(part)
+			if errRead != nil {
+				_ = part.Close()
+				return
+			}
+			if previous, exists := fields[name]; exists {
+				values, isArray := previous.([]any)
+				if !isArray {
+					values = []any{previous}
+				}
+				fields[name] = append(values, string(data))
+			} else {
+				fields[name] = string(data)
+			}
+		}
+		if errClose := part.Close(); errClose != nil {
+			return
+		}
+	}
+	view, errMarshal := json.Marshal(fields)
+	if errMarshal == nil {
+		r.SetTranslatedRequestMetadata(view, format)
+	}
+}
