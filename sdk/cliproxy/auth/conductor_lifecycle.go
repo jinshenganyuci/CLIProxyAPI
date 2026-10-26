@@ -420,7 +420,7 @@ func (m *Manager) updateInternalLocked(ctx context.Context, base, auth *Auth, mo
 			auth.ModelStates = existing.ModelStates
 			// File observations retain runtime cooldowns, but a new token must
 			// schedule refresh from its own expiry rather than an older backoff.
-			if !credChanged {
+			if !credentialMaterialChanged(existing, auth) {
 				auth.LastRefreshedAt = existing.LastRefreshedAt
 				auth.NextRefreshAfter = existing.NextRefreshAfter
 				auth.RefreshFailures = existing.RefreshFailures
@@ -449,7 +449,7 @@ func (m *Manager) updateInternalLocked(ctx context.Context, base, auth *Auth, mo
 		if credChanged || mode == updateModeRefresh {
 			applyPreservedRejectedTokens(existing, auth, mode == updateModeRefresh)
 			if auth.RejectedAccessToken == "" || authAccessToken(auth) != auth.RejectedAccessToken {
-				cooldownStateChanged = recoverAuthAfterCredentialUpdate(existing, auth, now, credChanged && mode != updateModeRefresh) || cooldownStateChanged
+				cooldownStateChanged = recoverAuthAfterCredentialUpdate(existing, auth, now, mode) || cooldownStateChanged
 			}
 		} else {
 			applyPreservedRejectedTokens(existing, auth, false)

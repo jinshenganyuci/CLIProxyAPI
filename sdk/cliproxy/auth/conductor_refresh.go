@@ -449,13 +449,27 @@ func authHasRefreshCredential(auth *Auth) bool {
 		(authMetadataString(auth, "dca_token") != "" || strings.TrimSpace(auth.Attributes["dca_token"]) != "")
 }
 
-// CredentialsChanged reports whether authentication credentials (tokens or API keys)
-// differ between two Auth records.
+// CredentialsChanged reports whether token material or the selected Codex
+// credential partition differs. Both changes must fence in-flight results.
 func CredentialsChanged(existing, incoming *Auth) bool {
 	if existing == nil || incoming == nil {
 		return false
 	}
-	if authAccessToken(existing) != authAccessToken(incoming) || authOuterAccessToken(existing) != authOuterAccessToken(incoming) {
+	if credentialMaterialChanged(existing, incoming) || authAccessToken(existing) != authAccessToken(incoming) {
+		return true
+	}
+	existingUseSIWC, existingHasUseSIWC := parseBoolAny(existing.Metadata["use_siwc"])
+	incomingUseSIWC, incomingHasUseSIWC := parseBoolAny(incoming.Metadata["use_siwc"])
+	return existingHasUseSIWC != incomingHasUseSIWC || existingUseSIWC != incomingUseSIWC
+}
+
+// credentialMaterialChanged compares token and API-key values independently of
+// the Codex partition selected for inference. A route toggle is not a new login.
+func credentialMaterialChanged(existing, incoming *Auth) bool {
+	if existing == nil || incoming == nil {
+		return false
+	}
+	if authOuterAccessToken(existing) != authOuterAccessToken(incoming) {
 		return true
 	}
 	if authRefreshToken(existing) != authRefreshToken(incoming) {
@@ -493,11 +507,6 @@ func CredentialsChanged(existing, incoming *Auth) bool {
 		authSIWCTokenField(existing, "refresh_token") != authSIWCTokenField(incoming, "refresh_token") ||
 		authSIWCTokenField(existing, "id_token") != authSIWCTokenField(incoming, "id_token") ||
 		authSIWCTokenField(existing, "client_id") != authSIWCTokenField(incoming, "client_id") {
-		return true
-	}
-	existingUseSIWC, existingHasUseSIWC := parseBoolAny(existing.Metadata["use_siwc"])
-	incomingUseSIWC, incomingHasUseSIWC := parseBoolAny(incoming.Metadata["use_siwc"])
-	if existingHasUseSIWC != incomingHasUseSIWC || existingUseSIWC != incomingUseSIWC {
 		return true
 	}
 	return false
@@ -614,9 +623,12 @@ func shouldPreserveRejectedAccessToken(existing, updated *Auth, isRefresh bool) 
 // recoverAuthAfterCredentialUpdate shares re-login recovery between native
 // updates and durable metadata transactions. Callers keep disabled credentials
 // and unchanged rejected tokens outside this recovery path.
-func recoverAuthAfterCredentialUpdate(existing, auth *Auth, now time.Time, resetRefreshGate bool) bool {
-	auth.RefreshFailures = 0
-	if resetRefreshGate && auth.NextRefreshAfter.Equal(existing.NextRefreshAfter) {
+func recoverAuthAfterCredentialUpdate(existing, auth *Auth, now time.Time, mode updateAuthMode) bool {
+	materialChanged := credentialMaterialChanged(existing, auth)
+	if materialChanged || mode == updateModeRefresh {
+		auth.RefreshFailures = 0
+	}
+	if materialChanged && mode != updateModeRefresh && auth.NextRefreshAfter.Equal(existing.NextRefreshAfter) {
 		auth.NextRefreshAfter = time.Time{}
 	}
 	changed := false

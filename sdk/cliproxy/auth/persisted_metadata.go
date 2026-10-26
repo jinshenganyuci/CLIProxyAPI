@@ -209,7 +209,7 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	}
 	if credentialChanged {
 		if !updated.Disabled && updated.Status != StatusDisabled && (updated.RejectedAccessToken == "" || authAccessToken(updated) != updated.RejectedAccessToken) {
-			cooldownStateChanged = recoverAuthAfterCredentialUpdate(latest, updated, now, true) || cooldownStateChanged
+			cooldownStateChanged = recoverAuthAfterCredentialUpdate(latest, updated, now, updateModeReplace) || cooldownStateChanged
 			if latest.Quota.Exceeded && latest.Quota.Reason == "credential_quota" && latest.Quota.NextRecoverAt.After(now) {
 				updated.Unavailable = latest.Unavailable
 				updated.NextRetryAfter = latest.NextRetryAfter

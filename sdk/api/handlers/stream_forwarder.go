@@ -178,6 +178,12 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 			return
 		case chunk, ok := <-data:
 			if !ok {
+				// Both channels can be ready after cancellation. Do not turn a
+				// canceled delivery into a synthetic truncation or completion.
+				if errContext := c.Request.Context().Err(); errContext != nil {
+					cancel(errContext)
+					return
+				}
 				// Prefer surfacing a terminal error if one is pending.
 				if terminalErr == nil {
 					if errMsg, ok := PendingStreamError(errs); ok {

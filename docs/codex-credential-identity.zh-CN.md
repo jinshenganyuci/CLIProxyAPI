@@ -32,7 +32,7 @@
 
 - **调度selection_id独立于request_id**（`e5321f53`）：每次实际插件Scheduler.Pick生成新的selection_id，经metadata和执行context传到UsageRecord、插件/Redis用量，插件选择后委托内置策略成功也保留同一ID；拒绝/未处理/普通非插件/Home选择清理旧ID，防止后续执行误归因。request_id仍标识执行实例、trace_id仍关联入口请求，三者不可互换；有选择而无执行时也不保证出现用量记录。插件显式拒绝作为request-stop，不再被其它候选回退绕过。
 
-- **分层协商压缩与兼容回退**（`064e008b`）：新增server.response-compression，enabled缺省true，非流min-bytes缺省1024（零/负按1024）；只对协商到zstd/gzip的可压缩HTTP类型生效，q值优先、同分选zstd，SSE逐flush不等大小门限。HEAD/upgrade/206/204/304、已编码及不合适类型不再包装，Vary合并Accept-Encoding；没有可用编码仍兼容透传，不强制406。Codex websocket-compression缺省true，仅协商permessage-deflate，配置更新影响后续握手。upstream-request-compression缺省false/min1024；开启后只对非API-key、实际非SIWC请求、chatgpt.com hostname与/backend-api/codex/前缀且达到大小并压缩更小时发zstd。实现未额外要求HTTPS或标准port，也不按“存在自定义baseURL”一律排除，不能将注释意图写成更严限制。400/415仅用同一最终明文body重试一次，不重跑payload规则。响应按声明反序解gzip/deflate/br/zstd，无header仅探测gzip/zstd魔数；解压不等于新增全局内存上限。
+- **分层协商压缩与兼容回退**（`064e008b`）：新增server.response-compression，enabled缺省true，非流min-bytes缺省1024（零/负按1024）；只对协商到zstd/gzip的可压缩HTTP类型生效，q值优先、同分选zstd，SSE逐flush不等大小门限。HEAD/upgrade/206/204/304、已编码及不合适类型不再包装，Vary合并Accept-Encoding；没有可用编码仍兼容透传，不强制406。Codex websocket-compression缺省true。下游Responses WebSocket的false会停止后续握手协商permessage-deflate；Codex/xAI上游仍协商接收压缩支持，false仅关闭新建连接的写压缩。已打开socket不因此重新协商。upstream-request-compression缺省false/min1024；开启后只对非API-key、实际非SIWC请求、chatgpt.com hostname与/backend-api/codex/前缀且达到大小并压缩更小时发zstd。实现未额外要求HTTPS或标准port，也不按“存在自定义baseURL”一律排除，不能将注释意图写成更严限制。400/415仅用同一最终明文body重试一次，不重跑payload规则。响应按声明反序解gzip/deflate/br/zstd，无header仅探测gzip/zstd魔数；解压不等于新增全局内存上限。
 
 - **Claude thinking_tokens用量映射**（`43f5386b`）：Claude→OpenAI Chat把thinking_tokens写入completion_tokens_details.reasoning_tokens，流累计和非流均保留；只补明细，不将已包含的thinking重复加进总completion。
 
@@ -57,9 +57,10 @@
 本轮保留已发布凭据identity/namespace、严格代理及禁止隐式回落、并发lease和精确JSON持久化边界，同时按新原生合同整合以下实际修复；测试统计和镜像验收另由本轮收据提供，不沿用v42数字。
 
 - **OAuth与Watcher合并边界**：native Start解析body后回放规范化内容给二开原有五provider流程，避免丢失账号选择、direct或body字段；保留会话独立auth-dir/proxy及已选Codex身份。原生proxy context只作未绑定HTTP客户端时的回退，额度回调已绑定的客户端继续优先。提交claim置于用户post-auth hook完成后、实际store前，保留hook期间取消可以先赢的行为；Watcher的persisted标记使用对应sourceRevision，避免身份派生revision混用。
-- **持久化采纳新token后恢复轮转**：二开UpdateAndPersistMetadata与原生lifecycle共用恢复判断，真实新token可清旧RefreshFailures/backoff、invalid_grant或已到期临时不可用状态；仍有效的quota冷却保留并正确呈现quota原因。disabled、只改控制字段、未替换的SIWC rejected分区及已有lease不被这种恢复误清。
+- **持久化采纳新token后恢复轮转**：二开UpdateAndPersistMetadata与原生lifecycle共用恢复判断，真实新token可清旧RefreshFailures/backoff、invalid_grant或已到期临时不可用状态；仍有效的quota冷却保留并正确呈现quota原因。disabled、只改控制字段、未替换的SIWC rejected分区及已有lease不被这种恢复误清。同时区分实际token材料更新与use_siwc分区开关：仅切换仍推进凭据版本以隔离旧请求结果，但不清RefreshFailures、NextRefreshAfter或未替换SIWC token的拒绝分区记录；文件快照在材料未变时继续继承LastRefreshedAt、刷新门限与失败计数，避免关闭SIWC后再次后台刷新已拒绝的旧token。实际刷新成功仍按原生语义清失败计数。
 - **跨协议commentary标记消费**：补齐Codex→Claude→Responses中间reasoning carrier路径。在typed input[].reasoning且encrypted_content精确匹配内部标记时，恢复assistant phase=commentary；summary优先、content兜底避免镜像重复，无文本carrier删除。六个翻译入口和runtime同格式旁路在最终payload规则前处理；普通opaque签名/router suffix规则、用户或工具的字面标记、其它数字raw均保留，不改已经发出的SSE item身份。已发布v42的state detach仍为基线。
 - **解压响应元数据并发所有权**：实际net/http transport仍会读取原始Response元数据，解压现返回独立Response副本并Clone Header，只在副本更新Body、ContentLength及Content-Encoding/Length；首次请求与400/415明文回退均接收副本，不再原地写共享响应。decoder仍包装并负责关闭原body，保留原连接/代理及关闭语义。
+- **流关闭与请求取消**：SDK ForwardStream在数据通道关闭分支首先重查request context；已取消即按取消原因退出，不再调用CloseError合成stream_truncated或完成事件。未取消而缺正常终态的真实EOF仍走原截断失败路径，既有pending terminal与正常终态处理不改。
 - **压缩与身份顺序**：Codex保持业务final payload→凭据identity映射→zstd wire编码；400/415仅在同一HTTP client用同一最终明文body回退一次，不再执行payload规则或重新做identity映射。资格仍按原生hostname/path/分区/大小/收益判断，不额外宣称严格scheme/port筛选。
 
 ### 管理页 v1.26.7
@@ -74,7 +75,7 @@
 | --- | --- |
 | 下游HTTP/SSE | `server.response-compression.enabled`省略为true，`min-bytes`省略/零/负为1024；仅协商zstd/gzip且合适类型时压缩，SSE按flush，不等待非流大小阈值。需要旧未压缩行为时显式false |
 | Codex上游请求 | `upstream.codex.upstream-request-compression`默认false，`upstream-request-compression-min-bytes`有效缺省1024；只有满足源码资格及压缩收益才zstd，400/415一次同body明文回退。此开关不改变SIWC/API-key分区选择 |
-| Codex WebSocket | `upstream.codex.websocket-compression`省略为true，仅协商permessage-deflate；显式false影响后续握手，已打开socket不等于重新协商 |
+| Codex WebSocket | `upstream.codex.websocket-compression`省略为true；false停止下游后续握手的permessage-deflate协商，上游Codex/xAI新建连接则仅关闭写压缩并保接收支持；不重协商已打开socket |
 | 配置兼容 | 原root `response-compression`、`codex.*`以及`oauth.providers.codex.*`旧路径可由现有v8规范化映射；规范位置分别为server与upstream，不是模型级字段。显式false不可丢成省略 |
 | Vertex | 新导入及缺失location最终回退由us-central1改global；已有显式值/URL区域不批量重写。需固定旧区域时明确配置us-central1 |
 | OAuth代理 | v8 body proxy_url/proxy-url归一化，query不接受；登录会话隔离并成功后写对应账号，不改全局代理；direct及旧fork账号选择/取消语义以本轮适配说明为准 |

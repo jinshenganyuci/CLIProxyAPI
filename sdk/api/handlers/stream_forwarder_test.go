@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +164,47 @@ func TestSSEJSONValidationStateSplitCRLFVariants(t *testing.T) {
 			}
 			if string(output) != wantOutput {
 				t.Fatalf("output mismatch: got %q, want %q", string(output), wantOutput)
+			}
+		})
+	}
+}
+
+func TestV844ForwardStreamCanceledClosePreservesCancellationAndRealEOF(t *testing.T) {
+	for _, canceled := range []bool{true, false} {
+		name := "real-eof"
+		if canceled {
+			name = "canceled-close"
+		}
+		t.Run(name, func(t *testing.T) {
+			const attempts = 128
+			wrong, closeChecks := 0, 0
+			for range attempts {
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				ctx, cancel := context.WithCancel(t.Context())
+				c.Request = httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+				data := make(chan []byte)
+				close(data)
+				if canceled {
+					cancel()
+				}
+				wantEOF := errors.New("upstream closed without terminal")
+				var outcome error
+				keepAlive := time.Duration(0)
+				(&BaseAPIHandler{}).ForwardStream(c, recorder, func(err error) { outcome = err }, data, nil, StreamForwardOptions{
+					KeepAliveInterval: &keepAlive,
+					CloseError: func() *interfaces.ErrorMessage {
+						closeChecks++
+						return &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: wantEOF}
+					},
+				})
+				cancel()
+				if canceled && !errors.Is(outcome, context.Canceled) || !canceled && !errors.Is(outcome, wantEOF) {
+					wrong++
+				}
+			}
+			if wrong != 0 || canceled && closeChecks != 0 || !canceled && closeChecks != attempts {
+				t.Fatalf("closed-channel outcome: wrong=%d close-checks=%d canceled=%v", wrong, closeChecks, canceled)
 			}
 		})
 	}
