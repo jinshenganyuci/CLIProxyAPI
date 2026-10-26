@@ -2,8 +2,11 @@ package cliproxy
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
@@ -14,6 +17,7 @@ import (
 )
 
 func TestDevinV8ServiceRoutesAggregatesAndPreservesCredentialControls(t *testing.T) {
+	usePublishedDevinCatalogV842(t)
 	const authID = "devin-v8-catalog-migration"
 	reg := registry.GetGlobalRegistry()
 	reg.UnregisterClient(authID)
@@ -97,4 +101,63 @@ func TestDevinV8AliasSourcesAndExclusionsNeedCanonicalIDs(t *testing.T) {
 	if !contains(oldExclusion, "devin/gpt-6-astra") || contains(newExclusion, "devin/gpt-6-astra") {
 		t.Fatal("exclusion matching did not distinguish old variant and canonical base")
 	}
+}
+
+// usePublishedDevinCatalogV842 preserves the published catalog compatibility
+// contract even when the current upstream catalog retires legacy model IDs.
+func usePublishedDevinCatalogV842(t *testing.T) {
+	t.Helper()
+	original := registry.GetDevinModelsJSON()
+	originalPath := filepath.Join(t.TempDir(), "original-devin.json")
+	if errWrite := os.WriteFile(originalPath, original, 0600); errWrite != nil {
+		t.Fatal(errWrite)
+	}
+	fixture := func(relative string) string {
+		t.Helper()
+		path, errAbs := filepath.Abs(filepath.Join("..", "..", "internal", "registry", relative))
+		if errAbs != nil {
+			t.Fatal(errAbs)
+		}
+		return path
+	}
+	notifications := make(chan struct{}, 8)
+	registry.SetModelRefreshCallback(func(providers []string) {
+		for _, provider := range providers {
+			if provider == "devin" {
+				notifications <- struct{}{}
+			}
+		}
+	})
+	load := func(path string) {
+		t.Helper()
+		wanted, errRead := os.ReadFile(path)
+		if errRead != nil {
+			t.Fatal(errRead)
+		}
+		if string(registry.GetDevinModelsJSON()) == string(wanted) {
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		registry.StartModelCatalogUpdaters(ctx, registry.CatalogSources{
+			Catalog: fixture("models/models.json"), CodexCatalog: fixture("models/codex_client_models.json"), DevinCatalog: path,
+		}, false)
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-notifications:
+				if string(registry.GetDevinModelsJSON()) == string(wanted) {
+					return
+				}
+			case <-timer.C:
+				t.Fatal("local Devin catalog was not published")
+			}
+		}
+	}
+	t.Cleanup(func() {
+		defer registry.SetModelRefreshCallback(nil)
+		load(originalPath)
+	})
+	load(fixture("testdata/devin_models_v842.json"))
 }

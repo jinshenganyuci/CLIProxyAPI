@@ -101,6 +101,7 @@ func TestDirectProviderRefreshIgnoresExecutionProxy(t *testing.T) {
 
 func TestXAIExecutionProxyConflictDoesNotReuseOrCloseLiveWebsocket(t *testing.T) {
 	var handshakes, conflictingHits atomic.Int32
+	handshakeReady := make(chan struct{})
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, errUpgrade := upgrader.Upgrade(w, r, nil)
@@ -108,7 +109,9 @@ func TestXAIExecutionProxyConflictDoesNotReuseOrCloseLiveWebsocket(t *testing.T)
 			t.Error(errUpgrade)
 			return
 		}
-		handshakes.Add(1)
+		if handshakes.Add(1) == 1 {
+			close(handshakeReady)
+		}
 		defer func() { _ = conn.Close() }()
 		_, _, _ = conn.ReadMessage()
 	}))
@@ -126,6 +129,8 @@ func TestXAIExecutionProxyConflictDoesNotReuseOrCloseLiveWebsocket(t *testing.T)
 	if errDial != nil || conn == nil {
 		t.Fatalf("initial connection: %v", errDial)
 	}
+	// Dial can return after the 101 write before the handler records the handshake.
+	<-handshakeReady
 	ctx := coreexecutor.WithRequestProxyURL(context.Background(), conflicting.URL)
 	blocked, _, _, errBlocked := exec.ensureUpstreamConn(ctx, auth, session, auth.ID, wsURL, http.Header{})
 	var policy *proxyutil.ExecutionProxyError

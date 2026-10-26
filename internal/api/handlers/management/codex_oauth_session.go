@@ -189,7 +189,7 @@ func (options *codexOAuthSessionOptions) save(ctx context.Context, state string,
 		}
 		// A hook may take time or cancel this flow itself. Check again after
 		// hooks, immediately before saveTokenRecord calls the token store.
-		return guardOAuthSessionPendingForSave(state, "codex")
+		return claimOAuthSessionCommit(state, "codex")
 	}
 	defer func() { options.handler.postAuthHook = originalHook }()
 	return options.handler.saveTokenRecord(ctx, record)

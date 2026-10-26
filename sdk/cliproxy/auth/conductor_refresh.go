@@ -611,6 +611,34 @@ func shouldPreserveRejectedAccessToken(existing, updated *Auth, isRefresh bool) 
 	return false
 }
 
+// recoverAuthAfterCredentialUpdate shares re-login recovery between native
+// updates and durable metadata transactions. Callers keep disabled credentials
+// and unchanged rejected tokens outside this recovery path.
+func recoverAuthAfterCredentialUpdate(existing, auth *Auth, now time.Time, resetRefreshGate bool) bool {
+	auth.RefreshFailures = 0
+	if resetRefreshGate && auth.NextRefreshAfter.Equal(existing.NextRefreshAfter) {
+		auth.NextRefreshAfter = time.Time{}
+	}
+	changed := false
+	isAuthOrGrantFailure := hasUnauthorizedAuthFailure(existing) ||
+		(auth.LastError != nil && (isUnauthorizedError(auth.LastError) || isInvalidGrantResultError(auth.LastError)))
+	if !auth.Quota.NextRecoverAt.After(now) &&
+		(isAuthOrGrantFailure || (auth.Unavailable && !auth.NextRetryAfter.After(now))) {
+		auth.Unavailable = false
+		auth.NextRetryAfter = time.Time{}
+		auth.cooldownRecordedSeq = 0
+		auth.LastError = nil
+		auth.StatusMessage = ""
+		auth.Status = StatusActive
+		changed = true
+	} else if isAuthOrGrantFailure && auth.Quota.Exceeded && auth.Quota.NextRecoverAt.After(now) {
+		auth.LastError = nil
+		auth.StatusMessage = auth.Quota.Reason
+		changed = true
+	}
+	return len(clearUnauthorizedModelStates(auth, now)) > 0 || changed
+}
+
 // ClearUnauthorizedModelStates resets model states whose last error was an unauthorized failure.
 func ClearUnauthorizedModelStates(auth *Auth, now time.Time) []string {
 	return clearUnauthorizedModelStates(auth, now)
@@ -771,11 +799,11 @@ func clearUnauthorizedModelStates(auth *Auth, now time.Time) []string {
 		}
 		isUnauth := false
 		if state.LastError != nil {
-			if state.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(state.LastError.Code, "unauthorized") || isUnauthorizedError(state.LastError) {
+			if state.LastError.StatusCode() == http.StatusUnauthorized || strings.EqualFold(state.LastError.Code, "unauthorized") || isUnauthorizedError(state.LastError) || isInvalidGrantResultError(state.LastError) {
 				isUnauth = true
 			}
 		}
-		if !isUnauth && strings.Contains(strings.ToLower(state.StatusMessage), "unauthorized") {
+		if !isUnauth && (strings.Contains(strings.ToLower(state.StatusMessage), "unauthorized") || isInvalidGrantErrorMessage(state.StatusMessage)) {
 			isUnauth = true
 		}
 		if !isUnauth {
@@ -784,7 +812,7 @@ func clearUnauthorizedModelStates(auth *Auth, now time.Time) []string {
 		anyChanged = true
 		if state.Quota.Exceeded && (state.Quota.NextRecoverAt.IsZero() || state.Quota.NextRecoverAt.After(now)) {
 			state.LastError = nil
-			if strings.Contains(strings.ToLower(state.StatusMessage), "unauthorized") {
+			if strings.Contains(strings.ToLower(state.StatusMessage), "unauthorized") || isInvalidGrantErrorMessage(state.StatusMessage) {
 				state.StatusMessage = state.Quota.Reason
 			}
 			state.UpdatedAt = now

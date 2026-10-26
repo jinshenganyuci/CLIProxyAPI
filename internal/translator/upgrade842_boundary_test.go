@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	clauderesponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	codexclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/claude"
 	codexchat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/openai/chat-completions"
@@ -100,8 +101,14 @@ func TestUpgrade842ParallelPolicyAndCommentaryAcrossProtocols(t *testing.T) {
 	}
 	messages := completed.Get(`output.#(type=="message")#`).Array()
 	reasoning := completed.Get(`output.#(type=="reasoning")#`).Array()
-	if len(messages) != 1 || messages[0].Get("content.0.text").String() != "Final answer." || len(reasoning) != 1 || reasoning[0].Get("summary.0.text").String() != "Checking first." || reasoning[0].Get("encrypted_content").String() != "" {
-		t.Fatalf("commentary was duplicated as answer or assigned a signature: %s", completed.Raw)
+	if len(messages) != 1 || messages[0].Get("content.0.text").String() != "Final answer." || len(reasoning) != 1 || reasoning[0].Get("summary.0.text").String() != "Checking first." || reasoning[0].Get("encrypted_content").String() != signature.CodexCommentarySignatureMarker {
+		t.Fatalf("commentary was duplicated as answer or lost its replay carrier: %s", completed.Raw)
+	}
+	// v8.0.44 carries commentary through the intermediate Responses reasoning
+	// item. Replaying that item must consume the carrier and recover its phase.
+	replay, errReplay := codexresponses.ConvertOpenAIResponsesRequestToCodex("gpt-test", []byte(`{"input":`+completed.Get("output").Raw+`}`), false)
+	if errReplay != nil || gjson.GetBytes(replay, "input.0.phase").String() != "commentary" || gjson.GetBytes(replay, "input.0.content.0.text").String() != "Checking first." || gjson.GetBytes(replay, "input.0.encrypted_content").Exists() || gjson.GetBytes(replay, "input.1.content.0.text").String() != "Final answer." {
+		t.Fatalf("commentary replay lost its phase or leaked the carrier: %s, %v", replay, errReplay)
 	}
 	if completed.Get("usage.input_tokens").Int() != 12 || completed.Get("usage.output_tokens").Int() != 5 || completed.Get("usage.input_tokens_details.cached_tokens").Int() != 3 {
 		t.Fatalf("usage changed across protocol round trip: %s", completed.Raw)

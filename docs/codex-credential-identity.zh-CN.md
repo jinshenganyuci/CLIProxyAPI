@@ -1,5 +1,96 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.44-codex-identity.1`，基于官方 `v8.0.44`（`1f917e77c4562623aa49e9804d999524151a2f96`）。从已发布v8.0.42.1合入v43、v44共35提交（33非merge、2merge），涉及182文件；分版本18与17，本次v44发布正文完整包含其17提交。固定镜像标签 `codex-identity-v8.0.44.1` 与latest摘要及本轮验收以附件为准。
+
+## v8.0.44 更新
+
+- **静态检查与测试同步**（`2bb6ac6f / 84e83441`）：修复v42引入的lostcancel/静态分析问题及WebSocket测试竞态，调整测试同步和资源关闭；不据这些提交标题认定本轮测试已经通过。Go最低版本仍为1.26.10；miekg/dns由间接依赖转为发现模块直接依赖，版本未另升级。
+
+- **WebSocket绑定客户端模型与principal**（`6340fe43 / 3e7a21e2`）：duplex后续轮次以原客户端请求模型进行鉴权，即使拦截器已将上游模型改写；不会把改写后的内部模型当作客户端授权对象。异步逐轮鉴权不再写Gin身份/context字段，保持升级时请求快照；返回非空principal若与已绑定principal不同则401要求重连，不在同一运行流中切换调用者。空结果仍遵循既有AccessManager合同，不能把principal比较当成新的供应商身份验证。
+
+- **关闭数据通道时保留真实错误与取消**（`0fe4cc2c / 90fe5b23 / 712e4970`）：Responses WebSocket数据通道先关闭时仍读取已缓冲的错误；普通stream在通道关闭且context已取消时记录取消，包括首chunk前关闭，避免误记空成功。已有真实终态、下游断开和取消的处理按具体路径区分，不把所有EOF都视为取消，也不凭空补成功终态。
+
+- **持久化快照绑定与重新登录恢复**（`32dd2c86 / 21553509`）：Watcher持久化更新保留file snapshot绑定，并用persisted revision识别扫描期间写入后需重新读取的文件；runtime更新/删除清理相应标记。新凭据或成功刷新清理已失效认证/invalid_grant刷新失败状态，恢复合格轮转，但未来仍有效的credential quota冷却不因重新登录被无条件清除。与二开旧new-token刷新门限修复的组合另行审查，不能直接覆盖旧语义。
+
+- **Gemini数组items延迟补齐**（`b2fda98e`）：本地$ref和allOf解析完成后才补缺省array items，避免占位object抢先遮蔽真实item定义；保留既有兄弟约束合取、循环与展开预算。参数声明中真正需要的占位仍生成，不代表放弃schema清理。
+
+- **插件回放保留调用方scope**（`e48d780f`）：请求拦截及host模型执行新增CallerScope/metadata caller_scope不透明句柄，用于恢复同一调用方的会话与Claude OAuth MCP工具别名状态，不直接暴露下游API key。回调须传递原拦截上下文得到的scope；不是将客户端任意JSON字段当可信授权，也不取消跨调用方隔离。
+
+- **xAI历史additional_tools去重**（`0c61b12c`）：将历史additional_tools提升到顶层时按可调用工具名称去重，顶层声明及先出现声明优先；namespace折叠先汇总同名空间子工具并去重，工具数量按实际唯一项计算，保留返回调用的namespace/子工具映射。Hosted工具不按不存在的function名误合并，仍遵循既有工具数量限制。
+
+- **Home订阅重试退避**（`ce433b37`）：重试状态放在supervisor而非可替换client中，初始1秒、倍增至30秒并取半幅随机抖动；短暂连接成功或节点切换不重置失败累计，健康持续30秒后重置。计划rebalance可立即切换且不制造额外等待，正常取消可打断等待；这是重新连接节奏，不是模型响应超时。
+
+- **Vertex缺省区域改为global**（`ba06ec58`）：Vertex导入的新凭据、缺失location的执行凭据、普通host和OpenAPI最终回退从us-central1改为global，对应全局aiplatform.googleapis.com。已写入的显式区域、URL路径区域及模型/凭据OpenAPI覆盖仍按各自优先级保留，不批量改写旧auth；希望维持旧区域的使用者应显式配置us-central1。目录/UI文字与服务端缺省须分开核对。
+
+- **Codex/OpenAI转Gemini保留finishReason**（`bdde391d`）：流式转换保留上游结束原因并输出Gemini终态，即使末块没有正文；按已有映射区分正常结束、长度和工具结束，减少下游误判截断，不虚构生成内容。
+
+- **Devin SWE-2 Lightning聚合目录**（`3dae075d`）：将swe-2各effort-lightning UID聚合为devin/swe-2-lightning，展示名保留Lightning；执行时按目录支持等级/default/clamp解析回swe-2-<effort>-lightning，显式完整UID保持。内置Devin目录从56条变46条：移除17个旧ID、加入7个新ID，39个共有项内容未改；例如swe-1-7-lightning换为swe-2-lightning，deepseek-v4-1-flash换为带1017的ID，新增Claude5.5/GPT-6.1 Sol等目录项。不能宣称所有旧ID仍被默认广告，也不证明真实账户已获对应模型权限。
+
+- **OAuth会话代理与单账号持久化**（`27f3abfb`）：原生v8 OAuth登录支持body中的proxy_url/proxy-url，query携带代理被拒；代理仅放本次登录配置快照与session，成功后写入该账号ProxyURL/metadata，不改全局代理。内置provider和插件登录/轮询/回调可用该上下文，错误与session结束清理代理敏感信息。原生URL验证要求有效代理形式，direct与二开既有能力的组合以最终分支适配为准。新增原子claim-commit：取消先赢则不能保存，已进入提交则取消不能再声称成功；plugin轮询并发不会多次持久化。浏览器访问授权页的网络与后端交换网络仍不同，API扩大支持不等于UI新增所有provider代理控件。
+
+- **AI Studio逐帧翻译relay SSE**（`30780351`）：单个relay chunk包含多条SSE frame时逐条解析/翻译并保持帧顺序，不只处理第一条；跨chunk部分数据仍按流状态处理，避免丢失工具、用量或终态。
+
+- **调度selection_id独立于request_id**（`e5321f53`）：每次实际插件Scheduler.Pick生成新的selection_id，经metadata和执行context传到UsageRecord、插件/Redis用量，插件选择后委托内置策略成功也保留同一ID；拒绝/未处理/普通非插件/Home选择清理旧ID，防止后续执行误归因。request_id仍标识执行实例、trace_id仍关联入口请求，三者不可互换；有选择而无执行时也不保证出现用量记录。插件显式拒绝作为request-stop，不再被其它候选回退绕过。
+
+- **分层协商压缩与兼容回退**（`064e008b`）：新增server.response-compression，enabled缺省true，非流min-bytes缺省1024（零/负按1024）；只对协商到zstd/gzip的可压缩HTTP类型生效，q值优先、同分选zstd，SSE逐flush不等大小门限。HEAD/upgrade/206/204/304、已编码及不合适类型不再包装，Vary合并Accept-Encoding；没有可用编码仍兼容透传，不强制406。Codex websocket-compression缺省true，仅协商permessage-deflate，配置更新影响后续握手。upstream-request-compression缺省false/min1024；开启后只对非API-key、实际非SIWC请求、chatgpt.com hostname与/backend-api/codex/前缀且达到大小并压缩更小时发zstd。实现未额外要求HTTPS或标准port，也不按“存在自定义baseURL”一律排除，不能将注释意图写成更严限制。400/415仅用同一最终明文body重试一次，不重跑payload规则。响应按声明反序解gzip/deflate/br/zstd，无header仅探测gzip/zstd魔数；解压不等于新增全局内存上限。
+
+- **Claude thinking_tokens用量映射**（`43f5386b`）：Claude→OpenAI Chat把thinking_tokens写入completion_tokens_details.reasoning_tokens，流累计和非流均保留；只补明细，不将已包含的thinking重复加进总completion。
+
+- **Codex commentary历史内部标记**（`531721bf`）：Codex commentary转Claude thinking块时增加内部signature标记cpa:commentary:v1；回到Codex时恢复assistant phase=commentary，其他Claude历史消费者转成普通文本并移除标记。它是可伪造的字面标记，不是供应商签名、凭据或真实reasoning证明；不得把该标记发给上游，真正reasoning signature仍保持独立。
+
+- **CORS预检显式允许Authorization**（`058b803b`）：预检响应明确列出Authorization，允许携带鉴权头的浏览器跨域调用按既有CORS策略工作；不绕过API key检查、不改变实际请求的授权条件。
+
+- **插件schema7按阶段省略请求body**（`6fe654bf`）：ABI schema升级7，新增request_interceptor_omit_body_before/after能力；只有schema>=7且对应phase显式声明时才不复制/Base64编码该插件看到的Body。未声明、旧schema（即使带flag）仍收到body；各插件独立，后续需要body的插件仍能收到当前body。省略接收不禁止插件盲写替换响应Body，也不是默认删除业务请求。
+
+- **Interactions输入与终态兼容**（`ede07caf / 37bd18b0`）：Gemini/Antigravity Interactions流在终态用量frame后补一次[DONE] sentinel，保持用量先后顺序；Antigravity接受没有message包装的content-block列表，同时保留文本、工具/图像等已有类型转换，不把未知结构默认为成功消息。
+
+- **局域网发现TXT draft与有界解析**（`8a982a52 / b214385c / 11e5f67b / 999526c7`）：mDNS仍默认关闭；TXT按draft-su-ai-gateway-discovery-00输出txtvers/path/tls/auth及可容纳的protocols/auth_type/product/id/role，单string<=255字节、总400字节，布尔0/1，扩展协议来自实际subtype。旧CPA TXT单独兼容；不支持draft版本或无效必需字段不降级绕过校验，未知token只保留raw_txt。advertise-management仍可加载但已弃用且忽略，管理入口永不广播。解析器按接口缓存拆包PTR/SRV/TXT/A/AAAA，处理TTL/cache-flush/goodbye、缺项重试和已知答案；最多256实例、17408 RR、4MiB记账存储，每host/interface地址64、TXT strings64。只接收选定接口5353来源及合规组播/本地同链路单播，缺控制信息时fail closed；IPv6 link-local保留zone和interface index。取消关闭socket/等待读取线程后返回尚有效部分结果，无内部Browse deadline；数量到上限可提前结束。mDNS不认证同链路广告者，CLI只显示候选不自动连接/发key；这些边界不等于跨平台RFC全面符合或旧内存问题修复。
+
+- **Claude5.5强制工具与结构化输出限制**（`1d45a5f3`）：按实际路由模型识别Claude Opus/Sonnet5.5（含指定后缀/日期形式），原生Claude tool_choice any/tool在thinking处理前改auto并删name，避免强制模式破坏thinking或签名历史，用户最终payload规则仍最后生效。Antigravity该模型的responseSchema/responseJsonSchema改为system中的best-effort JSON格式提示，移除相应schema/MIME叶子，ANY/VALIDATED改AUTO并清allowed names，避免又被builder强制恢复；这不等于供应商严格schema保证，其他provider/模型不普遍套用。
+
+- **HTTP200已接收流截断不冷却或重放**（`aa4130e6`）：Gemini/Vertex的Chat/Claude流在上游HTTP200后缺finishReason，仍向调用方报本地截断错误并保留失败用量，但新增stream_truncated分类沿error和usage sinks传递，不将本地合成502当作上游拒绝导致凭据冷却或换凭据重放。请求已提交，不能为了补终态重复生成；真实上游HTTP拒绝、其它错误和正常终态仍沿各自合同。
+
+- **删除APIMart赞助文档资源**（`1f917e77`）：三种语言README删除APIMart赞助段及assets/apimart-en.png、assets/apimart-zh.png；本提交已列入v44发布正文。只是同步上游文档资源，不对第三方服务作推荐或质量判断。
+
+### 本轮二开适配
+
+本轮保留已发布凭据identity/namespace、严格代理及禁止隐式回落、并发lease和精确JSON持久化边界，同时按新原生合同整合以下实际修复；测试统计和镜像验收另由本轮收据提供，不沿用v42数字。
+
+- **OAuth与Watcher合并边界**：native Start解析body后回放规范化内容给二开原有五provider流程，避免丢失账号选择、direct或body字段；保留会话独立auth-dir/proxy及已选Codex身份。原生proxy context只作未绑定HTTP客户端时的回退，额度回调已绑定的客户端继续优先。提交claim置于用户post-auth hook完成后、实际store前，保留hook期间取消可以先赢的行为；Watcher的persisted标记使用对应sourceRevision，避免身份派生revision混用。
+- **持久化采纳新token后恢复轮转**：二开UpdateAndPersistMetadata与原生lifecycle共用恢复判断，真实新token可清旧RefreshFailures/backoff、invalid_grant或已到期临时不可用状态；仍有效的quota冷却保留并正确呈现quota原因。disabled、只改控制字段、未替换的SIWC rejected分区及已有lease不被这种恢复误清。
+- **跨协议commentary标记消费**：补齐Codex→Claude→Responses中间reasoning carrier路径。在typed input[].reasoning且encrypted_content精确匹配内部标记时，恢复assistant phase=commentary；summary优先、content兜底避免镜像重复，无文本carrier删除。六个翻译入口和runtime同格式旁路在最终payload规则前处理；普通opaque签名/router suffix规则、用户或工具的字面标记、其它数字raw均保留，不改已经发出的SSE item身份。已发布v42的state detach仍为基线。
+- **解压响应元数据并发所有权**：实际net/http transport仍会读取原始Response元数据，解压现返回独立Response副本并Clone Header，只在副本更新Body、ContentLength及Content-Encoding/Length；首次请求与400/415明文回退均接收副本，不再原地写共享响应。decoder仍包装并负责关闭原body，保留原连接/代理及关闭语义。
+- **压缩与身份顺序**：Codex保持业务final payload→凭据identity映射→zstd wire编码；400/415仅在同一HTTP client用同一最终明文body回退一次，不再执行payload规则或重新做identity映射。资格仍按原生hostname/path/分区/大小/收益判断，不额外宣称严格scheme/port筛选。
+
+### 管理页 v1.26.7
+
+最新已发布管理页仍为 v1.26.7，本轮上游release范围为0提交；未发布main上的后续提交不混入本次目标。沿用已发布的SIWC/并发/ETag/关闭行为。当前UI登录前代理控件仍限Codex、Devin、Meta、Kimi、kimi-ai五种provider，Claude/Antigravity/xAI沿原GET流程；服务端本轮扩大OAuth会话代理能力不代表UI已增加对应按钮。压缩字段位于server.response-compression和upstream.codex共享配置层，可经已有source/visual serializer验证，不宣称存在新增专属压缩控件。前端完整套件、兼容测试、独立构建和受控浏览器必须取本轮收据；历史失败负控仅标注来源，不算本轮新测试。
+
+### 默认、迁移与回退
+
+本轮有新增可选配置与默认行为变化，不能笼统称“全链压缩默认开启”或“配置和路由默认不变”。
+
+| 项目 | 默认及迁移说明 |
+| --- | --- |
+| 下游HTTP/SSE | `server.response-compression.enabled`省略为true，`min-bytes`省略/零/负为1024；仅协商zstd/gzip且合适类型时压缩，SSE按flush，不等待非流大小阈值。需要旧未压缩行为时显式false |
+| Codex上游请求 | `upstream.codex.upstream-request-compression`默认false，`upstream-request-compression-min-bytes`有效缺省1024；只有满足源码资格及压缩收益才zstd，400/415一次同body明文回退。此开关不改变SIWC/API-key分区选择 |
+| Codex WebSocket | `upstream.codex.websocket-compression`省略为true，仅协商permessage-deflate；显式false影响后续握手，已打开socket不等于重新协商 |
+| 配置兼容 | 原root `response-compression`、`codex.*`以及`oauth.providers.codex.*`旧路径可由现有v8规范化映射；规范位置分别为server与upstream，不是模型级字段。显式false不可丢成省略 |
+| Vertex | 新导入及缺失location最终回退由us-central1改global；已有显式值/URL区域不批量重写。需固定旧区域时明确配置us-central1 |
+| OAuth代理 | v8 body proxy_url/proxy-url归一化，query不接受；登录会话隔离并成功后写对应账号，不改全局代理；direct及旧fork账号选择/取消语义以本轮适配说明为准 |
+| 插件schema7 | before/after body optout默认未启用，旧schema即使填flag仍收到Body；插件需明确声明才减少复制，不要求旧插件重新编译才获得旧行为 |
+| ID和用量 | selection_id仅关联插件选凭据决策，request_id/trace_id原语义保持；没有执行不保证有用量，不应把三个ID当同一个限流或幂等键 |
+| 发现协议 | discovery仍opt-in；广播改draft键，自己的消费者需适配。浏览器可读legacy不等于仍双格式广播。advertise-management可加载但忽略，管理入口不广播；发现不是身份认证或自动连接授权 |
+| 截断流 | 已HTTP200接收的Gemini/Vertex缺终态仍向调用方报告失败，但不凭本地stream_truncated冷却/跨凭据重放；已提交的生成不因缺终态自动重复 |
+
+普通升级不要求批量OAuth重登。本轮fresh只读Home main `a8d691bc3782fc8500e9de166375bff6e6ffed7d` 的29个strict-schema场景为6接受/23预期拒绝：五个新压缩字段全部拒绝，不能把带这些字段的完整CPA配置直接发送Home。Home接受既有discovery enabled/advertise-management字段，但没有internal/discovery实现，不代表它已实现CPA新发现协议。本轮不修改或部署Home，独立CPA无需因此强制迁移Home。回退应配套镜像、配置、auth、插件与用量快照，新字段可能不被旧strict parser接受；镜像回退不恢复运行期会话或拒绝记录。
+
+### 内存边界
+
+本轮mDNS新缓存有明确的局部保留边界，schema7选择性省略body可减少插件交付复制；二者都不等于整进程内存恒定。Replay-cache与Claude搜索结果缓存实现未改，usage manager新增selection/失败分类元数据、interceptor新增optout/caller scope，不能把所有相关文件称为完全未变。压缩/解压及DNS packet解码的瞬时分配不受4MiB发现记录记账值等同约束。v37/v42已发布的局部state保留修复继续作为基线；此前停止的replay-cache/usage-queue任务不恢复，也不承诺旧内存问题修复或长期负载证明。
+
+## v8.0.42.1 历史记录
+
 当前修订为 `v8.0.42-codex-identity.1`，基于官方 `v8.0.42`（`bc0643405a1d0adf77dd0f109972ac3313d66397`）。从已发布 v8.0.37.1 合入 v38—v42 实际 Git 全部55提交（51非merge、4merge），涉及220文件；末项README清理未列入v42发布正文，本说明以Git范围为准。固定镜像标签 `codex-identity-v8.0.42.1` 与 latest 的摘要及本轮验收以附件为准。
 
 ## v8.0.42 更新

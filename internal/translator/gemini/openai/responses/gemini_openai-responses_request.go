@@ -23,6 +23,7 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 }
 
 func convertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte, stream bool) ([]byte, error) {
+	inputRawJSON, _ = sigcompat.RestoreResponsesCodexCommentaryMarkers(inputRawJSON)
 	rawJSON := inputRawJSON
 	var drops translatorcommon.UserTurnDrops
 

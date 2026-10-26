@@ -139,6 +139,7 @@ func ConvertOpenAIResponsesRequestToAntigravity(modelName string, inputRawJSON [
 // ConvertOpenAIResponsesRequestEnvelopeToAntigravity translates an OpenAI Responses
 // request and consumes request-scoped model capabilities from the envelope.
 func ConvertOpenAIResponsesRequestEnvelopeToAntigravity(_ context.Context, req sdktranslator.RequestEnvelope) sdktranslator.RequestEnvelope {
+	req.Body, _ = sigcompat.RestoreResponsesCodexCommentaryMarkers(req.Body)
 	if shouldBuildAntigravityResponsesWebSearchRequest(req.Model, req.Body, req.ModelInfo) {
 		req.Body, req.Err = buildAntigravityResponsesWebSearchRequest(req.Model, req.Body, req.Stream)
 		return req

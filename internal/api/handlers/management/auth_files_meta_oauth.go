@@ -53,7 +53,7 @@ func (h *Handler) RequestMetaToken(c *gin.Context) {
 	if authURL == "" {
 		authURL = strings.TrimSpace(deviceFlow.VerificationURI)
 	}
-	RegisterOAuthSession(state, "meta")
+	registerOAuthSessionWithOptions(state, "meta", snapshot.cfg.AuthDir, snapshot.cfg.ProxyURL)
 	proxyURL := snapshot.cfg.ProxyURL
 	originalHook := snapshot.postAuthHook
 	snapshot.postAuthHook = func(ctx context.Context, record *coreauth.Auth) error {
@@ -69,7 +69,7 @@ func (h *Handler) RequestMetaToken(c *gin.Context) {
 		record.ProxyURL = proxyURL
 		record.Metadata["proxy_url"] = proxyURL
 		record.Storage = storage
-		return guardOAuthSessionPendingForSave(state, "meta")
+		return claimOAuthSessionCommit(state, "meta")
 	}
 	go snapshot.completeMetaOAuth(ctx, state, explicitProxy, authSvc, deviceFlow)
 	response := gin.H{"status": "ok", "url": authURL, "state": state, "flow": "device"}
@@ -162,9 +162,9 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, explicit 
 	if _, errSave := h.saveTokenRecord(ctx, record); errSave != nil {
 		if IsOAuthSessionPending(state, "meta") {
 			if errors.Is(errSave, metaauth.ErrOAuthProxyMismatch) {
-				SetOAuthSessionError(state, metaauth.ErrOAuthProxyMismatch.Error())
+				FailOAuthSessionCommit(state, metaauth.ErrOAuthProxyMismatch.Error())
 			} else {
-				SetOAuthSessionError(state, "Failed to save authentication tokens")
+				FailOAuthSessionCommit(state, "Failed to save authentication tokens")
 			}
 		}
 		return

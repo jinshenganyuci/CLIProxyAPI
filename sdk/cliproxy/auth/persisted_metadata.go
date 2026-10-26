@@ -194,6 +194,7 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	updated.CredentialVersion = max(uint64(1), latest.CredentialVersion)
 	credentialChanged := CredentialsChanged(latest, updated)
 	cooldownStateChanged := false
+	now := time.Now()
 	if credentialChanged {
 		updated.CredentialVersion++
 		updated.RejectedAccessToken = ""
@@ -208,15 +209,8 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	}
 	if credentialChanged {
 		if !updated.Disabled && updated.Status != StatusDisabled && (updated.RejectedAccessToken == "" || authAccessToken(updated) != updated.RejectedAccessToken) {
-			if hasUnauthorizedAuthFailure(latest) || (updated.LastError != nil && isUnauthorizedError(updated.LastError)) {
-				updated.Unavailable = false
-				updated.LastError = nil
-				updated.StatusMessage = ""
-				updated.Status = StatusActive
-				cooldownStateChanged = true
-			}
-			cooldownStateChanged = len(clearUnauthorizedModelStates(updated, time.Now())) > 0 || cooldownStateChanged
-			if latest.Quota.Exceeded && latest.Quota.Reason == "credential_quota" && latest.Quota.NextRecoverAt.After(time.Now()) {
+			cooldownStateChanged = recoverAuthAfterCredentialUpdate(latest, updated, now, true) || cooldownStateChanged
+			if latest.Quota.Exceeded && latest.Quota.Reason == "credential_quota" && latest.Quota.NextRecoverAt.After(now) {
 				updated.Unavailable = latest.Unavailable
 				updated.NextRetryAfter = latest.NextRetryAfter
 				updated.Quota = mergeQuotaObservation(latest.Quota, updated.Quota)
@@ -227,7 +221,7 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 		}
 	}
 	updated.Generation = latest.Generation + 1
-	updated.UpdatedAt = time.Now()
+	updated.UpdatedAt = now
 	m.auths[id] = updated.Clone()
 	m.notifyAuthChangeLocked(id)
 	persistLock.lastEpoch = updated.RegistrationEpoch

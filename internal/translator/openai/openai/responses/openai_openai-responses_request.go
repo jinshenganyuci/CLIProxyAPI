@@ -3,6 +3,7 @@ package responses
 import (
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -36,6 +37,7 @@ func ConvertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 // audio part Chat Completions cannot receive when it leaves a user turn with
 // nothing to send.
 func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inputRawJSON []byte, stream bool) ([]byte, error) {
+	inputRawJSON, _ = signature.RestoreResponsesCodexCommentaryMarkers(inputRawJSON)
 	rawJSON := inputRawJSON
 	var drops translatorcommon.UserTurnDrops
 	// Base OpenAI chat completions template with default values

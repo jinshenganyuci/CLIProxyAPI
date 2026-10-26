@@ -61,10 +61,11 @@ var newDevinOAuthService = func(cfg *config.Config) devinOAuthService {
 // Devin's authorization page strictly validates that redirect_uri matches
 // http://127.0.0.1:<port>/callback (http protocol, 127.0.0.1 host, and /callback path).
 func (h *Handler) devinCallbackURL() (string, error) {
-	if h == nil || h.cfg == nil || h.cfg.Port <= 0 {
+	cfg := h.configSnapshot()
+	if h == nil || cfg == nil || cfg.Port <= 0 {
 		return "", fmt.Errorf("server port is not configured")
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d/callback", h.cfg.Port), nil
+	return fmt.Sprintf("http://127.0.0.1:%d/callback", cfg.Port), nil
 }
 
 // RequestDevinToken starts the same callback/status flow used by the other WebUI providers.
@@ -96,7 +97,7 @@ func (h *Handler) RequestDevinToken(c *gin.Context) {
 		return
 	}
 	authURL := authSvc.BuildAuthorizationURL(redirectURI, pkceCodes.CodeChallenge, state)
-	RegisterOAuthSessionWithAuthDir(state, "devin", snapshot.cfg.AuthDir)
+	registerOAuthSessionWithOptions(state, "devin", snapshot.cfg.AuthDir, snapshot.cfg.ProxyURL)
 	proxyURL, authDir := snapshot.cfg.ProxyURL, snapshot.cfg.AuthDir
 	authSvc = &devinOAuthProxyService{devinOAuthService: authSvc, proxyURL: proxyURL, explicit: explicitProxy, state: state}
 	originalHook := snapshot.postAuthHook
@@ -114,7 +115,7 @@ func (h *Handler) RequestDevinToken(c *gin.Context) {
 		record.Metadata["proxy_url"] = proxyURL
 		record.Storage = storage
 		// Recheck after hooks, immediately before persistence, just as Codex does.
-		return guardOAuthSessionPendingForSave(state, "devin")
+		return claimOAuthSessionCommit(state, "devin")
 	}
 	// Do not inherit the HTTP request cancellation: login continues after returning the URL.
 	ctx := PopulateAuthContext(context.Background(), c)
@@ -167,6 +168,7 @@ func (h *Handler) prepareDevinOAuthSession(c *gin.Context) (*Handler, bool, int,
 }
 
 func (h *Handler) completeDevinOAuth(ctx context.Context, authDir, state, codeVerifier string, authSvc devinOAuthService) {
+	sessionProxyURL := GetOAuthSessionProxyURL(state)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	go watchOAuthSessionCancel(ctx, cancel, state, "devin")
@@ -218,9 +220,7 @@ func (h *Handler) completeDevinOAuth(ctx context.Context, authDir, state, codeVe
 		}
 		return
 	}
-	if errGuard := guardOAuthSessionPendingForSave(state, "devin"); errGuard != nil {
-		return
-	}
+	applySessionProxyToAuthRecord(record, sessionProxyURL)
 	if record != nil {
 		if record.Attributes == nil {
 			record.Attributes = make(map[string]string)
@@ -231,9 +231,9 @@ func (h *Handler) completeDevinOAuth(ctx context.Context, authDir, state, codeVe
 	if _, errSave := h.saveTokenRecord(ctx, record); errSave != nil {
 		if IsOAuthSessionPending(state, "devin") {
 			if errors.Is(errSave, devin.ErrOAuthProxyMismatch) {
-				SetOAuthSessionError(state, devin.ErrOAuthProxyMismatch.Error())
+				FailOAuthSessionCommit(state, devin.ErrOAuthProxyMismatch.Error())
 			} else {
-				SetOAuthSessionError(state, "Failed to save authentication tokens")
+				FailOAuthSessionCommit(state, "Failed to save authentication tokens")
 			}
 		}
 		return

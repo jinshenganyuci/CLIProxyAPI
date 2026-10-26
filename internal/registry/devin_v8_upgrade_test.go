@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"os"
 	"reflect"
 	"slices"
 	"testing"
@@ -90,6 +91,27 @@ func TestDevinV8DynamicCatalogAggregationAndReplacement(t *testing.T) {
 }
 
 func TestDevinV8PreviousCatalogIDsHaveBaseMetadata(t *testing.T) {
+	// Old catalog aliases remain valid when a user loads that catalog. The
+	// current upstream catalog may retire models, so this compatibility test
+	// deliberately uses the published v8.0.42 catalog rather than the live one.
+	data, errRead := os.ReadFile("testdata/devin_models_v842.json")
+	if errRead != nil {
+		t.Fatal(errRead)
+	}
+	devinCatalogStore.mu.RLock()
+	originalModels := cloneModelInfos(devinCatalogStore.models)
+	originalRaw := append([]byte(nil), devinCatalogStore.rawJSON...)
+	originalRevision := devinCatalogStore.revision
+	devinCatalogStore.mu.RUnlock()
+	t.Cleanup(func() {
+		devinCatalogStore.mu.Lock()
+		devinCatalogStore.models, devinCatalogStore.rawJSON, devinCatalogStore.revision = originalModels, originalRaw, originalRevision
+		devinCatalogStore.mu.Unlock()
+	})
+	if _, errLoad := loadDevinModelsFromBytes(data, "published-v842-compatibility"); errLoad != nil {
+		t.Fatal(errLoad)
+	}
+
 	previous := map[string]string{
 		"devin/claude-opus-5-5":                       "devin/claude-opus-5-5",
 		"devin/claude-fable-5-1":                      "devin/claude-fable-5-1",

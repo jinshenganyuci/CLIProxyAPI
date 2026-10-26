@@ -63,6 +63,7 @@ func ConvertOpenAIResponsesRequestToClaudeWithCompatContext(ctx context.Context,
 // toolSearch carries upstream.claude.tool-search for the whole translation so
 // a config reload cannot mix the two behaviors within one request.
 func convertOpenAIResponsesRequestToClaude(modelName string, inputRawJSON []byte, stream, preserveEmptyThinkingBlocks, toolSearch bool) ([]byte, error) {
+	inputRawJSON, _ = sigcompat.RestoreResponsesCodexCommentaryMarkers(inputRawJSON)
 	rawJSON := normalizeCodexAgentMessages(inputRawJSON)
 	var drops common.UserTurnDrops
 

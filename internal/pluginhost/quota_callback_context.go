@@ -77,7 +77,7 @@ func (h *Host) resolveHTTPCallback(ctx context.Context, callbackID string) (cont
 		return nil, nil, err
 	}
 	if client == nil {
-		client = h.newHTTPClient(nil)
+		client = h.newHTTPClientWithProxy(nil, oauthProxyURLFromContext(ctx))
 	}
 	return ctx, client, nil
 }

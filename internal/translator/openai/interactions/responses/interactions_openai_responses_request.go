@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	applypatch "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/apply-patch"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	"github.com/tidwall/gjson"
@@ -18,6 +19,7 @@ func ConvertOpenAIResponsesRequestToInteractions(modelName string, inputRawJSON 
 // convertOpenAIResponsesRequestToInteractions also reports a file, audio or video
 // part Interactions cannot receive when it leaves a user turn with nothing to send.
 func convertOpenAIResponsesRequestToInteractions(modelName string, inputRawJSON []byte, stream bool) ([]byte, error) {
+	inputRawJSON, _ = signature.RestoreResponsesCodexCommentaryMarkers(inputRawJSON)
 	var drops translatorcommon.UserTurnDrops
 	root := gjson.ParseBytes(inputRawJSON)
 	out := []byte(`{"model":"","input":[]}`)

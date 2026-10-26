@@ -158,6 +158,15 @@ func TestV835StreamTerminationKeepsProxyUsageAndLease(t *testing.T) {
 				if active, limit := manager.CredentialConcurrencySnapshot(authID); active != 0 || limit != 10 {
 					t.Fatalf("settled lease = %d/%d, want 0/10", active, limit)
 				}
+				if end == "truncated" && (provider == "gemini" || provider == "vertex") {
+					current, ok := manager.GetByID(authID)
+					if !ok {
+						t.Fatal("selected credential disappeared")
+					}
+					if state := current.ModelStates[model]; state != nil && (state.Unavailable || !state.NextRetryAfter.IsZero()) {
+						t.Fatalf("accepted truncated stream cooled the credential/model: %+v", state)
+					}
+				}
 				release, errAcquire := manager.AcquireCredentialConcurrency(t.Context(), registered)
 				if errAcquire != nil {
 					t.Fatal(errAcquire)

@@ -78,23 +78,20 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	}
 	localFrames := opts.localInterrupt.framesChan()
 
-	forwardError := func(errMsg *interfaces.ErrorMessage) (*interfaces.ErrorMessage, error) {
-		if errMsg == nil {
-			cancel(nil)
-			return nil, nil
-		}
+	// handleErr ends the turn on a terminal stream error (non-nil errMsg).
+	handleErr := func(errMsg *interfaces.ErrorMessage) ([]byte, string, []string, *interfaces.ErrorMessage, error) {
 		h.LoggingAPIResponseError(context.WithValue(context.Background(), "gin", c), errMsg)
 		if opts.suppressError != nil && opts.suppressError(errMsg) {
 			cancel(errMsg.Error)
-			return errMsg, nil
+			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, nil
 		}
 		markAPIResponseTimestamp(c)
 		if matched, errClose := writer.closeForUpstreamError(errMsg.Error); matched {
 			cancel(errMsg.Error)
 			if errClose != nil {
-				return errMsg, errClose
+				return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, errClose
 			}
-			return errMsg, websocket.ErrCloseSent
+			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, websocket.ErrCloseSent
 		}
 
 		errorPayload, wrote, errTerminate := writeResponsesWebsocketTerminalError(writer, wsTimelineLog, errMsg, nil)
@@ -108,7 +105,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			)
 		}
 		cancel(errMsg.Error)
-		return errMsg, errTerminate
+		return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), errMsg, errTerminate
 	}
 
 	for {
@@ -131,21 +128,25 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				errs = nil
 				continue
 			}
-			forwardErrMsg, errForward := forwardError(errMsg)
-			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), forwardErrMsg, errForward
+			if errMsg == nil {
+				cancel(nil)
+				return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), nil, nil
+			}
+			return handleErr(errMsg)
 		case chunk, ok := <-data:
 			if !ok {
-				// Producers publish a terminal error before closing data. If both
-				// channels are ready, preserve that error instead of reporting EOF.
-				select {
-				case errMsg, okError := <-errs:
-					if okError && errMsg != nil {
-						forwardErrMsg, errForward := forwardError(errMsg)
-						return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), forwardErrMsg, errForward
+				duplex := opts.duplexStream != nil && opts.duplexStream()
+				if duplex || !completed {
+					// The stream producers send a terminal error before they close errs and then
+					// data, so it is already buffered here. The select picks between the closed
+					// data channel and that error at random; take the error. Otherwise a pinned-auth
+					// failure that needs a replay close (1012) ends as a plain disconnect (1006),
+					// and a duplex stream loses the error its executor reported.
+					if pendingErrMsg, hasPending := handlers.PendingStreamError(errs); hasPending {
+						return handleErr(pendingErrMsg)
 					}
-				default:
 				}
-				if opts.duplexStream != nil && opts.duplexStream() {
+				if duplex {
 					// A duplex stream ends with its socket, not an individual response.
 					// The data channel may close before select observes its final error.
 					_, errClose := writer.closeWithoutError()

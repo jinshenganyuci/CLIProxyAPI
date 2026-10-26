@@ -59,6 +59,7 @@ func (w *Watcher) dispatchRuntimeAuthUpdate(update AuthUpdate) bool {
 				w.currentAuths = make(map[string]*coreauth.Auth)
 			}
 			w.currentAuths[clone.ID] = clone.Clone()
+			delete(w.persistedAuthRevisions, clone.ID)
 		}
 	case AuthUpdateActionDelete:
 		id := update.ID
@@ -67,6 +68,7 @@ func (w *Watcher) dispatchRuntimeAuthUpdate(update AuthUpdate) bool {
 		}
 		if id != "" {
 			delete(w.runtimeAuths, id)
+			delete(w.persistedAuthRevisions, id)
 			if w.currentAuths != nil {
 				delete(w.currentAuths, id)
 			}
@@ -118,11 +120,14 @@ func (w *Watcher) dispatchPersistedAuthUpdateWithRevision(update *AuthUpdate) (b
 		return false, 0
 	}
 	var canonicalBatch []AuthUpdate
-	w.clientsMutex.RLock()
+	w.clientsMutex.Lock()
 	defer func() {
-		w.clientsMutex.RUnlock()
+		w.clientsMutex.Unlock()
 		w.dispatchAuthUpdates(canonicalBatch)
 	}()
+	if w.persistedAuthRevisions == nil {
+		w.persistedAuthRevisions = make(map[string]uint64)
+	}
 	canonical := w.currentAuths[update.Auth.ID]
 	pathAuths := w.fileAuthsByPath[normalized]
 	_, belongsToFile := pathAuths[update.Auth.ID]
@@ -137,6 +142,7 @@ func (w *Watcher) dispatchPersistedAuthUpdateWithRevision(update *AuthUpdate) (b
 			// after a missing queue delivers the batch without a partial original.
 			for id := range pathAuths {
 				if current := w.currentAuths[id]; current != nil {
+					w.persistedAuthRevisions[id] = w.authSourceRevisions[id]
 					canonicalBatch = append(canonicalBatch, AuthUpdate{
 						Action: AuthUpdateActionModify, ID: id, Auth: current.Clone(),
 						revision: w.authRevisions[id],
@@ -158,6 +164,7 @@ func (w *Watcher) dispatchPersistedAuthUpdateWithRevision(update *AuthUpdate) (b
 	if rev == 0 {
 		return false, 0
 	}
+	w.persistedAuthRevisions[canonical.ID] = w.authSourceRevisions[canonical.ID]
 	update.ID = canonical.ID
 	update.Auth = canonical.Clone()
 	update.revision = rev
@@ -259,6 +266,15 @@ func (w *Watcher) refreshAuthState(force bool) {
 		return previous[auth.ID] != w.authSourceRevisions[auth.ID] ||
 			previousFiles[normalized] != w.fileObservations[normalized]
 	}
+	persistedDuringScan := func(auth *coreauth.Auth) bool {
+		if previous[auth.ID] == w.authSourceRevisions[auth.ID] {
+			return false
+		}
+		if !auth.HasFileSnapshot() {
+			return true
+		}
+		return w.persistedAuthRevisions[auth.ID] == w.authSourceRevisions[auth.ID]
+	}
 	incompleteDuringScan := func(auth *coreauth.Auth) bool {
 		if incompletePathOrDir(authPath(auth), false) {
 			return true
@@ -323,7 +339,8 @@ func (w *Watcher) refreshAuthState(force bool) {
 		}
 		if isFileBackedAuth(auth) {
 			w.indexFileBackedAuthLocked(auth)
-			if changedDuringScan(auth) && !incompleteDuringScan(auth) && !auth.HasFileSnapshot() {
+			if persistedDuringScan(auth) && !incompleteDuringScan(auth) {
+				delete(w.persistedAuthRevisions, auth.ID)
 				rawPath := auth.Attributes[coreauth.AttributePath]
 				if rawPath == "" {
 					rawPath = auth.Attributes[coreauth.AttributeSource]

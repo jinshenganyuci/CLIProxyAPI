@@ -183,6 +183,7 @@ func stripRouterSuffix(rawSignature, suffix string) string {
 }
 
 func sanitizeOpenAIResponsesReasoningEncryptedContentWithOptions(ctx context.Context, provider string, body []byte, isCompat bool, keepForeign bool, metaPolicy metaSignaturePolicy, targetProvider signature.SignatureProvider, allowRouterSuffix bool) []byte {
+	body, _ = signature.RestoreResponsesCodexCommentaryMarkers(body)
 	inputResult := util.GetGJSONBytesNoCopy(body, "input")
 	if !inputResult.Exists() || !inputResult.IsArray() {
 		return body
