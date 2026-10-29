@@ -227,7 +227,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 		defer func() {
 			defer stopDeliverySupport()
 			if helps.ApplyPatchTranslationError(param) != nil {
-				streamErr = statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+				streamErr = helps.ToolInputGatewayError(ctx, param, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage})
 				stopDeliverySupport()
 			}
 			// Replay is settled before forwarding completion; accounting still waits

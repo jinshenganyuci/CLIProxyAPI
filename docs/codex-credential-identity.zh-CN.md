@@ -1,5 +1,95 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.47-codex-identity.1`，基于官方 `v8.0.47`（`90c447d3a8727d115aa7552ec93ce023736ed492`）。从已发布v8.0.44.1合入v45/v46/v47共45提交（35非merge、10merge）/173文件，分版本21/19/5；v46 Changelog漏列c6425a6e与65889d39，完整Git清单已补齐。固定镜像标签 `codex-identity-v8.0.47.1` 与latest摘要及本轮验收以附件为准。
+
+## v8.0.47 更新
+
+- **思考字段删除避免无效复制**（`6b56ce6c`）：Gemini/Antigravity思考配置及summary删除不存在字段前先检查路径，缺字段时返回原JSON字节；存在字段仍走原删除逻辑。这是局部避免复制，canonical thinking→provider转换及显式payload覆盖顺序不因此改变。
+
+- **Responses私有事件过滤与SSE恢复**（`86d951cd / ae65e26d`）：普通Responses SSE客户端进一步过滤response.metadata及codex.*私有事件，官方/选定Codex Lite路径保留原生continuation合同；event名称与payload type均参与判断。WebSocket另按其原生规则保留codex.response.metadata传输状态，过滤普通客户端的response.metadata及所有subscription_usage，不能笼统称WS也删除全部codex.*。SSE分片跨字段、缺分隔符、空data等路径得到恢复，只撤销framer自己插入的换行以修复有效JSON，不任意删除原payload换行。终态之后不继续输出，私有事件过滤也覆盖未能解析为JSON的帧。
+
+- **README模型说明与第三方展示**（`8365de86 / b4cbda59 / c6425a6e / 535110e1`）：三种语言README更新Kimi K3.1与GPT-6.1 Terra说明，并加入Ebb、Nia Live Demo展示链接；这是文档内容，不代表本次验证过第三方服务、授权能力或对其作推荐。模型实际可用性仍取决于账号、动态目录和路由。
+
+- **Web-search能力注册索引**（`bc807104 / 58874f3b`）：模型注册/替换/注销时维护web-search支持计数与可见性，查询改走读锁索引；空注册、重复ID、孤立metadata清理与provider回退纳入重算。减少查询时写锁争用，不承诺所有注册表操作无锁，也不是搜索结果缓存容量修复。
+
+- **Vertex bare-Tink签名定向识别**（`58a4d04f / 1398f273 / a8582fba`）：识别Vertex观测到的bare-Tink envelope：固定前缀、已知key id及最小结构长度，保留原签名仅用于Vertex目标；AI Studio/Antigravity等其它Gemini目标视为不兼容。未知轮换key仍回退既有bypass策略，不能只凭首字节把随机opaque当Gemini，也不把结构识别当供应商密码学验签。
+
+- **上游同步zstd与延迟探测**（`3c948a58`）：上游zstd decoder改为单并发同步读取；无Content-Encoding时将gzip/zstd魔数探测延迟到首次Read，避免仅收到headers就阻塞构造。首字节非可能魔数即透传，其它无标头编码不猜测；Close保持原body/decoder关闭链。它不增加已建立推理连接的读超时，也不为上游所有解压输出提供全局字节上限。
+
+- **Codex瞬时容量与可信Retry-After**（`9a35fa12`）：turn_rate_limit_exceeded及明确model capacity归为transient_rate_limit并保持HTTP429，只按当前模型设置短期可用性，不冒充凭据额度耗尽或推进quota指数退避；没有model键时退为auth级临时冷却。实际仍有效的quota门限保留，显式其它错误code不被“at capacity”文本降级。额度body恢复时间优先，其次可信Retry-After；显式零可立即重试、缺失才使用原临时缺省。Home多凭据聚合与已消耗等待后的剩余时间用于最终提示，不能直接复用最后一次attempt过期header。
+
+- **模型目录与Codex客户端模板**（`19398539 / 65889d39`）：内置Codex各计划目录移除gpt-5.5并加入gpt-6.1-terra，Kimi增加K3.1 Pro/Highspeed，xAI补充图片/视频条目；Codex客户端模板新增workspace/cloud-orchestrator限制字段及新模型、计划和指令模板。客户端仍保留gpt-5.5 slug但模板展示为GPT-6.1-Sol，并调整context/reasoning缺省等元数据；这不是把上游实际模型强制改名，也不保证该账号获授权。65889d39适配相关模板和环境测试，不是新增CPA配置默认；旧目录依赖需显式选择兼容目录或模型。
+
+- **Gemini Interactions流行规范化**（`be929f07`）：Interactions入口可处理原始JSON行及SSE data前缀并跳过空行、event/id/retry/comment与DONE控制行，避免把SSE字段送入JSON转换。Vertex/Gemini路径复用相同规范化，仍按具体协议终态及用量规则处理。
+
+- **Antigravity CAQS channel轮换**（`7517549a`）：CAQS继续要求version4、Google infrastructure、thinking容器等结构，但不再硬编码channel id=18；channel仍须按合法varint存在，允许已轮换channel。其它envelope限制保留，此处不是放开所有签名或真实服务端验签证明。
+
+- **Gemini注册保留channel前缀**（`908e95d9`）：为凭据添加namespace/model前缀注册时不再把Gemini渠道前缀丢失；catalog、别名与实际provider路径按原规则组合，不据显示名称假定可以跨账号或跨供应调用。
+
+- **管理API按需刷新模型目录**（`10417e5b`）：新增v8 POST /routing/model-definitions/refresh及/models/refresh，返回各catalog来源、刷新/跳过/错误和changed_providers；内部有效源标记embed/disabled会跳过；这些不是可直接写入models.*的YAML值，配置只接受空、http(s)或绝对路径。Home缺省远程刷新关闭，显式有效源保留。请求序号及源generation防旧请求覆盖新结果，失败保最后有效目录；各目录有独立结果，不应把一次502当所有已成功目录都回滚。UI v1.26.7仍只有静态定义读取，没有新增强制刷新按钮。
+
+- **WebSocket断连、早期重试与中断归属**（`f73e66ac / 86a1aabf / 9717e325`）：Codex上游断连、write失败或Home session丢失只结束当前turn并保下游socket，清理当前上游状态/粘滞/lease后允许后续新turn重新连接；已开始执行的turn不跨凭据重放。首个有效输出前明确容量429可以换凭据，已向下游确认的输出不混入新attempt。终态后迟到interrupt、未知response_id及旧turn中断不能取消新turn；仅被当前turn认领的中断影响其执行，已发送终态不伪造第二终态。丢失连接后的continuation可返回409 previous_response_not_found，已发但结果未知为502 upstream_websocket_lost，未发送为upstream_websocket_not_sent；客户端应新建turn并发送完整对话、移除失效previous_response_id，不能假定已执行操作从未发生。
+
+- **Devin apply_patch诊断与完整裸patch恢复**（`b4f59d70`）：仅当原请求声明apply_patch且上游invalid_json_str是完整、有效UTF-8、可解析Begin/End Patch时恢复为预期工具参数；不补全截断patch，不把任意工具文本当补丁。流与非流都保工具ID、完成状态和原错误边界。诊断仅记录固定错误码、长度与形状，单响应最多追踪128调用，不输出补丁正文。
+
+- **图片payload默认规则**（`826bb167`）：xAI图片生成/编辑将原始未补缺省请求传给payload规则，显式输入优先，随后根据最终response_format决定返回格式；Codex与OpenAI-compatible相关图片入口同步接通原始请求/最终格式回调。不能因handler预填字段而屏蔽用户配置default，也不把新默认规则解释为覆盖显式值。
+
+- **Vertex流式函数参数重建**（`64316127`）：新增partialArgs/willContinue组装器，按函数ID/名称和持续状态拼接路径、字符串、数组及标量，转成Claude/OpenAI Chat/Responses可串接JSON delta，并处理重复完整快照与多调用边界。延迟清理占位字段以保声明中真实同名参数；限制深度64、数组索引1024和本组装器4MiB输出/缓冲记账。结构错误不补造完成，此局部限额不等于整进程内存上限。
+
+- **异步鉴权与用量请求快照**（`b7442218`）：执行入口同步捕获Codex客户端分类及usage身份，空值也是权威快照；异步结果不再回读已被Gin池复用的Request、API key或provider。派生context更新身份时复制持有者并加锁读取，保不同调用隔离；二开原有实际token捕获/registration fence仍需按合并源码专项核验，不把上游提交标题当回归通过。
+
+- **未完成请求body与描述符保护**（`477605dc`）：鉴权拒绝及未消费完body的响应不继续等待客户端补完输入：标记Connection: close并终止入站读，已hijack的WebSocket跳过；全量body日志推迟到鉴权通过。共享listener对临时EMFILE/ENFILE等退避重试，原10秒协议探测门限也用于有界路由排队，Redis认证前保持探测保护。此为入站/准入资源边界，不是为已建立上游生成设置超时。
+
+- **日志解压输出与窗口限制**（`ad8bdd3f`）：捕获请求日志的zstd单并发解码窗口上限8MiB，解压输出使用配置body上限与32MiB中更小值，未配时也有32MiB上限；失败保可诊断原始捕获并标注，不宣称限制所有请求处理或上游解压。错误日志先有限内存捕获、超过阈值可转临时文件，multipart/WS避免相同捕获路径。
+
+- **下游压缩encoder复用**（`16c6b4bd / 12f2cafe / a3e76891`）：gzip/zstd encoder按类型池化，zstd改1MiB窗口、单并发和低内存选项；结束时Close并Reset到Discard，清除ResponseWriter引用后归还池，后续误写返回closed-pipe。压缩启用默认与协商规则未改。打开的流仍持有encoder，池可保留历史大缓冲且受GC影响；benchmark/空池测试不能外推为长期负载或整进程内存保证。
+
+- **前端鉴权显式省略body**（`e324e481`）：schema7+前端鉴权插件可显式声明frontend_auth_provider_omit_body或别名frontend_auth_omit_body，跳过该provider的读取、解码和复制，Body/DecodedBody不交付；旧schema或未声明仍沿原合同。插件选择省略后须自己确保无需body即可鉴权，不能宣称其它插件、handler或日志都不再读取请求。
+
+- **schema8原始body局部补丁**（`0fe38224`）：ABI schema升8，before/after显式patch能力通过raw ABI交付当前body而不JSON/Base64包装，编辑是本插件输入的零基字节区间；稳定排序、越界/重叠/非JSON结果拒绝并记录警告，保原body继续链。非空Body完整替换优先于edits，前一插件有效改动可供后一插件读取；patcher启用时跳过旧完整body拦截，除非同时请求metadata-only omit模式。未声明/旧插件仍原行为，不要求原fork21/22重编译。
+
+- **工具搜索item ID前缀**（`90c447d3`）：Gemini工具搜索转换为Responses时item id由ts_改tsc_，相关Antigravity转换复用路径也按新前缀；这是客户端可见标识格式迁移，消费者不应把旧前缀硬编码为唯一合法值，工具关联和内容保持原合同；Codex入站历史把旧ts_规范为tsc_，多个原ID归一化碰撞时采用稳定映射/哈希后缀，避免合并本来不同的条目。
+
+### 本轮二开适配
+
+本轮以已发布v44的credential identity/namespace、严格代理与禁止隐式回落、并发lease、精确JSON持久化、SIWC材料/分区门限以及取消优先修复为基线；当前源码/镜像验证单独取本轮收据，不沿用旧版通过数字。
+
+- **认证后的有界body校验**：将二开unknown/chunked有界全量校验从全局预认证阶段延后到认证成功后，并在API捕获或共享管理鉴权后执行一次。未认证不完整body可按原生快速401/close，已认证超限尾随仍在凭据写入之前413；未新增已建立上游连接的网络超时。
+- **原生usage holder与二开身份快照衔接**：SnapshotAccessIdentity先解析权威typed parent（包括空值和native=false），同步创建原生captured holder；后续CaptureIdentity不再回读复用Gin。WithAPIKey派生context保持独立，Home显式SetCaptured仍可更新本holder。此处只保证异步身份读取/污染隔离，不声称释放Gin引用。WebSocket合并原生中断归属，已结束/未知response_id不再静默认领，保留二开auth/generation与有界历史，不触发新的上游执行。
+- **Devin固定诊断码兼容**：兼容Go1.27 JSON SyntaxError新增“in string”后缀，把同类control-character解析错误仍映射到原固定码；保持正文脱敏，不据此修复任意坏JSON或不完整patch。
+- **未完成Vertex工具参数的失败归类**：Chat、Claude与Responses的request-local translator状态在EOF检查未完成partialArgs，传递固定sentinel而不补造成功终态。runtime仅将这个sentinel映射为中性502/stream_truncated，取消已发生时保原ctx.Err；用量与退出路径统一采用该结果并只结算一次已观测tokens。已受理生成不因此冷却凭据或跨凭据重放；原apply_patch及其它验证错误仍沿各自原处理，不合并成这一分类。
+- **WebSocket取消与并发准入**：rejectAdmission先识别已取消context，交还原生loss/NotSent处理及已消费payload归属，不竞争发出新的503；真实容量不足仍沿原拒绝规则。
+
+### 管理页 v1.26.7
+
+最新已发布管理页仍为v1.26.7，本轮上游release范围0提交；未发布main不混入目标。保留原SIWC/并发/ETag/关闭和五provider登录前代理能力；新模型目录刷新POST接口没有对应新增UI强刷按钮。前端完整套件、兼容测试、独立构建、当前浏览器及UI→Go回放取本轮收据；历史负控仅注明来源，不计本轮新测试。
+
+### 默认、迁移与回退
+
+本轮internal/config实现没有新增字段或配置缺省变化，config.example仅补充encoder生命周期/池内存注释；上轮分层压缩的true/false及1024阈值仍按其原规则。普通升级不要求批量重登、重建namespace或重新编译旧插件。
+
+| 项目 | 本轮迁移边界 |
+| --- | --- |
+| ABI与插件 | 宿主schema8；schema7+显式frontend omit才省略鉴权body，schema8+显式raw patch才走字节补丁。未声明或旧schema保持原交付方式 |
+| 插件补丁 | 非空完整Body优先，局部edits按本插件所见当前body的字节offset；无效范围/重叠/非JSON只拒绝该编辑并警告，不能依赖它自动阻断请求 |
+| 模型目录 | 默认embedded目录增删模型，客户端模板的展示/指令/reasoning/context元数据也变化；旧model id和客户端slug不是同一份目录，不能由模板展示推断上游授权或强制重命名 |
+| 管理刷新 | 新v8 POST /routing/model-definitions/refresh与/models/refresh按当前源刷新；内部embed/disabled策略跳过（不能直接填入models.*配置；合法值为空/http(s)/绝对路径），部分成功独立呈现，UI仍无新按钮 |
+| Responses | 普通SSE客户端过滤response.metadata/codex.*；WS仍保codex.response.metadata传输状态且全部过滤subscription_usage，不能混同两协议；工具搜索item前缀由ts_改tsc_ |
+| 容量429 | 明确turn/model瞬时容量只临时阻挡相应model，不冒充quota；已有真实quota仍保留，显式Retry-After零与缺失不同 |
+| WebSocket | 上游断连结束当前turn而保下游socket以便下一轮；首有效输出前的明确容量429才可换凭据，不能跨凭据重放已开始输出的turn；丢失continuation应发送完整对话并移除失效previous_response_id，已执行而结果未知不可当作从未执行 |
+| 签名 | 新bare-Tink仅识别已知Vertex key结构并仅回放Vertex；未知轮换key保持既有bypass，结构校验不是供应商验签 |
+| 日志与入站 | 未消费body在响应/拒绝时关闭入站读；日志解码局部窗口/字节限额不是对已经建立的上游生成加超时 |
+
+回退应保存配套镜像、配置、auth、插件与目录快照。旧宿主不支持schema8新能力时应使用兼容插件声明；镜像切换本身不恢复运行期会话、拒绝状态或动态目录。
+
+本轮只读检查Home main a8d691bc3782fc8500e9de166375bff6e6ffed7d，33个strict-schema场景为8接受/25预期拒绝、0跳过。现有models源支持空、http(s)、绝对路径，disabled/embed作为配置字面量仍拒绝，与CPA校验一致；刷新响应中的这些标记仅属内部策略。Home不提供本轮CPA新增的本地模型刷新API或schema8插件RPC，不因这些本地能力新增Home RESP字段；Home未修改或部署。
+
+### 内存边界
+
+本轮encoder池、1MiB zstd窗口、同步decoder、延迟sniff及不存在字段不复制只证明局部优化；打开流仍持有encoder，池保留量依先前使用和GC而变。日志8MiB窗口/最多32MiB输出、Vertex partialArgs深度64/索引1024/4MiB记账均为各自局部边界，不是整进程上限。比较的9个旧cache/usage/plugin文件中7个上游字节未变，usage身份快照及interceptor实际变化；不能写成相关实现全部不变。v37/v42/v44修复作为已发布基线；此前停止的replay-cache/usage-queue任务不恢复，不承诺旧内存问题已修或长期负载证明。
+
+## v8.0.44.1 历史记录
+
 当前修订为 `v8.0.44-codex-identity.1`，基于官方 `v8.0.44`（`1f917e77c4562623aa49e9804d999524151a2f96`）。从已发布v8.0.42.1合入v43、v44共35提交（33非merge、2merge），涉及182文件；分版本18与17，本次v44发布正文完整包含其17提交。固定镜像标签 `codex-identity-v8.0.44.1` 与latest摘要及本轮验收以附件为准。
 
 ## v8.0.44 更新

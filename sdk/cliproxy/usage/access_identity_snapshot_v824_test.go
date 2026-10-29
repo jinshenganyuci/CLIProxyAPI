@@ -43,6 +43,13 @@ func TestV824UsageIdentitySnapshotSurvivesContextReuseIncludingAnonymous(t *test
 			// of the pooled identity object, even when the original request was anonymous.
 			request.values = map[string]any{"userApiKey": "synthetic-next-request", "accessProvider": "config-inline"}
 			request.closed = true
+			// Manager execution now recaptures identity; the frozen holder must
+			// prevent that boundary from consulting the released Gin context.
+			frozen = CaptureIdentity(frozen)
+			child := WithAPIKey(frozen, "synthetic-child")
+			if APIKeyFromContext(child) != "synthetic-child" || APIKeyFromContext(frozen) != tc.key {
+				t.Fatal("child identity override mutated the parent snapshot")
+			}
 			manager := NewManager(1)
 			defer manager.Stop()
 			capture := &captureUsagePlugin{records: make(chan Record, 1)}

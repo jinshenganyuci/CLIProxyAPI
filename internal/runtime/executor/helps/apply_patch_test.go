@@ -26,6 +26,28 @@ func TestApplyPatchTranslationError(t *testing.T) {
 	}
 }
 
+func TestVertexPartialArgsGatewayErrorPreservesCancellationAndPriorValidation(t *testing.T) {
+	state := &common.ApplyPatchErrorState{}
+	state.SetToolInputError(common.ErrVertexPartialArgsIncomplete)
+	fallback := errors.New(ApplyPatchUpstreamErrorMessage)
+	ctx, cancel := context.WithCancel(t.Context())
+	err := ToolInputGatewayError(ctx, state, fallback)
+	var truncated cliproxyexecutor.StreamTruncatedError
+	var status interface{ StatusCode() int }
+	if !errors.As(err, &truncated) || !truncated.IsStreamTruncated() || !errors.As(err, &status) || status.StatusCode() != 502 || err.Error() != common.ErrVertexPartialArgsIncomplete.Error() {
+		t.Fatalf("ordinary partial arguments misclassified: %v", err)
+	}
+	cancel()
+	if errCanceled := ToolInputGatewayError(ctx, state, fallback); !errors.Is(errCanceled, context.Canceled) {
+		t.Fatalf("EOF validation replaced cancellation: %v", errCanceled)
+	}
+	prior := &common.ApplyPatchErrorState{}
+	prior.SetToolInputError(errors.New("prior validation failure"))
+	if ToolInputGatewayError(ctx, prior, fallback) != fallback {
+		t.Fatal("new partial-argument handling replaced a prior validation error")
+	}
+}
+
 func TestApplyPatchFinalizeOptionalCanonicalState(t *testing.T) {
 	original := []byte(`{"tools":[{"type":"custom","name":"apply_patch"}]}`)
 	for _, source := range []sdktranslator.Format{sdktranslator.FormatOpenAI, sdktranslator.FormatClaude, sdktranslator.FormatGemini, sdktranslator.FormatInteractions} {

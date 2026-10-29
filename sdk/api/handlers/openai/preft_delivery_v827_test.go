@@ -279,7 +279,7 @@ func TestV827PreFirstTokenDeliveryFailureCancelsBootstrapAndReleasesLease(t *tes
 					})
 				case "images-nonstream":
 					router.POST(path, func(c *gin.Context) {
-						NewOpenAIAPIHandler(base).streamImagesWithModel(c, []byte(body), model, "b64_json", "image_generation")
+						NewOpenAIAPIHandler(base).streamImagesWithModel(c, []byte(body), []byte(body), model, "b64_json", "image_generation")
 					})
 				}
 				writer := &v827KeepAliveWriter{ResponseRecorder: httptest.NewRecorder(), mode: mode, wrote: make(chan struct{})}

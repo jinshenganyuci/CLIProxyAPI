@@ -27,7 +27,7 @@ import (
 func TestV823LocalInterruptRejectsStaleFramesAndWebsocketFallback(t *testing.T) {
 	state := newResponsesLocalInterrupt()
 	state.bindAuth("selected", func(id string) bool { return id == "selected" })
-	state.begin(true)
+	state.begin(false)
 	if state.deliver([]byte(`{"response_id":"before-created"}`)) {
 		t.Fatal("interrupt accepted before response identity was known")
 	}
@@ -44,10 +44,10 @@ func TestV823LocalInterruptRejectsStaleFramesAndWebsocketFallback(t *testing.T) 
 		t.Fatal("queued interrupt survived terminal response")
 	}
 	state.end()
-	state.begin(true)
+	state.begin(false)
 	state.observe([]byte(`{"type":"response.created","response":{"id":"r2"}}`))
-	if !state.deliver([]byte(`{"response_id":"r1"}`)) {
-		t.Fatal("known completed response did not become a no-op")
+	if state.deliver([]byte(`{"response_id":"r1"}`)) {
+		t.Fatal("completed response was claimed without a reply")
 	}
 	select {
 	case <-state.framesChan():
@@ -58,7 +58,7 @@ func TestV823LocalInterruptRejectsStaleFramesAndWebsocketFallback(t *testing.T) 
 		t.Fatal("old turn frame affected next turn")
 	}
 	state.end()
-	state.begin(false)
+	state.begin(true)
 	state.observe([]byte(`{"type":"response.created","response":{"id":"r-ws"}}`))
 	if state.deliver([]byte(`{"response_id":"r-ws"}`)) {
 		t.Fatal("websocket response fell through to HTTP cancellation")
@@ -83,7 +83,11 @@ func TestV824LocalInterruptHistoryRetainsFixedSizeDigests(t *testing.T) {
 		state.observe([]byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":%q}}`, id)))
 	}
 	deliver := func(id string) bool {
-		return state.deliver([]byte(fmt.Sprintf(`{"response_id":%q}`, id)))
+		_, known := state.terminalIDs[sha256.Sum256([]byte(id))]
+		if state.deliver([]byte(fmt.Sprintf(`{"response_id":%q}`, id))) {
+			t.Fatal("terminal history silently claimed a late interrupt")
+		}
+		return known
 	}
 	remember(longID)
 	remember(longID)
@@ -242,6 +246,7 @@ func TestV823HTTPInterruptPreservesProxyLeaseAccountingAndNextTurn(t *testing.T)
 	}
 	waitLease(2)
 	send(`{"type":"response.interrupt","response_id":"http-1"}`)
+	read("error", "")
 	create()
 	read("response.created", "http-2")
 	read("response.completed", "http-2")
@@ -250,7 +255,9 @@ func TestV823HTTPInterruptPreservesProxyLeaseAccountingAndNextTurn(t *testing.T)
 	read("response.created", "http-3")
 	waitLease(3)
 	send(`{"type":"response.interrupt","response_id":"http-1"}`)
+	read("error", "")
 	send(`{"type":"response.interrupt","response_id":"http-2"}`)
+	read("error", "")
 	current, _ := manager.GetByID(id)
 	changed := current.Clone()
 	changed.ProxyURL = fallback.URL

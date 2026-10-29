@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -32,6 +33,7 @@ type responsesLocalInterrupt struct {
 	mu             sync.Mutex
 	active         bool
 	http           bool
+	wsTurnActive   bool
 	generation     uint64
 	responseID     string
 	authID         string
@@ -71,13 +73,13 @@ func (s *responsesLocalInterrupt) authEnabled(authID string) bool {
 	return generation == s.authGeneration && boundID == s.authID
 }
 
-func (s *responsesLocalInterrupt) begin(http bool) {
+func (s *responsesLocalInterrupt) begin(websocketOwned bool) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	s.generation++
-	s.active, s.http, s.responseID = true, http, ""
+	s.active, s.http, s.wsTurnActive, s.responseID = true, !websocketOwned, websocketOwned, ""
 	s.mu.Unlock()
 }
 
@@ -88,10 +90,7 @@ func (s *responsesLocalInterrupt) end() {
 	s.mu.Lock()
 	s.rememberTerminalLocked(s.responseID)
 	s.active, s.http, s.responseID = false, false, ""
-	select {
-	case <-s.frames:
-	default:
-	}
+	// Retain already claimed frames so teardown can answer them once.
 	s.mu.Unlock()
 }
 
@@ -141,10 +140,9 @@ func (s *responsesLocalInterrupt) deliver(payload []byte) bool {
 	}
 	id := strings.TrimSpace(gjson.GetBytes(payload, "response_id").String())
 	s.mu.Lock()
-	if !s.active || !s.http || id == "" || id != s.responseID {
-		_, terminal := s.terminalIDs[sha256.Sum256([]byte(id))]
+	if !s.active || s.wsTurnActive || !s.http || id == "" || id != s.responseID {
 		s.mu.Unlock()
-		return terminal
+		return false
 	}
 	generation, authID := s.generation, s.authID
 	s.mu.Unlock()
@@ -153,14 +151,15 @@ func (s *responsesLocalInterrupt) deliver(payload []byte) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.active || !s.http || id != s.responseID || generation != s.generation {
+	if !s.active || s.wsTurnActive || !s.http || id != s.responseID || generation != s.generation {
 		return false
 	}
 	select {
 	case s.frames <- responsesInterruptFrame{payload: bytes.Clone(payload), generation: generation}:
+		return true
 	default:
+		return false
 	}
-	return true
 }
 
 // take rechecks the turn because completion may race an already queued interrupt.
@@ -195,7 +194,7 @@ func (s *responsesLocalInterrupt) framesChan() <-chan responsesInterruptFrame {
 // readResponsesWebsocketInput is the only downstream reader. Interrupts are
 // handled immediately so they are not queued behind an active response.
 // The bounded queue rejects overload so queued requests cannot hide a disconnect.
-func readResponsesWebsocketInput(ctx context.Context, cancel context.CancelCauseFunc, conn *websocket.Conn, interrupt func([]byte) error, local *responsesLocalInterrupt, writer *responsesWebsocketWriter, timeline websocketTimelineAppender) (<-chan cliproxyexecutor.WebsocketInput, <-chan struct{}) {
+func readResponsesWebsocketInput(ctx context.Context, cancel context.CancelCauseFunc, conn *websocket.Conn, interrupt func([]byte) error, local *responsesLocalInterrupt, writer *responsesWebsocketWriter, timeline websocketTimelineAppender, epoch *atomic.Uint64) (<-chan cliproxyexecutor.WebsocketInput, <-chan struct{}) {
 	input := make(chan cliproxyexecutor.WebsocketInput, wsPendingRequestLimit)
 	done := make(chan struct{})
 	go func() {
@@ -207,6 +206,7 @@ func readResponsesWebsocketInput(ctx context.Context, cancel context.CancelCause
 				cancel(errRead)
 				return
 			}
+			msgEpoch := epoch.Load()
 			if kind != websocket.TextMessage && kind != websocket.BinaryMessage {
 				continue
 			}
@@ -238,7 +238,7 @@ func readResponsesWebsocketInput(ctx context.Context, cancel context.CancelCause
 				}
 			}
 			select {
-			case input <- cliproxyexecutor.WebsocketInput{Payload: payload}:
+			case input <- cliproxyexecutor.WebsocketInput{Payload: payload, Epoch: msgEpoch}:
 			case <-ctx.Done():
 				return
 			default:
@@ -304,4 +304,57 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocketInterrupt(ctx conte
 		return len(checks) == 0 || checks[0] == nil || checks[0](authID)
 	})
 	return sender.InterruptExecutionSession(ctx, sessionID, payload)
+}
+
+func (s *responsesLocalInterrupt) reactivate() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.active = true
+	s.mu.Unlock()
+}
+
+func (s *responsesLocalInterrupt) endWebsocketTurn() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.wsTurnActive = false
+	s.mu.Unlock()
+}
+
+func (s *responsesLocalInterrupt) stopClaims() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.active = false
+	s.mu.Unlock()
+}
+
+func (s *responsesLocalInterrupt) deactivate() {
+	s.stopClaims()
+}
+
+func (s *responsesLocalInterrupt) isActive() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active
+}
+
+// takeClaimed transfers responsibility for answering one retained frame.
+func (s *responsesLocalInterrupt) takeClaimed() *responsesInterruptFrame {
+	if s == nil {
+		return nil
+	}
+	select {
+	case frame := <-s.frames:
+		return &frame
+	default:
+		return nil
+	}
 }

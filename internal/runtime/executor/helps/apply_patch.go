@@ -3,7 +3,10 @@ package helps
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http"
 
+	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
@@ -105,6 +108,26 @@ func ApplyPatchTranslationError(param any) error {
 	return state.ToolInputError()
 }
 
+type incompleteVertexToolInputError struct{}
+
+func (incompleteVertexToolInputError) Error() string {
+	return translatorcommon.ErrVertexPartialArgsIncomplete.Error()
+}
+func (incompleteVertexToolInputError) StatusCode() int         { return http.StatusBadGateway }
+func (incompleteVertexToolInputError) IsStreamTruncated() bool { return true }
+
+// ToolInputGatewayError preserves existing validation errors while classifying
+// unfinished ordinary Vertex arguments independently of apply_patch parsing.
+func ToolInputGatewayError(ctx context.Context, param any, fallback error) error {
+	if !errors.Is(ApplyPatchTranslationError(param), translatorcommon.ErrVertexPartialArgsIncomplete) {
+		return fallback
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return incompleteVertexToolInputError{}
+}
+
 // FinalizeApplyPatchStream notifies request-local state of a transport ending.
 // It must never manufacture a successful protocol terminator.
 func FinalizeApplyPatchStream(param any) [][]byte {
@@ -135,6 +158,7 @@ func RecordApplyPatchStreamFailureWithUsage(ctx context.Context, param any, repo
 	if ApplyPatchTranslationError(param) == nil {
 		return false
 	}
+	gatewayErr = ToolInputGatewayError(ctx, param, gatewayErr)
 	if streamUsage != nil && streamUsage.PublishFailure(ctx, reporter, gatewayErr) {
 		return true
 	}
@@ -154,6 +178,7 @@ func StopApplyPatchStream(ctx context.Context, param any, reporter *UsageReporte
 
 // StopApplyPatchStreamWithUsage propagates a retained failure with buffered upstream usage.
 func StopApplyPatchStreamWithUsage(ctx context.Context, param any, reporter *UsageReporter, streamUsage *StreamUsageBuffer, out chan<- cliproxyexecutor.StreamChunk, gatewayErr error) bool {
+	gatewayErr = ToolInputGatewayError(ctx, param, gatewayErr)
 	if !RecordApplyPatchStreamFailureWithUsage(ctx, param, reporter, streamUsage, gatewayErr) {
 		return false
 	}
