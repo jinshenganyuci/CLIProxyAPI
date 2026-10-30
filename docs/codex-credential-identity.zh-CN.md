@@ -41,6 +41,7 @@
 - **续期状态与二开持久化衔接**：durable metadata复用原生renewal adoption判断；真实grant材料替换重置相关RequiresSignIn、fingerprint和验证状态，只有access更新而坏refresh token未换时仍保重新登录要求。use_siwc或disabled开关仍保版本栅栏与刷新门限，不当作新grant。refresh失败身份按实际提交的TrimSpace token匹配，原raw CAS与精确数字保持。
 - **结构usage与原执行链并存**：WS duplex使用原eventState.output/fallback和eventReporter合并新结构用量，同时保Incomplete位、反向identity和usage-once；xAI WS移除会覆盖新raw搜索计数的旧过滤后ParseCodexUsage。胶囊展开仍在final payload规则前，steer保握手时已捕获的useSIWC。Devin使用原生v48精确控制字符分类，替代v47较宽兼容。
 - **Antigravity usage恢复与新增名字保留边界**：快速改名遇已有usageMetadata或Unicode转义键时回退JSON-aware set/delete，保持原cpaUsageMetadata权威值，避免重复键或漏恢复；普通快速路径保留，调用方字节、literal参数及大整数不变。仅新tool_addition/转义扫描形成的名字map和内联definition名字做Clone，防这些名字持有整段history；原root tools路径不扩修，不承诺旧缓存或全进程内存问题解决。
+- **继承的多行SSE转发缺陷**：本轮镜像验收发现OpenAI兼容路径将多条data行合并为JSON后只补一个data前缀，标准SSE读端会丢续行。现在仅对已验证合法的多行JSON，在usage观察后用json.Compact压成一行再转发，不解码重编码，保字符串转义与大整数；单行、DONE、错误、取消及原代理/payload边界不变。该缺陷在原生v47与v48均存在，并非v48首次引入。
 
 ### 管理页 v1.26.7
 

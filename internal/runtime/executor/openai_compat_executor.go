@@ -551,6 +551,12 @@ func (e *OpenAICompatExecutor) executeStreamWithCredentials(ctx context.Context,
 			// Observe complete upstream frames before translation or downstream backpressure.
 			if !isDone && len(dataLines) > 1 {
 				streamUsage.ObserveOpenAIStream(dataPayload)
+				// Passthrough translators and downstream Chat writers frame each
+				// payload once. Keep validated JSON on one data line without
+				// changing string escapes or decoding numeric values.
+				var compact bytes.Buffer
+				_ = json.Compact(&compact, dataPayload)
+				dataPayload = compact.Bytes()
 			}
 			helps.ObserveChatTokenEvent(reporter, dataPayload)
 			streamLine := append([]byte("data: "), dataPayload...)
