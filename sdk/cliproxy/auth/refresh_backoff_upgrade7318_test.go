@@ -8,53 +8,75 @@ import (
 )
 
 func TestRefreshRecoveryResetsBackoffWithoutChangingForkControlsUpgrade7318(t *testing.T) {
-	ctx := context.Background()
-	manager := NewManager(nil, nil, nil)
-	executor := &mockOAuthErrorExecutor{id: "codex", errToReturn: errors.New("invalid_grant: synthetic revoked token")}
-	manager.RegisterExecutor(executor)
-	original := &Auth{
-		ID: "backoff-upgrade", Provider: "codex", Status: StatusActive, ProxyURL: "socks5://selected.invalid:1080",
-		Metadata: map[string]any{
-			"access_token": "expired", "refresh_token": "synthetic-refresh", "expired": "2000-01-01T00:00:00Z",
-			"proxy_url": "socks5://selected.invalid:1080", "codex_identity_version": 1,
-			"codex_identity_namespace": "d9d11681-7463-4840-a8da-61e437176f2f", "priority": 7,
-		},
-		Attributes: map[string]string{"priority": "7", AttributeFilePriority: "true", AttributeSourceBackend: AuthSourceFile},
-	}
-	registered, errRegister := manager.Register(ctx, original)
-	if errRegister != nil {
-		t.Fatal(errRegister)
-	}
-	release, errAcquire := manager.AcquireCredentialConcurrency(ctx, registered)
-	if errAcquire != nil {
-		t.Fatal(errAcquire)
-	}
-	defer release()
-	for attempt := 1; attempt <= 2; attempt++ {
-		if _, errRefresh := manager.ForceRefreshAuth(ctx, original.ID); errRefresh == nil {
-			t.Fatal("synthetic invalid_grant was ignored")
-		}
-	}
-	executor.errToReturn = nil
-	recovered, errRefresh := manager.ForceRefreshAuth(ctx, original.ID)
-	if errRefresh != nil {
-		t.Fatal(errRefresh)
-	}
-	if recovered.RefreshFailures != 0 {
-		t.Fatalf("successful refresh retained %d failures; next invalid grant would inherit stale backoff", recovered.RefreshFailures)
-	}
-	if recovered.ProxyURL != original.ProxyURL || recovered.Metadata["proxy_url"] != original.ProxyURL || recovered.Metadata["codex_identity_namespace"] != original.Metadata["codex_identity_namespace"] || recovered.Attributes["priority"] != "7" {
-		t.Fatal("refresh recovery changed proxy, identity, or file priority")
-	}
-	if inFlight, limit := manager.CredentialConcurrencySnapshot(original.ID); inFlight != 1 || limit != 10 {
-		t.Fatalf("refresh changed the existing lease or default concurrency: %d/%d", inFlight, limit)
-	}
-	executor.errToReturn = errors.New("invalid_grant: synthetic next failure")
-	before := time.Now()
-	_, _ = manager.ForceRefreshAuth(ctx, original.ID)
-	current, _ := manager.GetByID(original.ID)
-	if current.RefreshFailures != 1 || current.NextRefreshAfter.Before(before.Add(time.Minute)) || current.NextRefreshAfter.After(time.Now().Add(time.Minute)) {
-		t.Fatal("new failure did not restart at the native one-minute backoff")
+	for _, provider := range []string{"claude", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			ctx := context.Background()
+			manager := NewManager(nil, nil, nil)
+			executor := &mockOAuthErrorExecutor{id: provider, errToReturn: errors.New("invalid_grant: synthetic revoked token")}
+			manager.RegisterExecutor(executor)
+			original := &Auth{
+				ID: "backoff-upgrade", Provider: provider, Status: StatusActive, ProxyURL: "socks5://selected.invalid:1080",
+				Metadata: map[string]any{
+					"access_token": "expired", "refresh_token": "synthetic-refresh", "expired": "2000-01-01T00:00:00Z",
+					"proxy_url": "socks5://selected.invalid:1080", "codex_identity_version": 1,
+					"codex_identity_namespace": "d9d11681-7463-4840-a8da-61e437176f2f", "priority": 7,
+				},
+				Attributes: map[string]string{"priority": "7", AttributeFilePriority: "true", AttributeSourceBackend: AuthSourceFile},
+			}
+			registered, errRegister := manager.Register(ctx, original)
+			if errRegister != nil {
+				t.Fatal(errRegister)
+			}
+			release, errAcquire := manager.AcquireCredentialConcurrency(ctx, registered)
+			if errAcquire != nil {
+				t.Fatal(errAcquire)
+			}
+			defer release()
+			for attempt := 1; attempt <= 2; attempt++ {
+				if _, errRefresh := manager.ForceRefreshAuth(ctx, original.ID); errRefresh == nil {
+					t.Fatal("synthetic invalid_grant was ignored")
+				}
+			}
+			executor.errToReturn = nil
+			if provider == "codex" {
+				// Codex invalid_grant is terminal in v48; recovery requires a replacement grant.
+				current, _ := manager.GetByID(original.ID)
+				if !current.RequiresSignIn || current.RejectedRefreshToken != "synthetic-refresh" || manager.shouldRefresh(current, time.Now()) {
+					t.Fatal("terminal Codex refresh grant remained eligible for automatic retry")
+				}
+				if _, found, err := manager.Modify(ctx, original.ID, registered.RegistrationEpoch, func(a *Auth) error {
+					a.Metadata["access_token"] = "replacement-access"
+					a.Metadata["refresh_token"] = "replacement-refresh"
+					return nil
+				}); err != nil || !found {
+					t.Fatalf("adopt replacement grant: found=%v error=%v", found, err)
+				}
+			}
+			recovered, errRefresh := manager.ForceRefreshAuth(ctx, original.ID)
+			if errRefresh != nil {
+				t.Fatal(errRefresh)
+			}
+			if recovered.RefreshFailures != 0 || recovered.RequiresSignIn {
+				t.Fatalf("successful refresh retained %d failures; next invalid grant would inherit stale backoff", recovered.RefreshFailures)
+			}
+			if recovered.ProxyURL != original.ProxyURL || recovered.Metadata["proxy_url"] != original.ProxyURL || recovered.Metadata["codex_identity_namespace"] != original.Metadata["codex_identity_namespace"] || recovered.Attributes["priority"] != "7" {
+				t.Fatal("refresh recovery changed proxy, identity, or file priority")
+			}
+			if inFlight, limit := manager.CredentialConcurrencySnapshot(original.ID); inFlight != 1 || limit != 10 {
+				t.Fatalf("refresh changed the existing lease or default concurrency: %d/%d", inFlight, limit)
+			}
+			executor.errToReturn = errors.New("invalid_grant: synthetic next failure")
+			before := time.Now()
+			_, _ = manager.ForceRefreshAuth(ctx, original.ID)
+			current, _ := manager.GetByID(original.ID)
+			if provider == "codex" {
+				if !current.RequiresSignIn || current.RejectedRefreshToken != "replacement-refresh" || current.RefreshFailures != 0 || !current.NextRefreshAfter.IsZero() || manager.shouldRefresh(current, time.Now()) {
+					t.Fatal("new terminal Codex failure used a retry backoff or lost its grant identity")
+				}
+			} else if current.RefreshFailures != 1 || current.NextRefreshAfter.Before(before.Add(time.Minute)) || current.NextRefreshAfter.After(time.Now().Add(time.Minute)) {
+				t.Fatal("new failure did not restart at the native one-minute backoff")
+			}
+		})
 	}
 }
 

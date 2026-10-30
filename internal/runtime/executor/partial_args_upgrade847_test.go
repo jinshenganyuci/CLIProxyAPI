@@ -107,6 +107,12 @@ func TestV847VertexPartialArgsTerminalUsageAndLease(t *testing.T) {
 				if len(records) != 1 || records[0].Failed == complete || records[0].Detail.InputTokens != 12 || records[0].Detail.OutputTokens != 4 {
 					t.Errorf("partial-argument accounting: %+v", records)
 				}
+				if len(records) == 1 {
+					tools := records[0].Detail.ToolUsageDetails
+					if tools == nil || tools.ToolCallsRequested == nil || *tools.ToolCallsRequested != 1 {
+						t.Errorf("partial argument fragments lost or duplicated structured tool usage: %+v", tools)
+					}
+				}
 				if len(records) == 1 && mode == "cancel" && records[0].Fail.StatusCode != 499 {
 					t.Errorf("cancel classification changed: %+v", records[0].Fail)
 				}

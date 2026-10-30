@@ -67,14 +67,14 @@ func (h *Handler) prepareCodexOAuthSession(c *gin.Context) (*codexOAuthSessionOp
 	if request.IsWebUI != nil {
 		options.isWebUI = *request.IsWebUI
 	}
-	if authIndex := strings.TrimSpace(request.AuthIndex); authIndex != "" {
-		if snapshot.authManager != nil {
-			for _, auth := range snapshot.authManager.List() {
-				if auth != nil && lockedAuthIndex(auth) == authIndex {
-					options.target = auth.Clone()
-					break
-				}
-			}
+	recoveryTarget, hasRecoveryTarget := oauthSessionTargetFromContext(c)
+	if authIndex := strings.TrimSpace(request.AuthIndex); authIndex != "" || hasRecoveryTarget {
+		var name string
+		if hasRecoveryTarget {
+			name = recoveryTarget.AuthID
+		}
+		if target, ok := snapshot.lookupAuthFile(name, authIndex); ok {
+			options.target = target.Clone()
 		}
 		if options.target == nil {
 			return nil, http.StatusNotFound, fmt.Errorf("OAuth credential not found")

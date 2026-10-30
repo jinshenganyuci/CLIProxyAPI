@@ -243,6 +243,10 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 	}
 
 	registerOAuthSessionWithOptions(state, "codex", cfg.AuthDir, sessionProxyURL)
+	sessionTarget, hasSessionTarget := oauthSessionTargetFromContext(c)
+	if hasSessionTarget {
+		SetOAuthSessionTarget(state, sessionTarget)
+	}
 
 	isWebUI := options.isWebUI
 	var forwarder *callbackForwarder
@@ -312,27 +316,134 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 			return
 		}
 
+		if hasSessionTarget && bundle != nil && !matchesOAuthRecoveryTarget(sessionTarget, bundle.TokenData.Email, bundle.TokenData.AccountID, sessionTarget.FileName) {
+			SetOAuthSessionError(state, "Authenticated account does not match target credential")
+			return
+		}
 		record, errRecord := options.record(openaiAuth, bundle)
 		if errRecord != nil {
 			SetOAuthSessionError(state, errRecord.Error())
 			return
+
+		}
+		target, hasTarget := GetOAuthSessionTarget(state)
+		if hasTarget && target.AuthID != "" {
+			record.ID = target.AuthID
+		}
+		var hadPrevAuth bool
+		var prevVersion uint64
+		var prevEpoch uint64
+		if h.authManager != nil {
+			if existing, okExisting := h.authManager.GetByID(record.ID); okExisting && existing != nil {
+				hadPrevAuth = true
+				prevVersion = existing.CredentialVersion
+				prevEpoch = existing.RegistrationEpoch
+			}
 		}
 		applySessionProxyToAuthRecord(record, sessionProxyURL)
 		savedPath, errSave := options.save(ctx, state, record)
-		if errSave != nil {
+		if errSave != nil && strings.TrimSpace(savedPath) == "" {
+
 			FailOAuthSessionCommit(state, "Failed to save authentication tokens")
 			log.Errorf("Failed to save authentication tokens: %v", errSave)
 			return
+		}
+		savedGrantHash := authGrantFingerprint(record)
+		var adopted bool
+		var adoptedVersion uint64
+		var adoptedEpoch uint64
+		var adoptErr string
+		if errSave != nil {
+			adoptErr = "Credential saved to storage, but runtime adoption failed"
+			log.Errorf("Codex credential saved to %s, but runtime adoption failed: %v", savedPath, errSave)
+		} else if h.authManager != nil {
+			if runtimeAuth, okRuntime := h.authManager.GetByID(record.ID); okRuntime && runtimeAuth != nil {
+				if authGrantFingerprint(runtimeAuth) == savedGrantHash {
+					adopted = true
+					adoptedVersion = runtimeAuth.CredentialVersion
+					adoptedEpoch = runtimeAuth.RegistrationEpoch
+				} else {
+					adoptErr = "Credential saved to storage, but runtime did not adopt the new credential version"
+				}
+			} else {
+				adoptErr = "Credential saved to storage, but was not registered in active runtime"
+			}
+		}
+		var verifyErr string
+		if adopted && hasTarget && target.VerifyAfterLogin && h.authManager != nil {
+			if _, errVerify := h.authManager.VerifyInference(ctx, record.ID, target.VerifyModel); errVerify != nil {
+				verifyErr = coreauth.SanitizeRenewalMessage(errVerify.Error())
+			}
 		}
 		fmt.Printf("Authentication successful! Token saved to %s\n", savedPath)
 		if bundle.APIKey != "" {
 			fmt.Println("API key obtained and saved")
 		}
 		fmt.Println("You can now use Codex services through this CLI")
-		CompleteOAuthSession(state)
+		CompleteOAuthSessionWithOutcome(state, record.ID, savedGrantHash, strings.TrimSpace(savedPath) != "", adopted, hadPrevAuth, prevVersion, prevEpoch, adoptedVersion, adoptedEpoch, adoptErr, verifyErr)
 	}()
 
-	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state, "proxy_mode": options.proxyMode})
+	respPayload := gin.H{"status": "ok", "url": authURL, "state": state, "proxy_mode": options.proxyMode}
+	if hasSessionTarget {
+		respPayload["target_auth_id"] = sessionTarget.AuthID
+	}
+	c.JSON(200, respPayload)
+}
+
+func matchesOAuthRecoveryTarget(target oauthRecoveryTarget, email, accountID, candidateFileName string) bool {
+	targetAccountID := strings.TrimSpace(target.AccountID)
+	targetEmail := strings.TrimSpace(target.Email)
+	gotAccountID := strings.TrimSpace(accountID)
+	gotEmail := strings.TrimSpace(email)
+
+	if targetAccountID != "" {
+		if gotAccountID == "" || !strings.EqualFold(gotAccountID, targetAccountID) {
+			return false
+		}
+	}
+	if targetEmail != "" {
+		if gotEmail == "" || !strings.EqualFold(gotEmail, targetEmail) {
+			return false
+		}
+	}
+	if targetAccountID == "" && targetEmail == "" {
+		if gotAccountID == "" && gotEmail == "" {
+			return false
+		}
+		if target.FileName != "" && candidateFileName != target.FileName && candidateFileName != target.AuthID {
+			return false
+		}
+	}
+	return true
+}
+
+func oauthGrantFingerprint(accessToken, refreshToken, email, accountID string) string {
+	return coreauth.OAuthGrantFingerprint(accessToken, refreshToken, email, accountID)
+}
+
+func authGrantFingerprint(auth *coreauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	var accessToken, refreshToken, accountID string
+	if storage, ok := auth.Storage.(*codex.CodexTokenStorage); ok && storage != nil {
+		accessToken = strings.TrimSpace(storage.AccessToken)
+		refreshToken = strings.TrimSpace(storage.RefreshToken)
+		accountID = strings.TrimSpace(storage.AccountID)
+	}
+	if auth.Metadata != nil {
+		if accessToken == "" {
+			accessToken, _ = auth.Metadata["access_token"].(string)
+		}
+		if refreshToken == "" {
+			refreshToken, _ = auth.Metadata["refresh_token"].(string)
+		}
+		if accountID == "" {
+			accountID, _ = auth.Metadata["account_id"].(string)
+		}
+	}
+	return oauthGrantFingerprint(accessToken, refreshToken, authEmail(auth), accountID)
+
 }
 
 func (h *Handler) RequestAntigravityToken(c *gin.Context) {
@@ -843,7 +954,60 @@ func (h *Handler) GetAuthStatus(c *gin.Context) {
 		return
 	}
 	if session.Completed {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		resp := gin.H{"status": "ok"}
+		if session.AuthID != "" {
+			resp["auth_id"] = session.AuthID
+			resp["saved"] = session.Saved
+			var adoptedAuth *coreauth.Auth
+			var adoptErr string
+			if h != nil && h.authManager != nil {
+				if candidate, okAuth := h.authManager.GetByID(session.AuthID); okAuth && candidate != nil {
+					if session.SavedGrantHash != "" {
+						if authGrantFingerprint(candidate) == session.SavedGrantHash ||
+							candidate.AdoptedGrantHash == session.SavedGrantHash {
+							adoptedAuth = candidate
+							if !session.Adopted {
+								oauthSessions.MarkAdopted(state, candidate.CredentialVersion, candidate.RegistrationEpoch)
+								session.Adopted = true
+								session.AdoptedVersion = candidate.CredentialVersion
+								session.AdoptedEpoch = candidate.RegistrationEpoch
+								session.AdoptError = ""
+							}
+						} else if session.Adopted {
+							adoptErr = "Credential was replaced in active runtime after login"
+						}
+					} else if session.Adopted {
+						if (session.AdoptedVersion == 0 && session.AdoptedEpoch == 0) ||
+							(candidate.RegistrationEpoch == session.AdoptedEpoch && candidate.CredentialVersion == session.AdoptedVersion) {
+							adoptedAuth = candidate
+						}
+					}
+				}
+			}
+			if adoptErr == "" {
+				adoptErr = session.AdoptError
+			}
+			if adoptedAuth != nil {
+				nowUTC := time.Now().UTC()
+				resp["adopted"] = true
+				resp["recovery_stage"] = adoptedAuth.RecoveryStageAt(nowUTC)
+				resp["renewal_state"] = adoptedAuth.RenewalStateAt(nowUTC)
+				resp["requires_sign_in"] = adoptedAuth.RequiresSignIn
+				resp["inference_verified"] = adoptedAuth.InferenceVerified
+				resp["renewal_verified"] = adoptedAuth.RenewalVerified
+				resp["quota_blocked"] = adoptedAuth.RecoveryStageAt(nowUTC) == coreauth.RecoveryStageQuotaBlocked
+			} else if session.Saved {
+				resp["adopted"] = false
+				resp["recovery_stage"] = coreauth.RecoveryStageCredentialSaved
+				if adoptErr != "" {
+					resp["adoption_error"] = adoptErr
+				}
+			}
+			if session.VerifyError != "" {
+				resp["verification_error"] = session.VerifyError
+			}
+		}
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 	if session.Status != "" {

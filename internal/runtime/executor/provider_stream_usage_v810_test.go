@@ -177,7 +177,7 @@ func TestProviderV810PatchFailureAccountsBeforeBackpressure(t *testing.T) {
 				response = `{"response":` + response + `}`
 			}
 			if strings.HasPrefix(provider, "xai") {
-				response = `{"type":"response.completed","response":{"id":"synthetic-response","status":"completed","output":[{"type":"function_call","id":"synthetic-item","call_id":"synthetic-call","name":"apply_patch","arguments":"{\"input\":{\"invalid\":\"synthetic\"}}"}],"usage":{"input_tokens":11,"output_tokens":22,"total_tokens":33}}`
+				response = `{"type":"response.completed","response":{"id":"synthetic-response","status":"completed","output":[{"type":"function_call","id":"synthetic-item","call_id":"synthetic-call","name":"apply_patch","arguments":"{\"input\":{\"invalid\":\"synthetic\"}}"}],"usage":{"input_tokens":11,"output_tokens":22,"total_tokens":33}}}`
 			}
 			socketClosed := make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -263,8 +263,9 @@ func TestProviderV810PatchFailureAccountsBeforeBackpressure(t *testing.T) {
 }
 
 func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
-	for _, ending := range []string{"complete", "relay-error", "cancel", "invalid-http", "late-http-error", "split-complete", "split-relay-error"} {
+	for _, ending := range []string{"complete", "relay-error", "cancel", "invalid-http", "late-http-error", "split-complete", "split-relay-error", "fragmented-complete", "fragmented-relay-error", "fragmented-cancel"} {
 		t.Run(ending, func(t *testing.T) {
+			outcome := strings.TrimPrefix(ending, "fragmented-")
 			authID := t.Name()
 			capture := &providerV810UsageCapture{authID: authID, records: make(chan usage.Record, 8)}
 			usage.RegisterNamedPlugin(t.Name(), capture)
@@ -298,25 +299,33 @@ func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
 					return
 				}
 				response := `{"candidates":[{"content":{"role":"model","parts":[{"text":"observed"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}`
-				events := []wsrelay.Message{{ID: request.ID, Type: wsrelay.MessageTypeStreamStart, Payload: map[string]any{"status": 200}}, {ID: request.ID, Type: wsrelay.MessageTypeStreamChunk, Payload: map[string]any{"data": "data: " + response}}}
+				events := []wsrelay.Message{{ID: request.ID, Type: wsrelay.MessageTypeStreamStart, Payload: map[string]any{"status": 200}}, {ID: request.ID, Type: wsrelay.MessageTypeStreamChunk, Payload: map[string]any{"data": "data: " + response + "\n\n"}}}
+				if strings.HasPrefix(ending, "fragmented-") {
+					response = strings.Replace(response, `"finishReason":"STOP"`, `"finishReason":"STOP","groundingMetadata":{"webSearchQueries":["synthetic query"]}`, 1)
+					frame := "data: " + response + "\n\n"
+					events = events[:1]
+					for _, fragment := range []string{frame[:2], frame[2 : len(frame)/2], frame[len(frame)/2:]} {
+						events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeStreamChunk, Payload: map[string]any{"data": fragment}})
+					}
+				}
 				if ending == "split-complete" || ending == "split-relay-error" {
 					withoutUsage := strings.Replace(response, `,"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}`, "", 1)
-					events[1].Payload = map[string]any{"data": "data: " + withoutUsage}
-					events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeStreamChunk, Payload: map[string]any{"data": `data: {"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}`}})
+					events[1].Payload = map[string]any{"data": "data: " + withoutUsage + "\n\n"}
+					events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeStreamChunk, Payload: map[string]any{"data": `data: {"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":22,"totalTokenCount":33}}` + "\n\n"}})
 					if ending == "split-complete" {
 						events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeStreamEnd})
 					} else {
 						events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeError, Payload: map[string]any{"message": "synthetic split relay error"}})
 					}
 				}
-				if ending == "invalid-http" {
+				if outcome == "invalid-http" {
 					response = strings.ReplaceAll(response, `{"text":"observed"}`, `{"functionCall":{"name":"apply_patch","args":{"input":{"invalid":"synthetic"}}}}`)
 					events = []wsrelay.Message{{ID: request.ID, Type: wsrelay.MessageTypeHTTPResp, Payload: map[string]any{"status": 200, "body": response}}}
-				} else if ending == "complete" {
+				} else if outcome == "complete" {
 					events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeStreamEnd})
-				} else if ending == "relay-error" {
+				} else if outcome == "relay-error" {
 					events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeError, Payload: map[string]any{"message": "synthetic relay error"}})
-				} else if ending == "late-http-error" {
+				} else if outcome == "late-http-error" {
 					events = append(events, wsrelay.Message{ID: request.ID, Type: wsrelay.MessageTypeHTTPResp, Payload: map[string]any{"status": http.StatusServiceUnavailable, "body": `{"error":{"message":"synthetic late failure"}}`}})
 				}
 				for _, event := range events {
@@ -329,7 +338,7 @@ func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
 			}()
 			req := cliproxyexecutor.Request{Model: "gemini-3.7-flash", Payload: []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`)}
 			opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatGemini, ResponseFormat: sdktranslator.FormatGemini, Stream: true}
-			if ending == "invalid-http" {
+			if outcome == "invalid-http" {
 				req.Payload = []byte(`{"input":"patch a file","tools":[{"type":"custom","name":"apply_patch"}]}`)
 				opts.SourceFormat = sdktranslator.FormatOpenAIResponse
 				opts.ResponseFormat = sdktranslator.FormatOpenAIResponse
@@ -340,7 +349,7 @@ func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
 				t.Fatal(errExecute)
 			}
 			var first *usage.Record
-			if ending == "invalid-http" {
+			if outcome == "invalid-http" {
 				select {
 				case record := <-capture.records:
 					first = &record
@@ -362,7 +371,7 @@ func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
 						done = true
 						break
 					}
-					if ending == "cancel" && strings.Contains(string(chunk.Payload), "observed") {
+					if outcome == "cancel" && strings.Contains(string(chunk.Payload), "observed") {
 						cancel()
 					}
 				case <-deadline.C:
@@ -380,7 +389,10 @@ func TestAIStudioV810StreamUsageSurvivesRelayTermination(t *testing.T) {
 				t.Fatalf("usage records=%d, want one", len(records))
 			}
 			record := records[0]
-			if record.Failed != (ending != "complete" && ending != "split-complete") || record.Detail.InputTokens != 11 || record.Detail.OutputTokens != 22 || record.Detail.TotalTokens != 33 {
+			if strings.HasPrefix(ending, "fragmented-") && (record.Detail.WebSearchRequests == nil || *record.Detail.WebSearchRequests != 1) {
+				t.Errorf("fragmented relay lost structured search usage: %+v", record.Detail)
+			}
+			if record.Failed != (outcome != "complete" && outcome != "split-complete") || record.Detail.InputTokens != 11 || record.Detail.OutputTokens != 22 || record.Detail.TotalTokens != 33 {
 				t.Fatalf("relay ending %s usage=%+v", ending, record)
 			}
 		})

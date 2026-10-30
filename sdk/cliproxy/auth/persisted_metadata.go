@@ -207,6 +207,7 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	if updated.RejectedSIWCAccessToken != "" && IsCodexUseSIWC(updated) {
 		updated.RejectedAccessToken = updated.RejectedSIWCAccessToken
 	}
+	applyPreservedRenewalState(latest, updated, updateModeReplace, now)
 	if credentialChanged {
 		if !updated.Disabled && updated.Status != StatusDisabled && (updated.RejectedAccessToken == "" || authAccessToken(updated) != updated.RejectedAccessToken) {
 			cooldownStateChanged = recoverAuthAfterCredentialUpdate(latest, updated, now, updateModeReplace) || cooldownStateChanged

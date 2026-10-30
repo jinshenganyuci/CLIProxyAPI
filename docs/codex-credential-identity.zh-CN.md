@@ -1,5 +1,77 @@
 # Codex OAuth 凭据独立身份方案
 
+当前修订为 `v8.0.48-codex-identity.1`，基于官方 `v8.0.48`（`dbb706215a3afd2f0ea3c96482d4233856466caa`）。从已发布v8.0.47.1合入27提交（21非merge、6merge）/116文件；原生release Changelog列全27项，merge265ca179另外审阅其SSE与usage组合差异。固定镜像标签 `codex-identity-v8.0.48.1` 与latest摘要及本轮验收以附件为准。
+
+## v8.0.48 更新
+
+- **WebSocket断连测试合同**（`fa42f390`）：原生测试明确等待并断言上游断连错误事件，避免只靠时序等待；不是新增断连重放策略，也不从测试源码推断本轮已通过。
+
+- **Devin控制字符诊断**（`02ee3139`）：精确匹配JSON非法控制字符错误，兼容新Go错误措辞并保持固定脱敏分类；不把任意包含“in string”的错误都归为控制字符，也不放宽apply_patch输入校验。
+
+- **AI Studio分片SSE重组**（`7df437c8 / 498170a4`）：relay按任意chunk边界累积完整SSE frame，识别data/event/id/retry/comment及CRLF，最终Finish可处理缺尾空行；完整裸JSON消息仍按原消息处理，包括pretty JSON。Executor在重组后识别终态、错误、usage并翻译，避免半个frame被误解析或丢失；这不是跨任意网络chunk自动拼接所有裸JSON协议的承诺。
+
+- **供应商结构化用量**（`89e472f3 / 24840fdd / 01551f5f / bd5ec531`）：为Anthropic、OpenAI/Codex、xAI、Gemini/Vertex/AI Studio/Antigravity补充结构化usage：cache写入TTL分桶、文本/图像/音频/视频/file token细分、服务器工具与搜索次数、图片请求/返回参数、媒体计数、iterations、上游tier/速度/地域及可选成本。旧token breakdown继续保留；指针字段区分未提供与显式零，深拷贝嵌套数据，Redis usage JSON新增对应可选字段。它记录上游报告或受控事件推导，不等于重新计费、保证供应商给出所有字段，不能将重叠细分再次加到总token。
+
+- **流用量观察、失败与临时零值**（`d5eb4ca1 / 97dd3a4a / 82deffb9`）：流observer复用已解析usage节点并避免对大payload重复完整解析；多行SSE、output_item.done和最终缺完整output的Responses仍累计工具项。错误或取消保留已观测用量，尚未最终确定的搜索零值不掩盖随后工具计数；multipart图片属性与最终请求参数分开保存，图像流也观察尾部usage。局部扫描/深拷贝优化不改变失败仍失败的语义，也不是旧usage队列保留问题修复。
+
+- **Home模式AI Studio gateway限制**（`a6b4477b`）：Home模式不再通过AttachWebsocketRoute挂载AI Studio relay/gateway（默认/v1/ws或自定义路径）；这不是禁用所有WebSocket，更不是禁用已有Responses/Codex连接，也未新增Home RESP协议字段。
+
+- **Responses WebSocket延迟日志保留**（`4cb98e3c`）：升级后的连接context携带不可变策略：关闭error-only上游请求body延迟捕获，插件回调也继承，并在访问池化Gin前检查；因为升级后HTTP错误日志已无法消费这些body。完整request-log仍保持原行为，HTTP路径不受此开关影响；仅此保留路径减少，不宣称Gin引用或全进程内存全部释放。
+
+- **相对auth-dir的冷却状态文件**（`43068c86`）：auth-dir为相对路径时，冷却sidecar按真实auth文件路径解析并写在对应文件旁，避免目录重复拼接；不迁移或重写所有凭据，也不改变凭据内容精度。
+
+- **OpenAI缺DONE断流不冷却凭据**（`f013eb66`）：OpenAI-compatible已受理流在原终态规则要求DONE却缺失时仍向调用方报告本地502失败，新增stream_truncated分类，使SDK不将其当供应商拒绝而冷却凭据；原正常终态、取消、已观察usage与禁止重复生成边界继续保留。
+
+- **Codex续期恢复与显式推理验证**（`514d09f7`）：新增RequiresSignIn、脱敏refresh_error、renewal/recovery阶段与去重事件，区分保存、runtime采纳、完整推理成功和真实自动refresh成功；仅采纳磁盘轮换token不冒充renewal_verified。终止性refresh grant拒绝按outer/SIWC分区记录，仍有效access可按现有可用性使用，到期或401后需独立重新登录，不对同一坏refresh token无限重试。针对已有凭据的OAuth支持name/auth_id/target_auth_id/auth_index并校验账号；verify默认关闭，可显式verify=true及verify_model，或POST /v8/management/credentials/verify以隔离session发最小推理请求，可能消耗token。status=ok仍可只表示OAuth流程结束，须分别检查saved/adopted/recovery_stage/verification_error等。TUI加入恢复提示；管理页能力另列，不自动替用户验证。
+
+- **会话中途Claude工具追加**（`12d97cfe`）：识别role=system内容里的tool_addition，处理内联tool_definition或对已声明工具的tool_reference；Codex/Responses转换为developer additional_tools并保工具调用与结果之间的合法顺序，Chat路径合并适用工具声明。统一缩短长工具名、重复名和反向映射，后续工具调用仍能恢复原名；这不赋予执行任意文本工具定义的额外权限。
+
+- **ABI9多provider模型目录**（`bc81923b`）：宿主schema升9，ModelRegistrar/StaticModels可在Registrations返回多个provider目录，并通过MultiProviderModels通知支持；空Registrations仍使用旧Provider/Models。规范化provider、合并目录并按插件代次替换/清理；ModelsForAuth不使用多注册字段，plugin若同时有Executor仍只绑定首个注册provider，不等于一个executor自动支持全部目录。旧插件无需重编译才能保留旧合同。
+
+- **Claude工具错误语义**（`81de4b9c / 068fe153`）：Claude tool_result显式is_error=true转换到Gemini/Antigravity functionResponse.response.error，成功仍为result；缺失或字符串“true”不冒充布尔错误。保原文本/JSON类型、图片分离、调用ID与字面参数，避免下游把失败结果误当成功。
+
+- **转发前展开可识别CPA压缩胶囊**（`dbb70621`）：Codex及OpenAI-compatible相关入口在原final payload规则前展开可识别CPA compaction item：按胶囊前缀或CPA item id识别，解封有效摘要为developer上下文；识别为CPA但损坏的胶囊报错，不静默当普通内容。外来非CPA compaction item保留原样，req.Payload和OriginalRequest同步处理；这不是任意供应商加密内容的通用解密，也不是新的安全信任来源。
+
+### 本轮二开适配
+
+本轮在已发布v47的identity/namespace、严格代理、并发lease、精确JSON持久化和取消/截断边界上整合原生v48；以下为实际源码适配，最终源码、镜像和发布统计取独立收据。
+
+- **定向OAuth恢复与即时采纳**：新name/auth_id/target_auth_id入口进入二开既有选定凭据流程，保账号、路径、epoch、namespace、proxy及hook后commit claim；auth_index-only同样可查找。无watcher hook时的即时采纳通过Manager.Modify(expectedEpoch)完成，保最新runtime扩展、Runtime与CreatedAt，以canonical文件值及删除为准，不复活已删header，也不二次落盘；目标被替换或消失不能误采纳。saved与adopted仍分别报告。
+- **显式验证沿用代理与并发门限**：VerifyInference增加目标校验、凭据请求proxy与roundtripper注入，沿用每凭据lease及默认并发10；不会绕过已有满额或require/invalid代理策略。验证结果受epoch/version及已捕获空token保护，旧结果不能认证新凭据。此API仍需显式调用或登录时opt-in，未替用户发真实供应商请求。
+- **续期状态与二开持久化衔接**：durable metadata复用原生renewal adoption判断；真实grant材料替换重置相关RequiresSignIn、fingerprint和验证状态，只有access更新而坏refresh token未换时仍保重新登录要求。use_siwc或disabled开关仍保版本栅栏与刷新门限，不当作新grant。refresh失败身份按实际提交的TrimSpace token匹配，原raw CAS与精确数字保持。
+- **结构usage与原执行链并存**：WS duplex使用原eventState.output/fallback和eventReporter合并新结构用量，同时保Incomplete位、反向identity和usage-once；xAI WS移除会覆盖新raw搜索计数的旧过滤后ParseCodexUsage。胶囊展开仍在final payload规则前，steer保握手时已捕获的useSIWC。Devin使用原生v48精确控制字符分类，替代v47较宽兼容。
+- **Antigravity usage恢复与新增名字保留边界**：快速改名遇已有usageMetadata或Unicode转义键时回退JSON-aware set/delete，保持原cpaUsageMetadata权威值，避免重复键或漏恢复；普通快速路径保留，调用方字节、literal参数及大整数不变。仅新tool_addition/转义扫描形成的名字map和内联definition名字做Clone，防这些名字持有整段history；原root tools路径不扩修，不承诺旧缓存或全进程内存问题解决。
+
+### 管理页 v1.26.7
+
+最新已发布管理页仍为v1.26.7，本轮上游release范围0提交，产品源码不增加新控件。oauthApi.startAuth已有可选authIndex→auth_index serializer，但useOAuthFlows页面只传proxyURL，没有新增定向恢复选择按钮，也没有credentials/verify调用或verify/verify_model开关。当前页面只看status；“Authentication successful”只能说明OAuth完成，不能证明runtime adopted或inference verified，也不展示新增adoption/verification错误。新能力由管理API/TUI及独立后端证据界定；本轮UI套件/浏览器/回放取当前收据，历史负控不计新测试。
+
+### 默认、迁移与回退
+
+本轮internal/config、config.example及内置general/Codex-client/Devin目录均与v47相同，没有新增必填配置或压缩默认变化。
+
+| 项目 | 本轮行为与迁移边界 |
+| --- | --- |
+| 推理验证 | 默认不自动执行；只有显式verify=true或调用credentials/verify才产生隔离session推理请求。1输出token是请求预算，不是总token/费用保证 |
+| 恢复状态 | saved、adopted、inference_verified、renewal_verified彼此不同；运行态验证状态不等于持久化承诺，不能仅以OAuth status=ok认定修复完成 |
+| 续期失败 | 终止性refresh拒绝要求当前实例独立重新登录；仍有效access与过期/401状态区别处理，不凭同一坏refresh token无限重试，也不批量强制所有凭据重登 |
+| 定向恢复 | 目标账号、注册版本、namespace与proxy必须保留；错误账号或已替换目标不可覆盖旧记录。旧auth_index serializer不等于浏览器新增恢复入口 |
+| 插件schema9 | Registrations多provider只扩展模型目录；executor仍绑定首个provider，旧Provider/Models回退保持。返回多目录不自动授予跨provider执行能力 |
+| 用量JSON | 新字段是可选、可为明确零的结构细分，消费方应兼容新增字段，不重复累加重叠统计，也不把缺失字段当实测零或保证成本 |
+| 默认目录 | 本轮没有恢复v47已移除的gpt-5.5通用路由条目；兼容验收可显式加载只追加旧4plan条目的受控目录，必须与无models覆盖、--local-model的原生目录证明分开 |
+| Home | 仅AI Studio gateway在Home模式不挂载；不应据此关闭全部Responses/Codex WebSocket |
+| 日志与内存 | WS仅禁用error-only deferred capture，完整日志仍原样；结构usage及局部Clone不是全进程内存修复 |
+
+回退需配套镜像、auth、配置、插件及用量消费者。旧消费者可能忽略新增结构字段；镜像回退不会恢复运行期验证阶段、已发生OAuth grant轮换或已消费的推理。
+
+Home main a8d691bc3782fc8500e9de166375bff6e6ffed7d本轮只读重跑33个strict-schema场景（8接受/25预期拒绝，0跳过），没有新增配置字段、默认或强制迁移。Home模式限制的是CPA的AI Studio websocket gateway挂载，不是全部Codex/Responses WebSocket；新恢复管理API与多provider插件目录均为CPA本地能力，不新增Home RESP字段。Home未修改或部署。
+
+### 内存边界
+
+原生WS禁用一条error-only deferred request保留路径，完整日志仍可能保存请求；结构化usage新增嵌套数据与Redis字段，不能称旧usage实现未变。9个历史cache/usage/plugin比较文件中7个字节未变，usage manager与plugin executor adapter实际变化。新tool_addition名字Clone仅防新增map间接持有完整history；帧缓冲、输出项观察、根tools和其它缓存仍有各自生命周期。没有长期RSS/负载证明，不恢复此前停止的replay-cache/usage-queue大修，不承诺旧或全进程内存问题解决。
+
+## v8.0.47.1 历史记录
+
 当前修订为 `v8.0.47-codex-identity.1`，基于官方 `v8.0.47`（`90c447d3a8727d115aa7552ec93ce023736ed492`）。从已发布v8.0.44.1合入v45/v46/v47共45提交（35非merge、10merge）/173文件，分版本21/19/5；v46 Changelog漏列c6425a6e与65889d39，完整Git清单已补齐。固定镜像标签 `codex-identity-v8.0.47.1` 与latest摘要及本轮验收以附件为准。
 
 ## v8.0.47 更新

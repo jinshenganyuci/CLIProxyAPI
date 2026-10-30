@@ -1043,6 +1043,25 @@ func (h *Handler) saveTokenRecord(ctx context.Context, record *coreauth.Auth) (s
 	if legacyClaudeCredential != nil {
 		coreauth.MergeExistingAuthMetadata(record, legacyClaudeCredential.Metadata)
 	}
+	// File synthesis owns its derived attributes. Keep only runtime extensions
+	// across the immediate adoption path, without reviving removed file headers
+	// or control fields. Watcher-backed handlers retain their existing hook.
+	var runtimeAttributes map[string]string
+	var previousAuth *coreauth.Auth
+	if h.postAuthPersistHook == nil && h.authManager != nil {
+		if existing, ok := h.authManager.GetByID(record.ID); ok && existing != nil {
+			previousAuth = existing
+			path := existing.Attributes[coreauth.AttributePath]
+			if previous, errPrevious := h.buildAuthFromFileData(path, nil); errPrevious == nil {
+				runtimeAttributes = make(map[string]string)
+				for key, value := range existing.Attributes {
+					if _, fileDerived := previous.Attributes[key]; !fileDerived {
+						runtimeAttributes[key] = value
+					}
+				}
+			}
+		}
+	}
 	if h.postAuthHook != nil {
 		if err := h.postAuthHook(ctx, record); err != nil {
 			return "", fmt.Errorf("post-auth hook failed: %w", err)
@@ -1086,6 +1105,40 @@ func (h *Handler) saveTokenRecord(ctx context.Context, record *coreauth.Auth) (s
 		}
 		if errHook := h.postAuthPersistHook(ctx, persistedRecord); errHook != nil {
 			return savedPath, fmt.Errorf("post-auth persist hook failed: %w", errHook)
+		}
+	} else if h.authManager != nil && strings.TrimSpace(savedPath) != "" {
+		persistedRecord, errBuild := h.buildAuthFromFileData(savedPath, nil)
+		if errBuild != nil {
+			return savedPath, fmt.Errorf("read persisted auth failed: %w", errBuild)
+		}
+		var errReg error
+		if previousAuth != nil {
+			var adopted bool
+			_, adopted, errReg = h.authManager.Modify(coreauth.WithSkipPersist(ctx), persistedRecord.ID, previousAuth.RegistrationEpoch, func(current *coreauth.Auth) error {
+				if current.ID != previousAuth.ID || current.RegistrationEpoch != previousAuth.RegistrationEpoch {
+					return fmt.Errorf("credential registration changed before OAuth adoption")
+				}
+				for key := range runtimeAttributes {
+					if value, stillPresent := current.Attributes[key]; stillPresent {
+						if _, fileDerived := persistedRecord.Attributes[key]; !fileDerived {
+							persistedRecord.Attributes[key] = value
+						}
+					}
+				}
+				persistedRecord.CreatedAt = current.CreatedAt
+				persistedRecord.Runtime = current.Runtime
+				persistedRecord.RegistrationEpoch = current.RegistrationEpoch
+				*current = *persistedRecord
+				return nil
+			})
+			if errReg == nil && !adopted {
+				errReg = fmt.Errorf("credential disappeared before OAuth adoption")
+			}
+		} else {
+			errReg = h.upsertAuthRecord(ctx, persistedRecord)
+		}
+		if errReg != nil {
+			return savedPath, fmt.Errorf("register persisted auth failed: %w", errReg)
 		}
 	}
 	return savedPath, nil

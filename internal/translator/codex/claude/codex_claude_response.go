@@ -927,24 +927,16 @@ func setClaudeReasoningUsage(out []byte, usage gjson.Result) []byte {
 
 // buildReverseMapFromClaudeOriginalShortToOriginal builds a map[short]original from original Claude request tools.
 func buildReverseMapFromClaudeOriginalShortToOriginal(original []byte) map[string]string {
-	tools := gjson.GetBytes(original, "tools")
 	rev := map[string]string{}
-	if !tools.IsArray() {
-		return rev
-	}
-	var names []string
-	arr := tools.Array()
-	for i := 0; i < len(arr); i++ {
-		n := arr[i].Get("name").String()
-		if n != "" {
-			names = append(names, n)
+	m := buildReverseMapFromClaudeOriginalToShort(original)
+	detachNames := claudePayloadMayContainToolAddition(original)
+	for orig, short := range m {
+		if detachNames {
+			// Inline additions are parsed from the complete request. Retain
+			// only names in the per-stream reverse map, not its history.
+			orig, short = strings.Clone(orig), strings.Clone(short)
 		}
-	}
-	if len(names) > 0 {
-		m := buildShortNameMap(names)
-		for orig, short := range m {
-			rev[short] = orig
-		}
+		rev[short] = orig
 	}
 	return rev
 }
