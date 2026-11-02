@@ -29,6 +29,9 @@ func TestV824FirstCodexAuthAfterEmptyReloadUsesCurrentConfigAndKeepsLeases(t *te
 			current := &config.Config{}
 			current.Codex.ResponseSteering = enabled
 			commit := service.commitConfigUpdate(current)
+			if commit.cfg == nil || commit.cfg == current || commit.cfg == initial || commit.cfg.Codex.ResponseSteering != enabled || service.currentConfig() != commit.cfg {
+				t.Fatal("reload did not publish an independent current configuration snapshot")
+			}
 			if !service.applyConfigRuntime(ctx, commit, false) {
 				t.Fatal("empty-auth runtime reload failed")
 			}
@@ -55,7 +58,7 @@ func TestV824FirstCodexAuthAfterEmptyReloadUsesCurrentConfigAndKeepsLeases(t *te
 				service.handleAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionAdd, ID: id, Auth: auth})
 				got, _ := manager.Executor("codex")
 				actual, ok := got.(*runtimeexecutor.CodexAutoExecutor)
-				if !ok || !actual.UsesConfig(current) {
+				if !ok || !actual.UsesConfig(commit.cfg) {
 					t.Fatalf("first credential retained stale executor config: %T", got)
 				}
 				if i == 0 {

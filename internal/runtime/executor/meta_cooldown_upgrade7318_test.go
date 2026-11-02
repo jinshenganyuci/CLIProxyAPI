@@ -32,7 +32,7 @@ func TestMetaNotFoundDeadlineKeepsHealthySiblingAvailableUpgrade7318(t *testing.
 					w.WriteHeader(http.StatusBadRequest)
 					return
 				}
-				if r.Header.Get("X-Client-Id") != "tbh:tui" {
+				if r.Header.Get("X-Client-Id") != "tbh:exec" {
 					t.Error("native Meta client header missing")
 				}
 				if payload.Model == "meta-healthy-upgrade" {

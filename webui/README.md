@@ -3,11 +3,11 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.26.7`
-- commit: `714de0760a3ce86094b178fb46f834d34bc4a2a5`
-- patch: `management-center-v1.26.7-credential-identity.patch`
+- tag: `v1.27.2`
+- commit: `f154fa9380825c4fe94bc577a9abaa7e505f8875`
+- patch: `management-center-v1.27.2-credential-identity.patch`
 
-This release integrates all ten official commits from `v1.26.4` through `v1.26.7`,
+This release integrates all 39 official commits after `v1.26.7` through `v1.27.2`,
 while preserving earlier native functionality and the fork controls described below.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
@@ -318,14 +318,35 @@ explicit `openapi: false` can be edited through source YAML. Existing visual and
 provider saves preserve these fields, credential proxy and concurrency settings;
 this UI does not add dedicated Vertex controls for them.
 
+The v1.27.2 native routing board, login redesign, auto-login guards, storage v2
+migration, quota plan tiers, timeline corrections, Claude cooldown reset and HTTP
+reset request IDs are included. Turkish now includes the fork's identity, credential
+proxy, concurrency and client controls alongside all six existing locales.
+
+The routing board's final configuration PATCH uses the ETag from its own fresh read.
+A 412 stops the operation without an automatic retry. Credential changes completed
+before a later configuration failure remain explicitly reported as applied; this is
+not a transaction across credentials and configuration. Routing edits also verify
+ordered key identities, including per-key proxy settings, before applying priority
+or weight changes. Reordered compatible keys and equal API keys with different
+proxies cannot silently receive each other's changes. Fresh unrelated pool and
+concurrency settings remain intact.
+
+The v8.0.49+ per-group/per-key `connection-pool` settings and
+`client.claude.show-codex-commentary` can be edited in source YAML. Ordinary visual,
+provider and routing saves preserve empty pool opt-in blocks, explicit false/zero
+values, inheritance, selected proxy and local concurrency settings. This UI release
+does not add dedicated visual controls for these backend settings or the plugin
+multiple-login-portal API.
+
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 714de0760a3ce86094b178fb46f834d34bc4a2a5
-git -C management-center apply --unidiff-zero ../webui/management-center-v1.26.7-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.26.7 \
-  -v "$PWD/management-center:/app" -w /app oven/bun:1.3.14 \
+git -C management-center checkout f154fa9380825c4fe94bc577a9abaa7e505f8875
+git -C management-center apply ../webui/management-center-v1.27.2-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.27.2 \
+  -v "$PWD/management-center:/app" -w /app oven/bun:1.4.3 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
 sha256sum static/management.html
@@ -334,7 +355,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-fb02523d1b9474b9ba3de6d2db48ec418a6f2fc211876bb96ffbac333909a00c
+1f6ea93d20be03b438629573ab0044d4489f16e3b0c9bab1e791627e5ef43411
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

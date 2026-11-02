@@ -99,7 +99,7 @@ func TestMetaExecutorSelectedProxyLifecycle(t *testing.T) {
 							if token := r.Header.Get("Authorization"); token != "Bearer LLM|local-key" && token != "Bearer LLM|minted-local-key" {
 								t.Error("inference did not receive the selected credential's API key")
 							}
-							if operation == "http_request" && r.Header.Get("X-Client-Id") != "tbh:tui" {
+							if operation == "http_request" && r.Header.Get("X-Client-Id") != "tbh:exec" {
 								t.Error("prepared HTTP request is missing the valid Meta client header")
 							}
 							writeMetaResponsesOK(w, label)

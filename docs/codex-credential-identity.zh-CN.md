@@ -1,8 +1,22 @@
 # Codex OAuth 凭据独立身份方案
 
-当前修订为 `v8.0.48-codex-identity.1`，基于官方 `v8.0.48`（`dbb706215a3afd2f0ea3c96482d4233856466caa`）。从已发布v8.0.47.1合入27提交（21非merge、6merge）/116文件；原生release Changelog列全27项，merge265ca179另外审阅其SSE与usage组合差异。固定镜像标签 `codex-identity-v8.0.48.1` 与latest摘要及本轮验收以附件为准。
+当前修订为 `v8.0.51-codex-identity.1`，基于官方 `v8.0.51`（`7cad1cb7df48c6c5ffb7ff0b34ef8198806115bc`）。从已发布 `v8.0.48.1` 合入上游 44 个提交（38 个非 merge、6 个 merge），涉及 159 个文件。固定镜像标签为 `codex-identity-v8.0.51.1`；摘要、最终源码提交和验收收据以对应 Release 附件为准。
 
-## v8.0.48 更新
+## v8.0.51 更新
+
+- **Codex 续期与隔离**：无 `refresh_token` 且没有 SIWC 续期材料的本地凭据退出自动刷新队列；Home 和自带刷新评估器保留原控制。未变化的失效 refresh token 不再因手动刷新被错误视为成功；禁用凭据保留刷新结果和退避。二开将新恢复分支移入共用生命周期 helper，并把 no-op 刷新错误归一化放在失败事务锁判断之前，保留注册世代、文件持久化和 SIWC 分区保护。
+- **Responses WebSocket 回放**：自动回放上游输出时移除 output-only `content_token_count`，避免下次请求或换凭据后被拒绝；不修改原始客户端输入或下行响应。
+- **按 API Key 隔离的连接池**：默认不启用，组级或单 Key 写 `connection-pool: {}` 才启用，单 Key 可覆盖组设置。保留凭据代理优先、拒绝冲突的请求代理、错误代理不静默直连和按运行时/代理凭据隔离。该设置不控制 OAuth；ChatGPT 指纹传输仍保留每请求连接行为。原有本机并发默认 10 及自定义限制独立生效。
+- **协议转换**：Responses→Chat 保留 developer 角色；Gemini 并行工具输出跨 developer/system 通知收集；修复 JSON Schema 数字约束、超长 MCP 工具名和 Antigravity 空 part/多余工具结果。保留二开媒体工具结果、身份反向映射与多行 SSE 压缩转发。
+- **可选公开进度显示**：`client.claude.show-codex-commentary` 默认 false，显式开启后向 Claude 客户端显示 Codex 公开进度文字并保留回放 marker；真实 reasoning 仍为 thinking。此能力不意味着暴露内部推理。
+- **插件**：支持单插件多个 OAuth 登录入口及每入口名称/图标、locales 透传，修复同格式 SSE 拆帧及翻译 hook 处理。RPC JSON schema 从 9 升至 10，原生 C ABI 仍为 1；旧 schema 插件保持兼容。Access Guard 本体不随本轮改写。
+- **其他上游修复**：Muse 1.4.14 请求头与工具 namespace、Grok Imagine Video 1.5 Lite、xAI 文件名碰撞防护、Devin compound fast、Anthropic 余额不足识别，以及 Home 无待处理释放时的空闲循环。
+- **OAuth 保存与回滚**：保留 namespace、代理、runtime 属性、在途并发和 RegistrationEpoch；合入自定义 record.ID、子目录、xAI 文件名续用与插件 portal。回滚比较保留 JSON 数字精度，不允许旧登录回滚覆盖同 grant 的新注册世代。
+- **管理页**：升级到官方 `v1.27.2` 并保留二开控件；新路由写入沿用 ETag 和凭据行身份保护。连接池及 commentary 字段通过 YAML 与普通保存透传；不宣称新增官方尚未提供的专用按钮。
+
+升级本身不要求批量重新登录或新增必填配置。只有已经失效且无法续期的凭据需要按恢复流程单独登录。默认模型目录与显式旧模型兼容目录分别验证，兼容 fixture 不表示旧模型仍在默认目录。业务部署不随源码和镜像发布自动切换。
+
+## v8.0.48 历史记录
 
 - **WebSocket断连测试合同**（`fa42f390`）：原生测试明确等待并断言上游断连错误事件，避免只靠时序等待；不是新增断连重放策略，也不从测试源码推断本轮已通过。
 
