@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func citationsUpgrade7316Frame(t *testing.T, value map[string]any) []byte {
@@ -90,10 +90,10 @@ func citationsUpgrade7316Chunks(t *testing.T, id, boundary, stopReason string) (
 
 func citationsUpgrade7316Check(t *testing.T, id, boundaryType, stopReason string, chunks, outputs [][]byte) {
 	t.Helper()
-	var terminal gjson.Result
+	var terminal ojson.Result
 	counts := make(map[string]int)
-	messageDone := make(map[string]gjson.Result)
-	partDone := make(map[string]gjson.Result)
+	messageDone := make(map[string]ojson.Result)
+	partDone := make(map[string]ojson.Result)
 	deltas := make(map[string]string)
 	lastSequence := int64(0)
 	for i, output := range outputs {
@@ -146,14 +146,14 @@ func citationsUpgrade7316Check(t *testing.T, id, boundaryType, stopReason string
 	if boundaryType != "" && items[1].Get("type").String() != boundaryType {
 		t.Fatalf("boundary item = %s, want %s", items[1].Raw, boundaryType)
 	}
-	for i, message := range []gjson.Result{items[0], items[len(items)-1]} {
+	for i, message := range []ojson.Result{items[0], items[len(items)-1]} {
 		wantText := []string{"甲🙂: 첫째", "后续: café"}[i]
 		label := []string{"first-", "last-"}[i] + id
 		if message.Get("content.#").Int() != 1 || message.Get("content.0.text").String() != wantText {
 			t.Fatalf("message %d text/content = %s", i, message.Raw)
 		}
 		wantRaw, _ := json.Marshal(citationsUpgrade7316Annotations(label))
-		if !reflect.DeepEqual(message.Get("content.0.annotations").Value(), gjson.ParseBytes(wantRaw).Value()) {
+		if !reflect.DeepEqual(message.Get("content.0.annotations").Value(), ojson.ParseBytes(wantRaw).Value()) {
 			t.Fatalf("message %d citation data changed: %s, want %s", i, message.Get("content.0.annotations").Raw, wantRaw)
 		}
 		messageID := message.Get("id").String()
@@ -169,7 +169,7 @@ func citationsUpgrade7316Check(t *testing.T, id, boundaryType, stopReason string
 		}
 	}
 	nonstream := ConvertClaudeResponseToOpenAIResponsesNonStream(context.Background(), "claude-test", nil, nil, bytes.Join(chunks, []byte("\n")), nil)
-	if gjson.GetBytes(nonstream, "status").String() != wantStatus || !reflect.DeepEqual(gjson.GetBytes(nonstream, "output").Value(), terminal.Get("output").Value()) {
+	if ojson.GetBytes(nonstream, "status").String() != wantStatus || !reflect.DeepEqual(ojson.GetBytes(nonstream, "output").Value(), terminal.Get("output").Value()) {
 		t.Fatalf("stream/nonstream output mismatch:\nstream: %s\nnonstream: %s", terminal.Raw, nonstream)
 	}
 }

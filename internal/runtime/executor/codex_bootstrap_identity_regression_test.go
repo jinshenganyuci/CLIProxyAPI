@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // The native budget branches must preserve the credential identity mapping on both
@@ -67,10 +67,10 @@ func TestCodexBootstrapCredentialIdentityErrorBudget(t *testing.T) {
 							t.Fatal("missing post-budget stream error")
 						}
 					}
-					if got := gjson.Get(err.Error(), "error.session_id").String(); got != "client-session" {
+					if got := ojson.Get(err.Error(), "error.session_id").String(); got != "client-session" {
 						t.Errorf("client error identity = %q; error=%v", got, err)
 					}
-					if got := gjson.Get(err.Error(), "error.note").String(); got != mappedSession {
+					if got := ojson.Get(err.Error(), "error.note").String(); got != mappedSession {
 						t.Errorf("unrelated error value was changed: %q", got)
 					}
 					if statusBearing {
@@ -128,7 +128,7 @@ func TestCodexNativeBootstrapIdentityPreservesAnnouncementsAndCompletion(t *test
 			var events []string
 			for _, line := range bytes.Split([]byte(combined), []byte("\n")) {
 				payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-				eventType := gjson.GetBytes(payload, "type").String()
+				eventType := ojson.GetBytes(payload, "type").String()
 				if eventType == "" {
 					continue
 				}

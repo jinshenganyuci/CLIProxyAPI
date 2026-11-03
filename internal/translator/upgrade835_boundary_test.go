@@ -2,19 +2,19 @@ package translator
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/MoeForge/moego/base64"
+	"github.com/MoeForge/moego/ojson"
 	codexgemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/gemini"
 	codexinteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/interactions"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
 	openaiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade835ReasoningRoundTripFamilyIsolation(t *testing.T) {
@@ -44,18 +44,18 @@ func TestUpgrade835ReasoningRoundTripFamilyIsolation(t *testing.T) {
 					var replay []byte
 					if ingress == "gemini" {
 						converted := codexgemini.ConvertCodexResponseToGeminiNonStream(t.Context(), family.model, nil, nil, response, nil)
-						replay = []byte(fmt.Sprintf(`{"model":%q,"contents":[%s]}`, family.model, gjson.GetBytes(converted, "candidates.0.content").Raw))
+						replay = []byte(fmt.Sprintf(`{"model":%q,"contents":[%s]}`, family.model, ojson.GetBytes(converted, "candidates.0.content").Raw))
 					} else {
 						converted := codexinteractions.ConvertCodexResponseToInteractionsNonStream(t.Context(), family.model, nil, nil, response, nil)
-						replay = []byte(fmt.Sprintf(`{"model":%q,"input":%s}`, family.model, gjson.GetBytes(converted, "steps").Raw))
+						replay = []byte(fmt.Sprintf(`{"model":%q,"input":%s}`, family.model, ojson.GetBytes(converted, "steps").Raw))
 					}
 					if !json.Valid(replay) {
 						t.Fatalf("invalid %s replay", ingress)
 					}
 					for _, target := range families {
 						out := translator.Request(ingress, "codex", target.model, replay, false)
-						var reasoning []gjson.Result
-						for _, item := range gjson.GetBytes(out, "input").Array() {
+						var reasoning []ojson.Result
+						for _, item := range ojson.GetBytes(out, "input").Array() {
 							if item.Get("type").String() == "reasoning" {
 								reasoning = append(reasoning, item)
 							}
@@ -83,9 +83,9 @@ func TestUpgrade835SchemaReferencesAndOriginalArgumentContract(t *testing.T) {
 	if errTranslate != nil {
 		t.Fatal(errTranslate)
 	}
-	schema := gjson.GetBytes(translated, "tools.0.functionDeclarations.0.parametersJsonSchema")
+	schema := ojson.GetBytes(translated, "tools.0.functionDeclarations.0.parametersJsonSchema")
 	if !schema.Exists() {
-		schema = gjson.GetBytes(translated, "tools.0.functionDeclarations.0.parameters")
+		schema = ojson.GetBytes(translated, "tools.0.functionDeclarations.0.parameters")
 	}
 	nested := schema.Get("properties.nested")
 	if nested.Get("$ref").Exists() || nested.Get("properties.reason.readOnly").Exists() || nested.Get("properties.reason.contentMediaType").Exists() || nested.Get("properties.reason.contentEncoding").Exists() || nested.Get("properties.readOnly.type").String() != "string" {
@@ -94,7 +94,7 @@ func TestUpgrade835SchemaReferencesAndOriginalArgumentContract(t *testing.T) {
 	args := `{"nested":{"readOnly":"literal-read","writeOnly":"literal-write","contentEncoding":"literal-encoding","reason":"declared reason"},"contentMediaType":"literal-media"}`
 	raw := []byte(fmt.Sprintf(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"Inspect","args":%s}},{"functionCall":{"name":"Empty","args":{"reason":"synthetic"}}}]},"finishReason":"STOP"}]}`, args))
 	out := geminiclaude.ConvertGeminiResponseToClaudeNonStream(t.Context(), "gemini-test", original, translated, raw, nil)
-	if gjson.GetBytes(out, "content.0.input").Raw != args || gjson.GetBytes(out, "content.1.input").Raw != "{}" {
+	if ojson.GetBytes(out, "content.0.input").Raw != args || ojson.GetBytes(out, "content.1.input").Raw != "{}" {
 		t.Fatalf("original declarations did not distinguish literal values and synthetic placeholders: %s", out)
 	}
 }
@@ -119,7 +119,7 @@ func TestUpgrade835OpenAIClaudeStreamCachesAreRequestLocal(t *testing.T) {
 			}
 			var nonstream any
 			plain := bytes.Join(openaiclaude.ConvertOpenAIResponseToClaude(t.Context(), "model", []byte(`{"stream":false}`), nil, first, &nonstream), nil)
-			if gjson.GetBytes(plain, "type").String() != "message" {
+			if ojson.GetBytes(plain, "type").String() != "message" {
 				t.Errorf("stream %d leaked streaming mode into new request", i)
 			}
 		})

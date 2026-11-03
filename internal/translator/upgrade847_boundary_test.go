@@ -2,23 +2,22 @@ package translator
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/base64"
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
 	geminichat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/chat-completions"
 	geminiresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/translator"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
-func upgrade847Events(chunks [][]byte) []gjson.Result {
-	var events []gjson.Result
+func upgrade847Events(chunks [][]byte) []ojson.Result {
+	var events []ojson.Result
 	for _, chunk := range chunks {
 		for _, line := range bytes.Split(chunk, []byte("\n")) {
 			line = bytes.TrimSpace(line)
@@ -26,8 +25,8 @@ func upgrade847Events(chunks [][]byte) []gjson.Result {
 				continue
 			}
 			line = bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-			if gjson.ValidBytes(line) {
-				events = append(events, gjson.ParseBytes(line))
+			if ojson.ValidBytes(line) {
+				events = append(events, ojson.ParseBytes(line))
 			}
 		}
 	}
@@ -50,7 +49,7 @@ func TestUpgrade847VertexPartialArgsAcrossProtocolsAndStreams(t *testing.T) {
 			before := bytes.Clone(request)
 			translated := translator.Request(format, "gemini", "gemini-4-argon", request, true)
 			var states [2]any
-			var events [2][]gjson.Result
+			var events [2][]ojson.Result
 			// Interleave two requests with the same tool and upstream ID. Each
 			// stream must keep its own argument tree and original schema.
 			for step := 0; step < 3; step++ {
@@ -66,8 +65,10 @@ func TestUpgrade847VertexPartialArgsAcrossProtocolsAndStreams(t *testing.T) {
 					}
 					raw := []byte(`{"responseId":"same-response","candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":` + fc + `}]}}]}`)
 					if step == 2 {
-						raw, _ = sjson.SetBytes(raw, "candidates.0.finishReason", "STOP")
-						raw, _ = sjson.SetRawBytes(raw, "usageMetadata", []byte(`{"promptTokenCount":13,"cachedContentTokenCount":3,"candidatesTokenCount":5,"thoughtsTokenCount":2,"totalTokenCount":20}`))
+						rawDoc := ojson.NewDoc(raw)
+						_ = rawDoc.Set("candidates.0.finishReason", "STOP")
+						_ = rawDoc.SetRaw("usageMetadata", `{"promptTokenCount":13,"cachedContentTokenCount":3,"candidatesTokenCount":5,"thoughtsTokenCount":2,"totalTokenCount":20}`)
+						raw = rawDoc.Bytes()
 					}
 					convert := geminichat.ConvertGeminiResponseToOpenAI
 					if format == "claude" {
@@ -133,7 +134,7 @@ func TestUpgrade847VertexPartialArgsAcrossProtocolsAndStreams(t *testing.T) {
 				if starts != 1 || terminals != 1 || callID == "" || !json.Valid([]byte(args)) {
 					t.Fatalf("starts=%d terminals=%d id=%q args=%s", starts, terminals, callID, args)
 				}
-				if gjson.Get(args, "reason").String() != fmt.Sprintf("stream-%d cpa:commentary:v1", stream) || gjson.Get(args, "_").String() != "literal-placeholder-name" || gjson.Get(args, "count").Raw != "9007199254740993" || gjson.Get(args, "enabled").Type != gjson.False || gjson.Get(args, "nested.readOnly").String() != "literal" {
+				if ojson.Get(args, "reason").String() != fmt.Sprintf("stream-%d cpa:commentary:v1", stream) || ojson.Get(args, "_").String() != "literal-placeholder-name" || ojson.Get(args, "count").Raw != "9007199254740993" || ojson.Get(args, "enabled").Type != ojson.False || ojson.Get(args, "nested.readOnly").String() != "literal" {
 					t.Fatalf("arguments lost literal or stream isolation: %s", args)
 				}
 				switch format {
@@ -145,8 +146,8 @@ func TestUpgrade847VertexPartialArgsAcrossProtocolsAndStreams(t *testing.T) {
 					replay = []byte(fmt.Sprintf(`{"input":[{"type":"function_call","call_id":%q,"name":"Inspect","arguments":%q},{"type":"function_call_output","call_id":%q,"output":"ok"}]}`, callID, args, callID))
 				}
 				out := translator.Request(format, "gemini", "gemini-4-argon", replay, false)
-				call := gjson.GetBytes(out, `contents.0.parts.0.functionCall`)
-				if call.Get("name").String() != "Inspect" || call.Get("args.reason").String() != gjson.Get(args, "reason").String() || call.Get("args.count").Raw != "9007199254740993" {
+				call := ojson.GetBytes(out, `contents.0.parts.0.functionCall`)
+				if call.Get("name").String() != "Inspect" || call.Get("args.reason").String() != ojson.Get(args, "reason").String() || call.Get("args.count").Raw != "9007199254740993" {
 					t.Fatalf("completed call did not replay: %s", out)
 				}
 			}
@@ -164,7 +165,7 @@ func TestUpgrade847VertexToolSearchSignatureReplay(t *testing.T) {
 	translated := translator.Request("openai-response", "gemini", "gemini-4-argon", request, true)
 	chunks := []string{fmt.Sprintf(`data: {"responseId":"search847","candidates":[{"content":{"parts":[{"thoughtSignature":%q,"functionCall":{"id":"call847","name":"tool_search","partialArgs":[{"jsonPath":"$.query","stringValue":"literal cpa:commentary:v1","willContinue":true}],"willContinue":true}}]}}]}`, sig), `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.query","stringValue":" done"}],"willContinue":false}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`, `data: [DONE]`}
 	var state any
-	var completed gjson.Result
+	var completed ojson.Result
 	var itemIDs []string
 	for _, chunk := range chunks {
 		for _, event := range upgrade847Events(geminiresponses.ConvertGeminiResponseToOpenAIResponses(t.Context(), "gemini-4-argon", request, translated, []byte(chunk), &state)) {
@@ -186,10 +187,12 @@ func TestUpgrade847VertexToolSearchSignatureReplay(t *testing.T) {
 	}
 	input := completed.Get("output").Raw
 	replay := []byte(`{"input":` + input + `}`)
-	replay, _ = sjson.SetRawBytes(replay, "tools", []byte(gjson.GetBytes(request, "tools").Raw))
+	replayDoc := ojson.NewDoc(replay)
+	_ = replayDoc.SetRaw("tools", ojson.GetBytes(request, "tools").Raw)
+	replay = replayDoc.Bytes()
 	out := translator.Request("openai-response", "gemini", "gemini-4-argon", replay, false)
-	var fc gjson.Result
-	for _, content := range gjson.GetBytes(out, "contents").Array() {
+	var fc ojson.Result
+	for _, content := range ojson.GetBytes(out, "contents").Array() {
 		for _, part := range content.Get("parts").Array() {
 			if part.Get("functionCall").Exists() {
 				fc = part

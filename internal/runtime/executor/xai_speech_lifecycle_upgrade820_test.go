@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestXAISpeechManagerProxyUsageAndCapacityUpgrade820(t *testing.T) {
@@ -37,7 +37,7 @@ func TestXAISpeechManagerProxyUsageAndCapacityUpgrade820(t *testing.T) {
 				if r.Header.Get(xaiClientVersionHeader) != "" || r.Header.Get(xaiTokenAuthHeader) != "" {
 					t.Error("CLI chat headers leaked into speech")
 				}
-				if gjson.GetBytes(body, "voice_id").String() != "ara" || gjson.GetBytes(body, "language").Exists() {
+				if ojson.GetBytes(body, "voice_id").String() != "ara" || ojson.GetBytes(body, "language").Exists() {
 					t.Errorf("payload rules were overwritten: %s", body)
 				}
 				if mode == "voice-invalid" {

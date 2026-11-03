@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -18,7 +19,6 @@ import (
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestV828WebsocketReloadKeepsCredentialBoundInterruptAndNextTurn(t *testing.T) {
@@ -48,7 +48,7 @@ func TestV828WebsocketReloadKeepsCredentialBoundInterruptAndNextTurn(t *testing.
 					if errRead != nil {
 						return
 					}
-					if gjson.GetBytes(create, "type").String() != "response.create" {
+					if ojson.GetBytes(create, "type").String() != "response.create" {
 						t.Errorf("expected next create, got %s", create)
 						return
 					}
@@ -57,7 +57,7 @@ func TestV828WebsocketReloadKeepsCredentialBoundInterruptAndNextTurn(t *testing.
 						return
 					}
 					_, control, errRead := conn.ReadMessage()
-					if errRead != nil || gjson.GetBytes(control, "type").String() != "response.interrupt" || gjson.GetBytes(control, "response_id").String() != id {
+					if errRead != nil || ojson.GetBytes(control, "type").String() != "response.interrupt" || ojson.GetBytes(control, "response_id").String() != id {
 						t.Errorf("interrupt changed across reload: %s %v", control, errRead)
 						return
 					}
@@ -113,7 +113,7 @@ func TestV828WebsocketReloadKeepsCredentialBoundInterruptAndNextTurn(t *testing.
 			read := func(kind, id string) {
 				t.Helper()
 				_, payload, errRead := client.ReadMessage()
-				if errRead != nil || gjson.GetBytes(payload, "type").String() != kind || gjson.GetBytes(payload, "response.id").String() != id {
+				if errRead != nil || ojson.GetBytes(payload, "type").String() != kind || ojson.GetBytes(payload, "response.id").String() != id {
 					t.Fatalf("reload disrupted response %s/%s: %s %v", kind, id, payload, errRead)
 				}
 			}

@@ -7,13 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -22,7 +21,7 @@ const upgrade736StdinDescription = "Writes characters to an existing unified exe
 
 func upgrade736ResponsesToolsPayload(t *testing.T, model string) []byte {
 	t.Helper()
-	payload, errSet := sjson.SetBytes([]byte(`{
+	mutationDoc1 := ojson.NewDoc([]byte(`{
 		"input":[{"type":"message","role":"user","content":"hello"}],
 		"tools":[
 			{"type":"namespace","name":"mcp__codex_app","tools":[
@@ -36,7 +35,9 @@ func upgrade736ResponsesToolsPayload(t *testing.T, model string) []byte {
 			{"type":"function","name":"write_stdin","description":"Writes characters to an existing unified exec session and returns recent output.","parameters":{"type":"object","properties":{"session_id":{"type":"integer"}}}}
 		],
 		"tool_choice":{"type":"function","namespace":"mcp__codex_app","name":"automation_update"}
-	}`), "model", model)
+	}`))
+	errMutation1 := mutationDoc1.Set("model", model)
+	payload, errSet := mutationDoc1.Bytes(), errMutation1
 	if errSet != nil {
 		t.Fatal(errSet)
 	}
@@ -94,7 +95,7 @@ func TestUpgrade736DevinAliasToolsRemainFilteredOnWire(t *testing.T) {
 					t.Errorf("wire tool %q = %v, want description %q", name, got, want)
 				}
 			}
-			if tool := tools["exec_command"]; len(tool) != 2 || gjson.Get(tool[1], "properties.cmd.type").String() != "string" {
+			if tool := tools["exec_command"]; len(tool) != 2 || ojson.Get(tool[1], "properties.cmd.type").String() != "string" {
 				t.Errorf("exec_command schema changed: %v", tool)
 			}
 		})
@@ -129,8 +130,8 @@ func TestUpgrade736GeminiInteractionsPreservesDevinSpecificToolsOnWire(t *testin
 			if got.err != nil || got.path != "/v1beta/interactions" {
 				t.Fatalf("upstream request path=%q err=%v", got.path, got.err)
 			}
-			tools := make(map[string]gjson.Result)
-			for _, tool := range gjson.GetBytes(got.body, "tools").Array() {
+			tools := make(map[string]ojson.Result)
+			for _, tool := range ojson.GetBytes(got.body, "tools").Array() {
 				tools[tool.Get("name").String()] = tool
 			}
 			if len(tools) != 5 {
@@ -147,7 +148,7 @@ func TestUpgrade736GeminiInteractionsPreservesDevinSpecificToolsOnWire(t *testin
 					t.Errorf("upstream tool %q description=%q, want %q", name, desc, want)
 				}
 			}
-			if name := gjson.GetBytes(got.body, "generation_config.tool_choice.name").String(); name != "mcp__codex_app__automation_update" {
+			if name := ojson.GetBytes(got.body, "generation_config.tool_choice.name").String(); name != "mcp__codex_app__automation_update" {
 				t.Errorf("tool_choice name = %q, want retained qualified automation tool", name)
 			}
 			if tools["exec_command"].Get("parameters.properties.cmd.type").String() != "string" {

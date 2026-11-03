@@ -2,18 +2,16 @@ package executor
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 type codexCredentialIdentitySnapshot struct {
@@ -24,29 +22,37 @@ type codexCredentialIdentitySnapshot struct {
 }
 
 func applyCodexIdentityBody(cfg *config.Config, auth *cliproxyauth.Auth, userPayload []byte, rawJSON []byte) ([]byte, codexIdentityConfuseState, error) {
-	if cfg != nil && cfg.Codex.CredentialIdentity.Enabled {
-		if cfg.Codex.IdentityConfuse {
-			return nil, codexIdentityConfuseState{}, fmt.Errorf("codex credential identity: legacy identity-confuse is also enabled")
-		}
-		return applyCodexCredentialIdentityBody(cfg, auth, rawJSON)
+	doc := ojson.NewDoc(rawJSON)
+	state, errIdentity := applyCodexIdentityBodyDoc(cfg, auth, userPayload, doc)
+	if errIdentity != nil {
+		return nil, state, errIdentity
 	}
-	body, state := applyCodexIdentityConfuseBody(cfg, auth, userPayload, rawJSON)
-	return body, state, nil
+	return doc.Bytes(), state, nil
 }
 
-func applyCodexCredentialIdentityBody(cfg *config.Config, auth *cliproxyauth.Auth, rawJSON []byte) ([]byte, codexIdentityConfuseState, error) {
+func applyCodexIdentityBodyDoc(cfg *config.Config, auth *cliproxyauth.Auth, userPayload []byte, doc *ojson.Doc) (codexIdentityConfuseState, error) {
+	if cfg != nil && cfg.Codex.CredentialIdentity.Enabled {
+		if cfg.Codex.IdentityConfuse {
+			return codexIdentityConfuseState{}, fmt.Errorf("codex credential identity: legacy identity-confuse is also enabled")
+		}
+		return applyCodexCredentialIdentityBodyDoc(cfg, auth, doc)
+	}
+	return applyCodexIdentityConfuseBodyDoc(cfg, auth, userPayload, doc), nil
+}
+
+func applyCodexCredentialIdentityBodyDoc(cfg *config.Config, auth *cliproxyauth.Auth, doc *ojson.Doc) (codexIdentityConfuseState, error) {
 	if auth != nil && codexAuthUsesAPIKey(auth) {
-		return rawJSON, codexIdentityConfuseState{}, nil
+		return codexIdentityConfuseState{}, nil
 	}
 	if auth == nil {
-		return nil, codexIdentityConfuseState{}, fmt.Errorf("codex credential identity: selected OAuth credential is missing")
+		return codexIdentityConfuseState{}, fmt.Errorf("codex credential identity: selected OAuth credential is missing")
 	}
 	if strings.EqualFold(strings.TrimSpace(auth.Attributes[internalcodex.CredentialIdentityConflictAttribute]), "true") {
-		return nil, codexIdentityConfuseState{}, fmt.Errorf("codex credential identity for auth %q conflicts with another credential namespace; resolve it from /management.html", auth.ID)
+		return codexIdentityConfuseState{}, fmt.Errorf("codex credential identity for auth %q conflicts with another credential namespace; resolve it from /management.html", auth.ID)
 	}
 	namespace, version, errIdentity := internalcodex.ParseCredentialIdentity(auth.Metadata)
 	if errIdentity != nil {
-		return nil, codexIdentityConfuseState{}, fmt.Errorf("codex credential identity for auth %q: %w; initialize it from /management.html", auth.ID, errIdentity)
+		return codexIdentityConfuseState{}, fmt.Errorf("codex credential identity for auth %q: %w; initialize it from /management.html", auth.ID, errIdentity)
 	}
 	state := codexIdentityConfuseState{
 		enabled:            true,
@@ -61,17 +67,17 @@ func applyCodexCredentialIdentityBody(cfg *config.Config, auth *cliproxyauth.Aut
 		reverseIdentities: make(map[string]string),
 	}
 
-	if len(rawJSON) == 0 {
-		return rawJSON, state, nil
+	if doc == nil || doc.Len() == 0 {
+		return state, nil
 	}
-	if promptCacheKey := strings.TrimSpace(gjson.GetBytes(rawJSON, "prompt_cache_key").String()); promptCacheKey != "" {
+	if promptCacheKey := strings.TrimSpace(doc.Get("prompt_cache_key").String()); promptCacheKey != "" {
 		state.originalPromptCacheKey = promptCacheKey
 		state.promptCacheKey = state.mapCredentialIdentity("session", promptCacheKey)
-		rawJSON = helps.SetStringIfDifferent(rawJSON, "prompt_cache_key", state.promptCacheKey)
+		helps.SetStringIfDifferentDoc(doc, "prompt_cache_key", state.promptCacheKey)
 	}
 
 	installationPath := "client_metadata.x-codex-installation-id"
-	installationID := strings.TrimSpace(gjson.GetBytes(rawJSON, installationPath).String())
+	installationID := strings.TrimSpace(doc.Get(installationPath).String())
 	if installationID == "" && cfg != nil && cfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID {
 		seed := state.originalPromptCacheKey
 		if seed == "" {
@@ -80,27 +86,27 @@ func applyCodexCredentialIdentityBody(cfg *config.Config, auth *cliproxyauth.Aut
 		installationID = "synthetic:" + seed
 	}
 	if installationID != "" {
-		rawJSON, _ = sjson.SetBytes(rawJSON, installationPath, state.mapCredentialIdentity("installation", installationID))
+		_ = doc.Set(installationPath, state.mapCredentialIdentity("installation", installationID))
 	}
 
 	windowPath := "client_metadata.x-codex-window-id"
-	if windowID := strings.TrimSpace(gjson.GetBytes(rawJSON, windowPath).String()); windowID != "" {
-		rawJSON, _ = sjson.SetBytes(rawJSON, windowPath, state.mapCredentialIdentity("window", windowID))
+	if windowID := strings.TrimSpace(doc.Get(windowPath).String()); windowID != "" {
+		_ = doc.Set(windowPath, state.mapCredentialIdentity("window", windowID))
 	}
 
 	turnMetadataPath := "client_metadata.x-codex-turn-metadata"
-	turnMetadata := gjson.GetBytes(rawJSON, turnMetadataPath)
+	turnMetadata := doc.Get(turnMetadataPath)
 	if turnMetadata.Exists() {
 		switch turnMetadata.Type {
-		case gjson.String:
+		case ojson.String:
 			updated := rewriteCodexTurnMetadata(turnMetadata.String(), &state, true)
-			rawJSON, _ = sjson.SetBytes(rawJSON, turnMetadataPath, updated)
-		case gjson.JSON:
+			_ = doc.Set(turnMetadataPath, updated)
+		case ojson.JSON:
 			updated := rewriteCodexTurnMetadata(turnMetadata.Raw, &state, true)
-			rawJSON, _ = sjson.SetRawBytes(rawJSON, turnMetadataPath, []byte(updated))
+			_ = doc.SetRawBytes(turnMetadataPath, []byte(updated))
 		}
 	}
-	return rawJSON, state, nil
+	return state, nil
 }
 
 func applyCodexIdentityHeaders(headers http.Header, state *codexIdentityConfuseState, preserveNativeHeaders ...bool) {
@@ -187,15 +193,10 @@ func codexIdentityMapKey(kind string, value string) string {
 
 func rewriteCodexTurnMetadata(raw string, state *codexIdentityConfuseState, forward bool) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || state == nil || !state.enabled {
+	if raw == "" || state == nil || !state.enabled || !ojson.Valid(raw) || !ojson.Parse(raw).IsObject() {
 		return raw
 	}
-	var metadata map[string]any
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.UseNumber()
-	if errDecode := decoder.Decode(&metadata); errDecode != nil || metadata == nil {
-		return raw
-	}
+	doc := ojson.NewDocString(raw)
 	fields := []struct {
 		key  string
 		kind string
@@ -205,21 +206,17 @@ func rewriteCodexTurnMetadata(raw string, state *codexIdentityConfuseState, forw
 		{key: "window_id", kind: "window"},
 	}
 	for _, field := range fields {
-		value, ok := metadata[field.key].(string)
-		if !ok || strings.TrimSpace(value) == "" {
+		value := doc.Get(field.key)
+		if value.Type != ojson.String || strings.TrimSpace(value.String()) == "" {
 			continue
 		}
 		if forward {
-			metadata[field.key] = state.mapCredentialIdentity(field.kind, value)
-		} else if original, exists := state.reverseIdentities[strings.TrimSpace(value)]; exists {
-			metadata[field.key] = original
+			_ = doc.Set(field.key, state.mapCredentialIdentity(field.kind, value.String()))
+		} else if original, exists := state.reverseIdentities[strings.TrimSpace(value.String())]; exists {
+			_ = doc.Set(field.key, original)
 		}
 	}
-	updated, errMarshal := json.Marshal(metadata)
-	if errMarshal != nil {
-		return raw
-	}
-	return string(updated)
+	return doc.String()
 }
 
 func rewriteCodexIdentityPayload(payload []byte, replacements map[string]string, forward bool) []byte {
@@ -227,7 +224,7 @@ func rewriteCodexIdentityPayload(payload []byte, replacements map[string]string,
 		return payload
 	}
 	trimmed := bytes.TrimSpace(payload)
-	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid(trimmed) {
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && ojson.ValidBytes(trimmed) {
 		return rewriteCodexIdentityPayloadLine(payload, replacements, forward)
 	}
 	if bytes.Contains(payload, []byte("\n")) {
@@ -274,19 +271,14 @@ func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string
 		return line
 	}
 
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(jsonPayload))
-	decoder.UseNumber()
-	if errDecode := decoder.Decode(&value); errDecode != nil {
+	if !ojson.ValidBytes(jsonPayload) {
 		return line
 	}
-	if !rewriteCodexIdentityJSONValue(value, replacements, forward) {
+	doc := ojson.NewDoc(jsonPayload)
+	if !rewriteCodexIdentityJSONDoc(doc, ojson.ParseBytes(jsonPayload), nil, replacements, forward) {
 		return line
 	}
-	updated, errMarshal := json.Marshal(value)
-	if errMarshal != nil {
-		return line
-	}
+	updated := doc.Bytes()
 	out := make([]byte, 0, len(prefix)+len(updated)+len(lineEnding))
 	out = append(out, prefix...)
 	out = append(out, updated...)
@@ -294,59 +286,57 @@ func rewriteCodexIdentityPayloadLine(line []byte, replacements map[string]string
 	return out
 }
 
-func rewriteCodexIdentityJSONValue(value any, replacements map[string]string, forward bool) bool {
+// Walk the original token views while mutating one document. Numeric and unknown
+// payload fields remain raw, including large integers and JSON key punctuation.
+func rewriteCodexIdentityJSONDoc(doc *ojson.Doc, value ojson.Result, path []string, replacements map[string]string, forward bool) bool {
 	changed := false
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			kind := codexIdentityJSONKind(key)
-			if stringValue, ok := child.(string); ok && kind != "" {
-				if normalizeCodexIdentityKey(key) == "x_codex_turn_metadata" {
-					if updated, didChange := rewriteCodexIdentityJSONString(stringValue, replacements, forward); didChange {
-						typed[key] = updated
-						changed = true
-					}
-					continue
-				}
-				replacementKey := strings.TrimSpace(stringValue)
+	if !value.IsObject() && !value.IsArray() {
+		return false
+	}
+	object := value.IsObject()
+	value.ForEach(func(key, child ojson.Result) bool {
+		component := key.String()
+		if object {
+			// Doc paths use a leading colon to force a literal object key.
+			component = ":" + ojson.Escape(component)
+		}
+		childPath := append(append([]string(nil), path...), component)
+		kind := ""
+		if object {
+			kind = codexIdentityJSONKind(key.String())
+		}
+		if child.Type == ojson.String && kind != "" {
+			var replacement string
+			var exists bool
+			if kind == "turn_metadata" {
+				replacement, exists = rewriteCodexIdentityJSONString(child.String(), replacements, forward)
+			} else {
+				replacementKey := strings.TrimSpace(child.String())
 				if forward {
 					replacementKey = codexIdentityMapKey(kind, replacementKey)
 				}
-				if replacement, exists := replacements[replacementKey]; exists {
-					typed[key] = replacement
-					changed = true
-				}
-				continue
+				replacement, exists = replacements[replacementKey]
 			}
-			if rewriteCodexIdentityJSONValue(child, replacements, forward) {
+			if exists && doc.Set(strings.Join(childPath, "."), replacement) == nil {
 				changed = true
 			}
+			return true
 		}
-	case []any:
-		for _, child := range typed {
-			if rewriteCodexIdentityJSONValue(child, replacements, forward) {
-				changed = true
-			}
-		}
-	}
+		changed = rewriteCodexIdentityJSONDoc(doc, child, childPath, replacements, forward) || changed
+		return true
+	})
 	return changed
 }
 
 func rewriteCodexIdentityJSONString(raw string, replacements map[string]string, forward bool) (string, bool) {
-	var value any
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.UseNumber()
-	if errDecode := decoder.Decode(&value); errDecode != nil {
+	if !ojson.Valid(raw) {
 		return raw, false
 	}
-	if !rewriteCodexIdentityJSONValue(value, replacements, forward) {
+	doc := ojson.NewDocString(raw)
+	if !rewriteCodexIdentityJSONDoc(doc, ojson.Parse(raw), nil, replacements, forward) {
 		return raw, false
 	}
-	updated, errMarshal := json.Marshal(value)
-	if errMarshal != nil {
-		return raw, false
-	}
-	return string(updated), true
+	return doc.String(), true
 }
 
 func codexIdentityJSONKind(key string) string {

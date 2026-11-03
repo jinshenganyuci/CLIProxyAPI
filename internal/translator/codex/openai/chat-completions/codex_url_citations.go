@@ -1,6 +1,6 @@
 package chat_completions
 
-import "github.com/tidwall/gjson"
+import "github.com/MoeForge/moego/ojson"
 
 type codexCitationPartKey struct {
 	itemID       string
@@ -15,7 +15,7 @@ type codexCitationPart struct {
 
 // Citation ranges are relative to their content block, regardless of whether
 // annotations arrive before text.done or with the final message item.
-func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event gjson.Result, contentIndex int64) *codexCitationPart {
+func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event ojson.Result, contentIndex int64) *codexCitationPart {
 	itemID := event.Get("item_id").String()
 	if itemID == "" {
 		itemID = event.Get("item.id").String()
@@ -48,10 +48,10 @@ func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event gjson.Result, 
 	return part
 }
 
-func codexStreamURLCitations(p *ConvertCliToOpenAIParams, event gjson.Result) [][]byte {
+func codexStreamURLCitations(p *ConvertCliToOpenAIParams, event ojson.Result) [][]byte {
 	if content := event.Get("item.content"); content.IsArray() {
 		var citations [][]byte
-		var itemAnnotations []gjson.Result
+		var itemAnnotations []ojson.Result
 		for _, path := range []string{"annotation", "annotations", "part.annotations", "item.annotations"} {
 			itemAnnotations = append(itemAnnotations, codexAnnotationResults(event.Get(path))...)
 		}

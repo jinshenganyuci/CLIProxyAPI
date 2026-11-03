@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
@@ -19,7 +20,6 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
-	"github.com/tidwall/gjson"
 )
 
 type websocketBusyExecutor struct {
@@ -79,7 +79,7 @@ func readWebsocketBusyPayload(t *testing.T, conn *websocket.Conn) []byte {
 	if errRead != nil {
 		t.Fatalf("read websocket JSON payload: %v", errRead)
 	}
-	if kind != websocket.TextMessage || !gjson.ValidBytes(payload) {
+	if kind != websocket.TextMessage || !ojson.ValidBytes(payload) {
 		t.Fatalf("message type = %d, payload = %s; want JSON text", kind, payload)
 	}
 	return payload
@@ -87,7 +87,7 @@ func readWebsocketBusyPayload(t *testing.T, conn *websocket.Conn) []byte {
 
 func assertWebsocketCredentialBusyPayload(t *testing.T, payload []byte) {
 	t.Helper()
-	if gjson.GetBytes(payload, "type").String() != "error" || gjson.GetBytes(payload, "status").Int() != http.StatusTooManyRequests || gjson.GetBytes(payload, "error.code").String() != "credential_concurrency_exceeded" {
+	if ojson.GetBytes(payload, "type").String() != "error" || ojson.GetBytes(payload, "status").Int() != http.StatusTooManyRequests || ojson.GetBytes(payload, "error.code").String() != "credential_concurrency_exceeded" {
 		t.Fatalf("want credential concurrency error with status 429, got %s", payload)
 	}
 }
@@ -135,7 +135,7 @@ func TestResponsesWebsocketCredentialConcurrencyRejectsFourthActiveTurn(t *testi
 			assertWebsocketCredentialBusyPayload(t, payload)
 			continue
 		}
-		if event := gjson.GetBytes(payload, "type").String(); event != "response.created" {
+		if event := ojson.GetBytes(payload, "type").String(); event != "response.created" {
 			t.Fatalf("request %d did not start: %s", i+1, payload)
 		}
 		select {

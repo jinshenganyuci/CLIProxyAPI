@@ -3,9 +3,9 @@ package translator
 import (
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	ag "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/interactions"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/interactions"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade804InteractionsSignaturesStayWithinModelTurns(t *testing.T) {
@@ -25,8 +25,8 @@ func TestUpgrade804InteractionsSignaturesStayWithinModelTurns(t *testing.T) {
 					t.Fatalf("request translation failed: %v", errConvert)
 				}
 				signatures := map[string]int{}
-				calls := map[string]gjson.Result{}
-				for _, turn := range gjson.GetBytes(out, provider.path).Array() {
+				calls := map[string]ojson.Result{}
+				for _, turn := range ojson.GetBytes(out, provider.path).Array() {
 					for _, part := range turn.Get("parts").Array() {
 						if sig := part.Get("thoughtSignature").String(); sig != "" {
 							if turn.Get("role").String() != "model" {

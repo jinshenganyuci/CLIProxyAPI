@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -27,7 +28,6 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 type v827PreFTExecutor struct {
@@ -128,7 +128,7 @@ func TestV827PreFirstTokenCommitKeepsProxyErrorAndPluginAccounting(t *testing.T)
 				}
 				got = strings.TrimSpace(strings.SplitN(got, "data: ", 2)[1])
 			}
-			if writer.Code != wantStatus || gjson.Get(got, "error.code").String() != "unprocessable_entity" || !gjson.Get(got, "error.details.fixture").Bool() {
+			if writer.Code != wantStatus || ojson.Get(got, "error.code").String() != "unprocessable_entity" || !ojson.Get(got, "error.details.fixture").Bool() {
 				t.Fatalf("bootstrap error shape/status changed: %d %s", writer.Code, got)
 			}
 			select {

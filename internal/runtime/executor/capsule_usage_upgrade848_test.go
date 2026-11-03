@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	codexauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -23,7 +24,6 @@ import (
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV848CapsuleStructuredUsagePreservesFinalPayloadIdentityAndProxy(t *testing.T) {
@@ -45,13 +45,13 @@ func TestV848CapsuleStructuredUsagePreservesFinalPayloadIdentityAndProxy(t *test
 			var selectedHits, fallbackHits, upstreamHits atomic.Int32
 			inspect := func(body []byte) {
 				t.Helper()
-				if gjson.GetBytes(body, "input.0.type").String() != "message" || gjson.GetBytes(body, "input.0.role").String() != "developer" || gjson.GetBytes(body, "input.0.content.0.text").String() != "final848" {
+				if ojson.GetBytes(body, "input.0.type").String() != "message" || ojson.GetBytes(body, "input.0.role").String() != "developer" || ojson.GetBytes(body, "input.0.content.0.text").String() != "final848" {
 					t.Errorf("capsule expansion/final barrier: %s", body)
 				}
-				if gjson.GetBytes(body, "input.1.encrypted_content").String() != "gAAAAABnative848" || gjson.GetBytes(body, "input.2.content").String() != "literal cpa-ag-compact-v1:text" {
+				if ojson.GetBytes(body, "input.1.encrypted_content").String() != "gAAAAABnative848" || ojson.GetBytes(body, "input.2.content").String() != "literal cpa-ag-compact-v1:text" {
 					t.Errorf("opaque/literal modified: %s", body)
 				}
-				if gjson.GetBytes(body, "prompt_cache_key").String() != mapped || gjson.GetBytes(body, "audit").Raw != `["once848"]` || gjson.GetBytes(body, "service_tier").String() != "priority" {
+				if ojson.GetBytes(body, "prompt_cache_key").String() != mapped || ojson.GetBytes(body, "audit").Raw != `["once848"]` || ojson.GetBytes(body, "service_tier").String() != "priority" {
 					t.Errorf("identity/final rules repeated or lost: %s", body)
 				}
 			}
@@ -185,7 +185,7 @@ func TestV848CapsuleStructuredUsagePreservesFinalPayloadIdentityAndProxy(t *test
 				if !resp.Incomplete {
 					t.Error("incomplete response lost status bit")
 				}
-				if gjson.GetBytes(resp.Payload, "metadata.prompt_cache_key").String() != "configured848" {
+				if ojson.GetBytes(resp.Payload, "metadata.prompt_cache_key").String() != "configured848" {
 					t.Errorf("response identity not restored: %s", resp.Payload)
 				}
 			} else {
@@ -209,7 +209,7 @@ func TestV848CapsuleStructuredUsagePreservesFinalPayloadIdentityAndProxy(t *test
 							cancel()
 						}
 					}
-					if mode == "duplex" && gjson.GetBytes(chunk.Payload, "type").String() == "response.completed" {
+					if mode == "duplex" && ojson.GetBytes(chunk.Payload, "type").String() == "response.completed" {
 						input <- core.WebsocketInput{Payload: append([]byte(`{"type":"response.create",`), request[1:]...)}
 					}
 				}

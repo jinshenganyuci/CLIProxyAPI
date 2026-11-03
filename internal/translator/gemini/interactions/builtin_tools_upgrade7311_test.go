@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	antigravity "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/interactions"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/interactions"
-	"github.com/tidwall/gjson"
 )
 
 func TestBuiltinToolsUpgrade7311MixedFormsAndRestrictions(t *testing.T) {
@@ -33,7 +33,7 @@ func TestBuiltinToolsUpgrade7311MixedFormsAndRestrictions(t *testing.T) {
 					if errConvert != nil {
 						t.Fatalf("request translation failed: %v", errConvert)
 					}
-					tools := gjson.GetBytes(out, target.path).Array()
+					tools := ojson.GetBytes(out, target.path).Array()
 					functions, builtins := 0, 0
 					for _, tool := range tools {
 						functions += len(tool.Get("functionDeclarations").Array())
@@ -88,7 +88,7 @@ func TestBuiltinToolsUpgrade7311WebSearchAliasPreservesOptions(t *testing.T) {
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			if gjson.GetBytes(out, target.path+".0.googleSearch.includedDomains.0").String() != "allowed.example" {
+			if ojson.GetBytes(out, target.path+".0.googleSearch.includedDomains.0").String() != "allowed.example" {
 				t.Fatalf("web_search alias lost options: %s", out)
 			}
 		})
@@ -101,7 +101,7 @@ func TestBuiltinToolsUpgrade7311NativeSchemaNumbersStayExact(t *testing.T) {
 	if errConvert != nil {
 		t.Fatalf("request translation failed: %v", errConvert)
 	}
-	if got := gjson.GetBytes(out, "tools.0.functionDeclarations.0.parametersJsonSchema.properties.limit.maximum").Raw; got != "9223372036854775807" {
+	if got := ojson.GetBytes(out, "tools.0.functionDeclarations.0.parametersJsonSchema.properties.limit.maximum").Raw; got != "9223372036854775807" {
 		t.Fatalf("native schema limit changed: %s", out)
 	}
 }

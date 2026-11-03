@@ -6,11 +6,11 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade842CustomPatchCacheDoesNotPinRequest(t *testing.T) {
-	root := gjson.Parse(`{"tools":[{"type":"custom","name":"apply_patch"}],"messages":[{"role":"user","content":"` + strings.Repeat("unrelated-history-", 8192) + `"}]}`)
+	root := ojson.Parse(`{"tools":[{"type":"custom","name":"apply_patch"}],"messages":[{"role":"user","content":"` + strings.Repeat("unrelated-history-", 8192) + `"}]}`)
 	var metadata codexChatToolMetadata
 	metadata.resolveCustomPatchWinners(root)
 	if !metadata.customPatchWinners["apply_patch"] {

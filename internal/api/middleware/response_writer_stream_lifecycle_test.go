@@ -47,7 +47,7 @@ func TestFinalizeKeepsStreamingChannelUntilDelayedWorkerDrains(t *testing.T) {
 		if writer.closed {
 			t.Error("Finalize closed the log writer before its chunks were drained")
 		}
-		go wrapper.processStreamingChunks(done)
+		go wrapper.processStreamingChunks(done, chunks, writer)
 		synctest.Wait()
 		if errFinalize := <-finished; errFinalize != nil {
 			t.Fatal(errFinalize)

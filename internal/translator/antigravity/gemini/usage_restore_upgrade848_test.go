@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade848UsageRestorationPreservesAuthorityAndLiteralFields(t *testing.T) {
@@ -32,7 +32,7 @@ func TestUpgrade848UsageRestorationPreservesAuthorityAndLiteralFields(t *testing
 					out = ConvertAntigravityResponseToGeminiNonStream(t.Context(), "gemini-4-argon", nil, nil, input, &state)
 				}
 				count := 0
-				gjson.ParseBytes(out).ForEach(func(key, value gjson.Result) bool {
+				ojson.ParseBytes(out).ForEach(func(key, value ojson.Result) bool {
 					if key.String() == "usageMetadata" {
 						count++
 						if value.Get("totalTokenCount").Int() != 19 {
@@ -41,10 +41,10 @@ func TestUpgrade848UsageRestorationPreservesAuthorityAndLiteralFields(t *testing
 					}
 					return true
 				})
-				if count != 1 || gjson.GetBytes(out, "cpaUsageMetadata").Exists() {
+				if count != 1 || ojson.GetBytes(out, "cpaUsageMetadata").Exists() {
 					t.Errorf("stream=%v expected one restored field: %s", stream, out)
 				}
-				if gjson.GetBytes(out, "candidates.0.content.parts.1.functionCall.args.cpaUsageMetadata.literal").Type != gjson.True || gjson.GetBytes(out, "candidates.0.content.parts.1.functionCall.args.n").Raw != "9007199254740993" {
+				if ojson.GetBytes(out, "candidates.0.content.parts.1.functionCall.args.cpaUsageMetadata.literal").Type != ojson.True || ojson.GetBytes(out, "candidates.0.content.parts.1.functionCall.args.n").Raw != "9007199254740993" {
 					t.Errorf("literal arguments changed: %s", out)
 				}
 				if !bytes.Equal(input, before) {

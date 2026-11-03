@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	agclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
 	codexclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/claude"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
-	"github.com/tidwall/gjson"
 )
 
 func toolStarts837(chunks [][]byte) []string {
 	var names []string
 	for _, chunk := range chunks {
 		for _, line := range bytes.Split(chunk, []byte("\n")) {
-			p := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+			p := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 			if p.Get("type").String() == "content_block_start" && p.Get("content_block.type").String() == "tool_use" {
 				names = append(names, p.Get("content_block.name").String())
 			}

@@ -10,11 +10,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestKimiAISelectedProxyCoversRuntimeProtocols(t *testing.T) {
@@ -44,7 +44,7 @@ func TestKimiAISelectedProxyCoversRuntimeProtocols(t *testing.T) {
 				_, _ = io.WriteString(w, `{"id":"chat","model":"k3","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 			}
 		case "/coding/v1/responses":
-			items := gjson.GetBytes(body, "input").Array()
+			items := ojson.GetBytes(body, "input").Array()
 			if len(items) != 5 || items[2].Get("call_id").String() != "first" || items[2].Get("output").String() != "one" || items[3].Get("call_id").String() != "second" || items[3].Get("output").String() != "two" || items[4].Get("role").String() != "developer" {
 				t.Errorf("parallel tool outputs were not normalized on the selected proxy: %s", body)
 			}

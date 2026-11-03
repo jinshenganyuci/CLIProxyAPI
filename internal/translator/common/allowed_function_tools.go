@@ -3,11 +3,11 @@ package common
 import (
 	"strings"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 // OpenAIAllowedFunctionTools reads a function allow-list without broadening empty or invalid restrictions.
-func OpenAIAllowedFunctionTools(choice gjson.Result) (names map[string]struct{}, mode string, active bool) {
+func OpenAIAllowedFunctionTools(choice ojson.Result) (names map[string]struct{}, mode string, active bool) {
 	if !choice.IsObject() || choice.Get("type").String() != "allowed_tools" {
 		return nil, "", false
 	}
@@ -25,7 +25,7 @@ func OpenAIAllowedFunctionTools(choice gjson.Result) (names map[string]struct{},
 		modeValue = choice.Get("mode")
 	}
 	if modeValue.Exists() {
-		if modeValue.Type != gjson.String {
+		if modeValue.Type != ojson.String {
 			return names, "none", true
 		}
 		mode = strings.ToLower(strings.TrimSpace(modeValue.String()))
@@ -45,7 +45,7 @@ func OpenAIAllowedFunctionTools(choice gjson.Result) (names map[string]struct{},
 		if !name.Exists() {
 			name = tool.Get("name")
 		}
-		if name.Type == gjson.String && strings.TrimSpace(name.String()) != "" {
+		if name.Type == ojson.String && strings.TrimSpace(name.String()) != "" {
 			names[strings.TrimSpace(name.String())] = struct{}{}
 		}
 	}

@@ -52,6 +52,9 @@ func (h *Handler) prepareKimiOAuthSession(c *gin.Context) (*Handler, int, error)
 	}
 	snapshot.cfg.AuthDir = authDir
 	proxyURL := snapshot.cfg.ProxyURL
+	if selectedProxy := oauthSessionProxyURLFromContext(c); selectedProxy != "" {
+		proxyURL = selectedProxy
+	}
 	if request.ProxyURL != nil {
 		proxyURL = strings.TrimSpace(*request.ProxyURL)
 		if proxyURL == "" {

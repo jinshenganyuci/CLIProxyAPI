@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -19,7 +20,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // Combine the native EOF checks and the new Vertex OpenAPI delegation with the
@@ -42,7 +42,7 @@ func TestV835StreamTerminationKeepsProxyUsageAndLease(t *testing.T) {
 						t.Errorf("live lease = %d/%d, want 1/10", active, limit)
 					}
 					body, errRead := io.ReadAll(r.Body)
-					if errRead != nil || gjson.GetBytes(body, "operator_marker").String() != "final835" {
+					if errRead != nil || ojson.GetBytes(body, "operator_marker").String() != "final835" {
 						t.Errorf("final payload rule missing: body=%s err=%v", body, errRead)
 					}
 					if provider == "vertex-openapi" && (!strings.HasSuffix(r.URL.Path, "/v1/endpoints/openapi/chat/completions") || r.Header.Get("Authorization") != "Bearer local-key") {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
@@ -18,7 +19,6 @@ import (
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 type conversionV820Hook struct {
@@ -68,7 +68,7 @@ func TestV820PluginConversionRefusalPreservesCredentialAccounting(t *testing.T) 
 					host := newHostWithRecords(record)
 					checkCall := func(ctx context.Context, request pluginapi.ExecutorRequest) {
 						calls.Add(1)
-						if !mixed || request.AuthID != selectedID || request.SourceFormat != "claude" || !gjson.GetBytes(request.Payload, "messages.0.content").Exists() {
+						if !mixed || request.AuthID != selectedID || request.SourceFormat != "claude" || !ojson.GetBytes(request.Payload, "messages.0.content").Exists() {
 							t.Errorf("unexpected plugin call: auth=%s source=%s payload=%s", request.AuthID, request.SourceFormat, request.Payload)
 						}
 						if n, limit := manager.CredentialConcurrencySnapshot(selectedID); n != 2 || limit != limits[selected] {

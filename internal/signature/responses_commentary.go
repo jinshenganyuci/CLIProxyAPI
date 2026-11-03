@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 // RestoreResponsesCodexCommentaryMarkers consumes the internal carrier emitted
@@ -17,9 +16,22 @@ func RestoreResponsesCodexCommentaryMarkers(payload []byte) ([]byte, int) {
 	if !bytes.Contains(payload, []byte(CodexCommentarySignatureMarker)) && !bytes.Contains(payload, []byte(`\u`)) {
 		return payload, 0
 	}
-	input := gjson.GetBytes(payload, "input")
-	if !input.IsArray() {
+	doc := ojson.NewDoc(payload)
+	restored := RestoreResponsesCodexCommentaryMarkersDoc(doc)
+	if restored == 0 {
 		return payload, 0
+	}
+	return doc.Bytes(), restored
+}
+
+// RestoreResponsesCodexCommentaryMarkersDoc restores commentary in place.
+func RestoreResponsesCodexCommentaryMarkersDoc(doc *ojson.Doc) int {
+	if doc == nil {
+		return 0
+	}
+	input := doc.Get("input")
+	if !input.IsArray() || (!strings.Contains(input.Raw, CodexCommentarySignatureMarker) && !strings.Contains(input.Raw, `\u`)) {
+		return 0
 	}
 	items := input.Array()
 	kept := make([]string, 0, len(items))
@@ -39,29 +51,28 @@ func RestoreResponsesCodexCommentaryMarkers(payload []byte) ([]byte, int) {
 		if text == "" {
 			continue
 		}
-		message := `{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":""}]}`
-		message, _ = sjson.Set(message, "content.0.text", text)
-		kept = append(kept, message)
+		message := ojson.NewDocString(`{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":""}]}`)
+		_ = message.Set("content.0.text", text)
+		kept = append(kept, message.String())
 	}
 	if restored == 0 {
-		return payload, 0
+		return 0
 	}
-	out, errSet := sjson.SetRawBytes(payload, "input", []byte("["+strings.Join(kept, ",")+"]"))
-	if errSet != nil {
-		return payload, 0
+	if errSet := doc.SetRaw("input", "["+strings.Join(kept, ",")+"]"); errSet != nil {
+		return 0
 	}
-	return out, restored
+	return restored
 }
 
-func responsesCommentaryText(parts gjson.Result) string {
+func responsesCommentaryText(parts ojson.Result) string {
 	if !parts.IsArray() {
 		return ""
 	}
 	var text strings.Builder
-	parts.ForEach(func(_, part gjson.Result) bool {
-		if value := part.Get("text"); value.Type == gjson.String {
+	parts.ForEach(func(_, part ojson.Result) bool {
+		if value := part.Get("text"); value.Type == ojson.String {
 			text.WriteString(value.String())
-		} else if part.Type == gjson.String {
+		} else if part.Type == ojson.String {
 			text.WriteString(part.String())
 		}
 		return true

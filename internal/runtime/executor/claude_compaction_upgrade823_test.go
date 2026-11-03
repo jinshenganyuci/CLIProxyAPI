@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestClaudeCompactionManagerProxyUsageAndCapacityUpgrade823(t *testing.T) {
@@ -30,10 +30,10 @@ func TestClaudeCompactionManagerProxyUsageAndCapacityUpgrade823(t *testing.T) {
 				if r.URL.Path != "/v1/messages" || r.Header.Get("Authorization") != "Bearer synthetic-compaction" {
 					t.Error("summary lost selected credential or native path")
 				}
-				if !strings.Contains(string(body), claudeCompactionSummaryPrompt) || gjson.GetBytes(body, "stream").Bool() {
+				if !strings.Contains(string(body), claudeCompactionSummaryPrompt) || ojson.GetBytes(body, "stream").Bool() {
 					t.Error("compaction did not request a nonstream summary")
 				}
-				if gjson.GetBytes(body, "max_tokens").Int() != 23 || gjson.GetBytes(body, "tool_choice.type").String() != "any" {
+				if ojson.GetBytes(body, "max_tokens").Int() != 23 || ojson.GetBytes(body, "tool_choice.type").String() != "any" {
 					t.Errorf("summary preparation overrode final payload rules: %s", body)
 				}
 				close(entered)
@@ -131,10 +131,10 @@ func TestClaudeCompactionManagerProxyUsageAndCapacityUpgrade823(t *testing.T) {
 				if mode == "stream-trigger" {
 					body = []byte(claudeCompactionCompletedResponse(t, string(body)).Get("response").Raw)
 				}
-				if !strings.HasPrefix(gjson.GetBytes(body, "output.0.encrypted_content").String(), "cpa-ag-compact-v1:") || gjson.GetBytes(body, "output.#").Int() != 1 {
+				if !strings.HasPrefix(ojson.GetBytes(body, "output.0.encrypted_content").String(), "cpa-ag-compact-v1:") || ojson.GetBytes(body, "output.#").Int() != 1 {
 					t.Fatalf("missing single native compaction item: %s", body)
 				}
-				if gjson.GetBytes(body, "usage.total_tokens").Int() != 121 || gjson.GetBytes(body, "usage.input_tokens_details.cached_tokens").Int() != 100 {
+				if ojson.GetBytes(body, "usage.total_tokens").Int() != 121 || ojson.GetBytes(body, "usage.input_tokens_details.cached_tokens").Int() != 100 {
 					t.Fatalf("compaction usage lost: %s", body)
 				}
 			}

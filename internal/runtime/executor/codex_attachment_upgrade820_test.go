@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV820CodexUnsupportedTurnStopsEveryTransportBeforeProxy(t *testing.T) {
@@ -93,7 +93,7 @@ func TestV820CodexWorkingTurnControlsTranslationErrors(t *testing.T) {
 	for _, compat := range []bool{false, true} {
 		t.Run(fmt.Sprintf("compat=%t", compat), func(t *testing.T) {
 			_, body, _, errTranslate := translateCodexRequestPairWithUpdateIntent(sdktranslator.FormatClaude, sdktranslator.FormatCodex, "gpt-5-codex", invalid, valid, true, compat)
-			if errTranslate != nil || !gjson.ValidBytes(body) || !strings.Contains(string(body), "keep this working turn") || strings.Contains(string(body), "synthetic-file-not-stored") {
+			if errTranslate != nil || !ojson.ValidBytes(body) || !strings.Contains(string(body), "keep this working turn") || strings.Contains(string(body), "synthetic-file-not-stored") {
 				t.Fatalf("valid working payload rejected or altered by the baseline: body=%s err=%v", body, errTranslate)
 			}
 			_, _, _, errTranslate = translateCodexRequestPairWithUpdateIntent(sdktranslator.FormatClaude, sdktranslator.FormatCodex, "gpt-5-codex", valid, invalid, true, compat)

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexCompatPreservesProviderItemIDsOnWire(t *testing.T) {
@@ -98,20 +98,20 @@ func TestCodexCompatPreservesProviderItemIDsOnWire(t *testing.T) {
 				}
 				body := <-captured
 				if compat {
-					if got := gjson.GetBytes(body, "input.0.id").String(); got != reasoningID {
+					if got := ojson.GetBytes(body, "input.0.id").String(); got != reasoningID {
 						t.Errorf("compat reasoning ID changed: got=%q want=%q", got, reasoningID)
 					}
-					if got := gjson.GetBytes(body, "input.1.id").String(); got != "provider_message" {
+					if got := ojson.GetBytes(body, "input.1.id").String(); got != "provider_message" {
 						t.Errorf("compat message ID changed: %q", got)
 					}
-					if got := gjson.GetBytes(body, "input.0.content.0.text").String(); got != "provider reasoning" {
+					if got := ojson.GetBytes(body, "input.0.content.0.text").String(); got != "provider reasoning" {
 						t.Errorf("compat reasoning content changed: %q", got)
 					}
 				} else {
-					if gjson.GetBytes(body, "input.0.id").Exists() || len(gjson.GetBytes(body, "input.0.content").Array()) != 0 {
+					if ojson.GetBytes(body, "input.0.id").Exists() || len(ojson.GetBytes(body, "input.0.content").Array()) != 0 {
 						t.Errorf("native reasoning sanitation changed: %s", body)
 					}
-					if got := gjson.GetBytes(body, "input.1.id").String(); got != "msg_provider_message" {
+					if got := ojson.GetBytes(body, "input.1.id").String(); got != "msg_provider_message" {
 						t.Errorf("native message ID sanitation changed: %q", got)
 					}
 				}

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -18,7 +19,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/openai"
 	auth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
-	"github.com/tidwall/gjson"
 )
 
 // The real Chat handler frames each translated JSON chunk once. Legal multiline
@@ -117,7 +117,7 @@ func TestV848OpenAICompatMultilineSSESurvivesChatWriter(t *testing.T) {
 							t.Errorf("event %d changed: %s", i, received[i])
 						}
 					}
-					if gjson.GetBytes(received[0], "exact_integer").Raw != "9007199254740993" || gjson.GetBytes(received[0], "choices.0.delta.content").String() != "literal\nline <tag>" {
+					if ojson.GetBytes(received[0], "exact_integer").Raw != "9007199254740993" || ojson.GetBytes(received[0], "choices.0.delta.content").String() != "literal\nline <tag>" {
 						t.Error("JSON compaction changed scalar data")
 					}
 				}

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -19,7 +20,6 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV836ClaudeSearchCacheKeepsCallerCredentialRouteAndLease(t *testing.T) {
@@ -45,7 +45,7 @@ func TestV836ClaudeSearchCacheKeepsCallerCredentialRouteAndLease(t *testing.T) {
 					t.Errorf("active lease = %d/%d, want 1/10", active, limit)
 				}
 				body, errRead := io.ReadAll(r.Body)
-				if errRead != nil || gjson.GetBytes(body, "operator_marker").String() != "cache836" {
+				if errRead != nil || ojson.GetBytes(body, "operator_marker").String() != "cache836" {
 					t.Errorf("final payload missing: body=%s err=%v", body, errRead)
 				}
 				r.Body = io.NopCloser(bytes.NewReader(body))

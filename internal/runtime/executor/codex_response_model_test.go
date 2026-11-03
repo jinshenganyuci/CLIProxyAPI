@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 const codexResponseModelTestStream = `event: response.created
@@ -134,7 +134,7 @@ func TestCodexCompactUsageRecordsObservedResponseModel(t *testing.T) {
 					t.Errorf("read compact request: %v", errRead)
 					return
 				}
-				requestedUpstreamModel = gjson.GetBytes(body, "model").String()
+				requestedUpstreamModel = ojson.GetBytes(body, "model").String()
 				writer.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(writer, `{"id":"compact_1","object":"response.compaction"`+test.modelJSON+`,"output":[],"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}`)
 			}))

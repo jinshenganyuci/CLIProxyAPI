@@ -2,12 +2,12 @@ package executor
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
+	"github.com/MoeForge/moego/base64"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
-	"github.com/tidwall/gjson"
 )
 
 func TestV835CompatibleOpaqueReasoningRouterSuffix(t *testing.T) {
@@ -36,7 +36,7 @@ func TestV835CompatibleOpaqueReasoningRouterSuffix(t *testing.T) {
 				out := sanitizeOpenAIResponsesReasoningEncryptedContentWithCompatModelAndBaseURL(context.Background(), "test", body, true, model, route.base)
 				if model == "muse-wonder-1.0" {
 					for i := range 3 {
-						if gjson.GetBytes(out, fmt.Sprintf("input.%d.encrypted_content", i)).Exists() {
+						if ojson.GetBytes(out, fmt.Sprintf("input.%d.encrypted_content", i)).Exists() {
 							t.Fatalf("Meta target accepted an unrecognized envelope: %s", out)
 						}
 					}
@@ -45,14 +45,14 @@ func TestV835CompatibleOpaqueReasoningRouterSuffix(t *testing.T) {
 					if route.allow {
 						want = routed
 					}
-					if got := gjson.GetBytes(out, "input.0.encrypted_content").String(); got != want {
+					if got := ojson.GetBytes(out, "input.0.encrypted_content").String(); got != want {
 						t.Fatalf("routed reasoning = %q, want %q", got, want)
 					}
-					if gjson.GetBytes(out, "input.1.encrypted_content").String() != native || gjson.GetBytes(out, "input.2.encrypted_content").String() != opaque {
+					if ojson.GetBytes(out, "input.1.encrypted_content").String() != native || ojson.GetBytes(out, "input.2.encrypted_content").String() != opaque {
 						t.Fatalf("unsuffixed or unrecognized opaque reasoning changed: %s", out)
 					}
 				}
-				if gjson.GetBytes(out, "input.3.content.0.text").String() != routed || gjson.GetBytes(out, "input.4.output").String() != routed {
+				if ojson.GetBytes(out, "input.3.content.0.text").String() != routed || ojson.GetBytes(out, "input.4.output").String() != routed {
 					t.Fatalf("literal user/tool text changed: %s", out)
 				}
 			})
@@ -61,7 +61,7 @@ func TestV835CompatibleOpaqueReasoningRouterSuffix(t *testing.T) {
 	for _, value := range []string{native + ".invalid-tail", native + ".two.tails", "AAAA.PrivateRouter835"} {
 		input := []byte(fmt.Sprintf(`{"input":[{"type":"reasoning","encrypted_content":%q}]}`, value))
 		out := sanitizeOpenAIResponsesReasoningEncryptedContentWithCompatModelAndBaseURL(context.Background(), "test", input, true, "gpt-5.6", "https://api.openai.com/v1")
-		if got := gjson.GetBytes(out, "input.0.encrypted_content").String(); got != value {
+		if got := ojson.GetBytes(out, "input.0.encrypted_content").String(); got != value {
 			t.Fatalf("unrecognized opaque value changed: got %q want %q", got, value)
 		}
 	}

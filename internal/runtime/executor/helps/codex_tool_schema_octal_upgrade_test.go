@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestCodexOctalNULNormalizationPreservesPayloadAndLiteralPatterns(t *testing.T) {
@@ -45,7 +45,7 @@ func TestCodexOctalNULNormalizationPreservesPayloadAndLiteralPatterns(t *testing
 			if !json.Valid(out) || !bytes.Equal(input, original) {
 				t.Fatal("schema normalization produced invalid JSON or mutated caller input")
 			}
-			prop := gjson.GetBytes(out, "tools.0.tools.0.parameters.properties.file")
+			prop := ojson.GetBytes(out, "tools.0.tools.0.parameters.properties.file")
 			if prop.Get("pattern").Exists() == tc.removed {
 				t.Fatalf("unexpected pattern presence: %s", prop.Raw)
 			}
@@ -60,7 +60,7 @@ func TestCodexOctalNULNormalizationPreservesPayloadAndLiteralPatterns(t *testing
 			if prop.Get("type").String() != "string" || prop.Get("minLength").Int() != 1 || prop.Get("x-precise-number").Raw != "9007199254740993" {
 				t.Errorf("unrelated schema constraints changed: %s", prop.Raw)
 			}
-			if gjson.GetBytes(out, "input").Raw != gjson.GetBytes(input, "input").Raw || gjson.GetBytes(out, "prompt_cache_key").String() != "client-session" {
+			if ojson.GetBytes(out, "input").Raw != ojson.GetBytes(input, "input").Raw || ojson.GetBytes(out, "prompt_cache_key").String() != "client-session" {
 				t.Error("tool normalization changed the conversation or identity payload")
 			}
 			if !bytes.Equal(NormalizeCodexToolSchemas(out), out) {

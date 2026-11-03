@@ -2,17 +2,18 @@ package responses
 
 import (
 	"bytes"
-	"github.com/tidwall/gjson"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"unsafe"
+
+	"github.com/MoeForge/moego/ojson"
 )
 
 // Check backing addresses instead of GC timing or heap thresholds: a short
 // substring can retain the whole request even when its visible text is small.
-func assertNoRequestBacking842(t *testing.T, root gjson.Result, snapshot any) {
+func assertNoRequestBacking842(t *testing.T, root ojson.Result, snapshot any) {
 	t.Helper()
 	start := uintptr(unsafe.Pointer(unsafe.StringData(root.Raw)))
 	end := start + uintptr(len(root.Raw))
@@ -61,12 +62,12 @@ func TestUpgrade842ClaudeResponseSnapshotsRemainStreamLocal(t *testing.T) {
 		ConvertClaudeResponseToOpenAIResponses(t.Context(), "", requests[i], nil, chunks[0], &states[i])
 		copy(requests[i], bytes.Repeat([]byte("!"), len(requests[i])))
 	}
-	var completed [2]gjson.Result
+	var completed [2]ojson.Result
 	for _, chunk := range chunks[1:] {
 		for i := range states {
 			for _, out := range ConvertClaudeResponseToOpenAIResponses(t.Context(), "", requests[1-i], nil, chunk, &states[i]) {
 				for _, line := range bytes.Split(out, []byte("\n")) {
-					event := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+					event := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 					if event.Get("type").String() == "response.completed" {
 						completed[i] = event.Get("response")
 					}
@@ -90,7 +91,7 @@ func TestUpgrade842ClaudeResponseSnapshotsRemainStreamLocal(t *testing.T) {
 }
 
 func TestUpgrade842ClaudeResponseSnapshotsDoNotPinInput(t *testing.T) {
-	root := gjson.Parse(`{"model":"client-model","instructions":"small instruction","previous_response_id":"previous","prompt_cache_key":"key","safety_identifier":"safety","service_tier":"priority","truncation":"auto","reasoning":{"effort":"high"},"text":{"format":{"type":"text"}},"tool_choice":"auto","user":"user","metadata":{"nested":[{"tag":"value"}]},"tools":[{"type":"namespace","name":"editor","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]},{"type":"custom","name":"patch","format":{"type":"text"}}],"input":[{"role":"user","content":"` + strings.Repeat("unrelated-history-", 8192) + `"},{"type":"function_call","call_id":"old","name":"historic","arguments":"{}"}]}`)
+	root := ojson.Parse(`{"model":"client-model","instructions":"small instruction","previous_response_id":"previous","prompt_cache_key":"key","safety_identifier":"safety","service_tier":"priority","truncation":"auto","reasoning":{"effort":"high"},"text":{"format":{"type":"text"}},"tool_choice":"auto","user":"user","metadata":{"nested":[{"tag":"value"}]},"tools":[{"type":"namespace","name":"editor","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]},{"type":"custom","name":"patch","format":{"type":"text"}}],"input":[{"role":"user","content":"` + strings.Repeat("unrelated-history-", 8192) + `"},{"type":"function_call","call_id":"old","name":"historic","arguments":"{}"}]}`)
 	state := newClaudeToResponsesStateFromRoot(root, false)
 	t.Run("echo", func(t *testing.T) { assertNoRequestBacking842(t, root, state.RequestEcho) })
 	t.Run("tool_winners", func(t *testing.T) { assertNoRequestBacking842(t, root, state.ToolWinners) })

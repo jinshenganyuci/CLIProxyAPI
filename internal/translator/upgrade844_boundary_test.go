@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	agclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
 	claudechat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/chat-completions"
@@ -14,7 +15,6 @@ import (
 	openaiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
 	chatresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade844ResponsesCommentaryRegisteredReplay(t *testing.T) {
@@ -28,7 +28,7 @@ func TestUpgrade844ResponsesCommentaryRegisteredReplay(t *testing.T) {
 					t.Errorf("%q must survive exactly once: %s", text, out)
 				}
 			}
-			if target == "codex" && (gjson.GetBytes(out, `input.#(phase=="commentary").content.0.text`).String() != "commentary-only" || gjson.GetBytes(out, `input.#(type=="reasoning").encrypted_content`).Exists()) {
+			if target == "codex" && (ojson.GetBytes(out, `input.#(phase=="commentary").content.0.text`).String() != "commentary-only" || ojson.GetBytes(out, `input.#(type=="reasoning").encrypted_content`).Exists()) {
 				t.Errorf("Codex commentary phase/control boundary lost: %s", out)
 			}
 			if bytes.Count(out, []byte(signature.CodexCommentarySignatureMarker)) != 3 {
@@ -68,10 +68,10 @@ func TestUpgrade844CommentaryMarkerControlAndLiteralIsolation(t *testing.T) {
 				t.Fatal("request buffer was mutated")
 			}
 			if name == "codex" || name == "codex_compat" {
-				if gjson.GetBytes(out, `input.#(phase=="commentary").content.0.text`).String() != "commentary-only" {
+				if ojson.GetBytes(out, `input.#(phase=="commentary").content.0.text`).String() != "commentary-only" {
 					t.Fatal("commentary phase was not restored")
 				}
-				if gjson.GetBytes(out, `input.#(type=="reasoning").encrypted_content`).String() == signature.CodexCommentarySignatureMarker {
+				if ojson.GetBytes(out, `input.#(type=="reasoning").encrypted_content`).String() == signature.CodexCommentarySignatureMarker {
 					t.Fatal("internal marker was treated as an upstream signature")
 				}
 			}
@@ -79,7 +79,7 @@ func TestUpgrade844CommentaryMarkerControlAndLiteralIsolation(t *testing.T) {
 	}
 	// The direct Claude sanitizer must not inspect nested tool argument objects.
 	restored, count := signature.RestoreCodexCommentaryMarkers(request)
-	if count != 1 || gjson.GetBytes(restored, "messages.1.content.0.type").String() != "text" || gjson.GetBytes(restored, "messages.1.content.2.input.signature").String() != signature.CodexCommentarySignatureMarker {
+	if count != 1 || ojson.GetBytes(restored, "messages.1.content.0.type").String() != "text" || ojson.GetBytes(restored, "messages.1.content.2.input.signature").String() != signature.CodexCommentarySignatureMarker {
 		t.Fatal("marker restoration changed a nested literal or failed to consume the control marker")
 	}
 }
@@ -91,17 +91,17 @@ func TestUpgrade844ClaudeThinkingUsageAcrossChatResponses(t *testing.T) {
 			raw := []byte(`{"id":"usage844","type":"message","role":"assistant","model":"claude","content":[{"type":"text","text":"answer"}],"stop_reason":"end_turn","usage":` + usage + `}`)
 			chat := claudechat.ConvertClaudeResponseToOpenAINonStream(t.Context(), "claude", nil, nil, raw, nil)
 			plain := chatresponses.ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(t.Context(), "claude", nil, nil, chat, nil)
-			wantReasoning := gjson.Get(usage, "output_tokens_details.thinking_tokens").Int()
-			if got := gjson.GetBytes(chat, "usage.completion_tokens_details.reasoning_tokens"); got.Exists() != (details != "") || got.Int() != wantReasoning {
+			wantReasoning := ojson.Get(usage, "output_tokens_details.thinking_tokens").Int()
+			if got := ojson.GetBytes(chat, "usage.completion_tokens_details.reasoning_tokens"); got.Exists() != (details != "") || got.Int() != wantReasoning {
 				t.Fatal("explicit zero or absent thinking usage was not preserved in Chat")
 			}
 			var chatState, responsesState any
-			var completed gjson.Result
+			var completed ojson.Result
 			chunks := []string{`data: {"type":"message_start","message":{"id":"usage844","model":"claude","usage":{"input_tokens":10,"cache_read_input_tokens":4,"cache_creation_input_tokens":3,"output_tokens":0}}}`, `data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`, `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answer"}}`, `data: {"type":"content_block_stop","index":0}`, `data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":` + usage + `}`, `data: {"type":"message_stop"}`}
 			accept := func(chatChunk []byte) {
 				for _, out := range chatresponses.ConvertOpenAIChatCompletionsResponseToOpenAIResponses(t.Context(), "claude", nil, nil, chatChunk, &responsesState) {
 					for _, line := range bytes.Split(out, []byte("\n")) {
-						e := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+						e := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 						if e.Get("type").String() == "response.completed" {
 							completed = e.Get("response")
 						}
@@ -114,7 +114,7 @@ func TestUpgrade844ClaudeThinkingUsageAcrossChatResponses(t *testing.T) {
 				}
 			}
 			accept([]byte("data: [DONE]"))
-			for _, out := range []gjson.Result{gjson.ParseBytes(plain), completed} {
+			for _, out := range []ojson.Result{ojson.ParseBytes(plain), completed} {
 				for field, want := range map[string]int64{"input_tokens": 17, "output_tokens": 12, "total_tokens": 29, "input_tokens_details.cached_tokens": 4, "output_tokens_details.reasoning_tokens": wantReasoning} {
 					if out.Get("usage."+field).Int() != want {
 						t.Fatalf("%s = %d, want %d: %s", field, out.Get("usage."+field).Int(), want, out.Raw)

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestStringInputUpgrade7315PreservesTextAndAuthority(t *testing.T) {
@@ -29,7 +29,7 @@ func TestStringInputUpgrade7315PreservesTextAndAuthority(t *testing.T) {
 					if errConvert != nil {
 						t.Fatalf("request translation failed: %v", errConvert)
 					}
-					root := gjson.ParseBytes(out)
+					root := ojson.ParseBytes(out)
 					if root.Get("messages.#").Int() != 1 || root.Get("messages.0.role").String() != "user" {
 						t.Fatalf("string input lost text or authority: %s", out)
 					}
@@ -37,10 +37,10 @@ func TestStringInputUpgrade7315PreservesTextAndAuthority(t *testing.T) {
 					if strings.TrimSpace(input) == "" {
 						// Empty input is filtered before the native system-only
 						// fallback adds one empty user text block.
-						if !content.IsArray() || len(content.Array()) != 1 || content.Get("0.type").String() != "text" || content.Get("0.text").Type != gjson.String || content.Get("0.text").String() != "" {
+						if !content.IsArray() || len(content.Array()) != 1 || content.Get("0.type").String() != "text" || content.Get("0.text").Type != ojson.String || content.Get("0.text").String() != "" {
 							t.Fatalf("blank input lost the native user fallback: %s", out)
 						}
-					} else if content.Type != gjson.String || content.String() != input {
+					} else if content.Type != ojson.String || content.String() != input {
 						t.Fatalf("nonempty string input text changed: %s", out)
 					}
 					if root.Get("system.#").Int() != 1 || root.Get("system.0.text").String() != instruction || root.Get("stream").Bool() != stream || root.Get("max_tokens").Int() != 17 {

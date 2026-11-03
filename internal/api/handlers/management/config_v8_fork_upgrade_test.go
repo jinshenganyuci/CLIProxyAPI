@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
-	"github.com/tidwall/gjson"
 )
 
 func TestConfigV8ForkMigrationManagementContract(t *testing.T) {
@@ -88,7 +88,7 @@ plugins:
 		t.Fatalf("invalid migrated configuration: %v", errRead)
 	}
 	flat := request(http.MethodGet, "/v0/management/config", "", http.StatusOK).Body.Bytes()
-	if gjson.GetBytes(flat, "proxy-url").String() != "socks5h://127.0.0.1:1080" || gjson.GetBytes(flat, "codex-api-key.0.concurrency-limit").Int() != 3 || !gjson.GetBytes(flat, "codex.credential-identity.enabled").Bool() {
+	if ojson.GetBytes(flat, "proxy-url").String() != "socks5h://127.0.0.1:1080" || ojson.GetBytes(flat, "codex-api-key.0.concurrency-limit").Int() != 3 || !ojson.GetBytes(flat, "codex.credential-identity.enabled").Bool() {
 		t.Fatal("legacy JSON management contract no longer exposes effective flat values")
 	}
 	served := request(http.MethodGet, "/v0/management/config.yaml", "", http.StatusOK).Body.Bytes()
@@ -120,7 +120,7 @@ plugins:
 		t.Fatal(errDecode)
 	}
 	plugin, errMarshal := json.Marshal(rawPlugin)
-	if errMarshal != nil || !gjson.GetBytes(plugin, "options.image-billing.price").Exists() || gjson.GetBytes(plugin, "options.image-billing.enabled").Bool() {
+	if errMarshal != nil || !ojson.GetBytes(plugin, "options.image-billing.price").Exists() || ojson.GetBytes(plugin, "options.image-billing.enabled").Bool() {
 		t.Fatalf("plugin-owned billing policy changed: %v", errMarshal)
 	}
 }

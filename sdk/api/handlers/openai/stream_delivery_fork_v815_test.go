@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
@@ -23,7 +24,6 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 type v815DeliveryHost struct {
@@ -85,13 +85,13 @@ func TestV815DeliveryMergePreservesSelectedNativeCodexOutput(t *testing.T) {
 			seen := false
 			for _, line := range strings.Split(writer.Body.String(), "\n") {
 				payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-				if gjson.Get(payload, "type").String() == "response.completed" {
+				if ojson.Get(payload, "type").String() == "response.completed" {
 					seen = true
 					want := int64(1)
 					if provider == "codex" {
 						want = 0
 					}
-					if got := gjson.Get(payload, "response.output.#").Int(); got != want {
+					if got := ojson.Get(payload, "response.output.#").Int(); got != want {
 						t.Fatalf("selected native output was repaired incorrectly: %s", payload)
 					}
 				}

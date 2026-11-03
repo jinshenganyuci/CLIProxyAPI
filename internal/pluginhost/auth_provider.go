@@ -1024,6 +1024,7 @@ func (h *Host) RefreshAuth(ctx context.Context, auth *coreauth.Auth) (refreshed 
 	}
 	preserveAuthOAuthProviderMetadata(&data, auth)
 	preserveFileAuthPriority(&data, auth)
+	preserveAuthDisabledState(&data, auth)
 	if len(data.StorageJSON) == 0 {
 		data.StorageJSON = storageJSONFromAuth(auth)
 	}
@@ -1061,6 +1062,15 @@ func preserveAuthOAuthProviderMetadata(data *pluginapi.AuthData, auth *coreauth.
 		if _, exists := data.Metadata[key]; !exists {
 			data.Metadata[key] = raw
 		}
+	}
+}
+
+func preserveAuthDisabledState(data *pluginapi.AuthData, auth *coreauth.Auth) {
+	if data == nil || auth == nil {
+		return
+	}
+	if auth.Disabled || auth.Status == coreauth.StatusDisabled {
+		data.Disabled = true
 	}
 }
 

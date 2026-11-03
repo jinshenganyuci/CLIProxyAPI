@@ -7,12 +7,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	antigravityclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
 	clauderesponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/translator"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade830SchemaCleanupKeepsConversationData(t *testing.T) {
@@ -20,7 +20,7 @@ func TestUpgrade830SchemaCleanupKeepsConversationData(t *testing.T) {
 	for _, route := range []string{"gemini", "antigravity"} {
 		t.Run(route, func(t *testing.T) {
 			converted := translator.Request("claude", route, "gemini-test", request, false)
-			root := gjson.ParseBytes(converted)
+			root := ojson.ParseBytes(converted)
 			if route == "antigravity" {
 				root = root.Get("request")
 			}
@@ -32,7 +32,7 @@ func TestUpgrade830SchemaCleanupKeepsConversationData(t *testing.T) {
 			if !schema.Exists() || schema.Get("properties.value.discriminator").Exists() || schema.Get("properties.discriminator.type").String() != "string" || len(schema.Get("properties.value.anyOf").Array()) < 2 {
 				t.Fatalf("schema metadata or preserved union contract changed: %s", converted)
 			}
-			var args gjson.Result
+			var args ojson.Result
 			for _, content := range root.Get("contents").Array() {
 				for _, part := range content.Get("parts").Array() {
 					if part.Get("functionCall.name").String() == "render" {
@@ -44,7 +44,7 @@ func TestUpgrade830SchemaCleanupKeepsConversationData(t *testing.T) {
 				t.Fatalf("schema cleanup changed conversation data: %s", converted)
 			}
 			if route == "antigravity" {
-				flattened := gjson.Parse(util.CleanJSONSchemaForAntigravityClaudeTool(schema.Raw, false))
+				flattened := ojson.Parse(util.CleanJSONSchemaForAntigravityClaudeTool(schema.Raw, false))
 				if flattened.Get("properties.value.anyOf").Exists() || !flattened.Get("properties.value.nullable").Bool() || flattened.Get("properties.discriminator.type").String() != "string" {
 					t.Fatalf("Claude second pass lost nullability or retained a union: %s", flattened.Raw)
 				}
@@ -63,13 +63,13 @@ func TestUpgrade830ConcurrentGeminiToolIDsReplayToClaude(t *testing.T) {
 		wg.Go(func() {
 			if i%2 == 0 {
 				converted := geminiclaude.ConvertGeminiResponseToClaudeNonStream(t.Context(), "gemini-test", request, request, raw, nil)
-				ids <- gjson.GetBytes(converted, "content.0.id").String()
+				ids <- ojson.GetBytes(converted, "content.0.id").String()
 				return
 			}
 			var state any
 			out := bytes.Join(geminiclaude.ConvertGeminiResponseToClaude(t.Context(), "gemini-test", request, request, raw, &state), nil)
 			for _, line := range bytes.Split(out, []byte("\n")) {
-				payload := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+				payload := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 				if payload.Get("content_block.type").String() == "tool_use" {
 					ids <- payload.Get("content_block.id").String()
 					return
@@ -98,7 +98,7 @@ func TestUpgrade830ConcurrentGeminiToolIDsReplayToClaude(t *testing.T) {
 		t.Fatal(errConvert)
 	}
 	uses, results := 0, 0
-	for _, message := range gjson.GetBytes(converted, "messages").Array() {
+	for _, message := range ojson.GetBytes(converted, "messages").Array() {
 		for _, block := range message.Get("content").Array() {
 			switch block.Get("type").String() {
 			case "tool_use":
@@ -117,7 +117,7 @@ func TestUpgrade830CachedUsageAcrossAntigravityClaudeResponses(t *testing.T) {
 	request := []byte(`{"model":"claude-test"}`)
 	raw := []byte(`{"response":{"responseId":"cached-test","candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":90,"candidatesTokenCount":0,"thoughtsTokenCount":2,"totalTokenCount":107}}}`)
 	var agState, responseState any
-	var terminal gjson.Result
+	var terminal ojson.Result
 	for _, chunk := range [][]byte{raw, []byte("[DONE]")} {
 		for _, output := range antigravityclaude.ConvertAntigravityResponseToClaude(t.Context(), "claude-test", request, request, chunk, &agState) {
 			for _, line := range bytes.Split(output, []byte("\n")) {
@@ -126,7 +126,7 @@ func TestUpgrade830CachedUsageAcrossAntigravityClaudeResponses(t *testing.T) {
 				}
 				for _, event := range clauderesponses.ConvertClaudeResponseToOpenAIResponses(t.Context(), "claude-test", request, request, line, &responseState) {
 					for _, eventLine := range bytes.Split(event, []byte("\n")) {
-						payload := gjson.ParseBytes(bytes.TrimPrefix(eventLine, []byte("data: ")))
+						payload := ojson.ParseBytes(bytes.TrimPrefix(eventLine, []byte("data: ")))
 						if payload.Get("type").String() == "response.completed" {
 							terminal = payload.Get("response")
 						}
@@ -157,7 +157,7 @@ func TestUpgrade830IncompleteToolOutputDedupUsesLatestStatus(t *testing.T) {
 				t.Fatal(errConvert)
 			}
 			count := 0
-			for _, message := range gjson.GetBytes(converted, "messages").Array() {
+			for _, message := range ojson.GetBytes(converted, "messages").Array() {
 				for _, block := range message.Get("content").Array() {
 					if block.Get("type").String() == "tool_result" {
 						count++

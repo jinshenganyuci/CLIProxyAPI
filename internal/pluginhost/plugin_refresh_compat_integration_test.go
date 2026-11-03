@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
@@ -22,8 +23,6 @@ import (
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestPluginRefreshCompatApplyPatchManagerProxyAndAdmission(t *testing.T) {
@@ -39,8 +38,9 @@ func TestPluginRefreshCompatApplyPatchManagerProxyAndAdmission(t *testing.T) {
 					plugin: pluginapi.Plugin{Capabilities: pluginapi.Capabilities{
 						RequestNormalizer: requestNormalizerFunc(func(_ context.Context, req pluginapi.RequestTransformRequest) (pluginapi.PayloadResponse, error) {
 							requestHooks.Add(1)
-							body, errSet := sjson.SetBytes(req.Body, "metadata.plugin_marker", "preserved")
-							return pluginapi.PayloadResponse{Body: body}, errSet
+							doc := ojson.NewDoc(req.Body)
+							errSet := doc.Set("metadata.plugin_marker", "preserved")
+							return pluginapi.PayloadResponse{Body: doc.Bytes()}, errSet
 						}),
 						ResponseBeforeTranslator: responseNormalizerFunc(func(_ context.Context, req pluginapi.ResponseTransformRequest) (pluginapi.PayloadResponse, error) {
 							beforeHooks.Add(1)
@@ -176,7 +176,7 @@ func TestPluginRefreshCompatApplyPatchManagerProxyAndAdmission(t *testing.T) {
 				case <-time.After(10 * time.Second):
 					t.Fatal("timed out waiting for the local proxy")
 				}
-				if gjson.GetBytes(upstream, "metadata.plugin_marker").String() != "preserved" || gjson.GetBytes(upstream, "tools.0.function.name").String() != "apply_patch" {
+				if ojson.GetBytes(upstream, "metadata.plugin_marker").String() != "preserved" || ojson.GetBytes(upstream, "tools.0.function.name").String() != "apply_patch" {
 					t.Fatalf("plugin hook or apply_patch translation lost: %s", upstream)
 				}
 				if inflight, limit := manager.CredentialConcurrencySnapshot(authID); inflight != 10 || limit != 10 {

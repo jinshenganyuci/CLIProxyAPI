@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestBuildErrorResponseBodyPreservesLocalCredentialConcurrencyCode(t *testing.T) {
@@ -31,14 +31,14 @@ func TestBuildErrorResponseBodyPreservesLocalCredentialConcurrencyCode(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := BuildErrorResponseBodyWithError(http.StatusTooManyRequests, test.errText, test.err)
-			if got := gjson.GetBytes(body, "error.code").String(); got != test.code {
+			if got := ojson.GetBytes(body, "error.code").String(); got != test.code {
 				t.Fatalf("error code = %q, want %q: %s", got, test.code, body)
 			}
 			if coreauth.IsCredentialConcurrencyError(test.err) {
-				if got := gjson.GetBytes(body, "error.type").String(); got != "rate_limit_error" {
+				if got := ojson.GetBytes(body, "error.type").String(); got != "rate_limit_error" {
 					t.Fatalf("local admission error type = %q", got)
 				}
-				if got := gjson.GetBytes(body, "error.message").String(); got != test.errText {
+				if got := ojson.GetBytes(body, "error.message").String(); got != test.errText {
 					t.Fatalf("local admission message = %q, want %q", got, test.errText)
 				}
 			}

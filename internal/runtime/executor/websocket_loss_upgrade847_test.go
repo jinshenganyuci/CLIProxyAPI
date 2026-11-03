@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // A transport loss must settle both running and reserved response capacity;
@@ -138,7 +138,7 @@ func TestV847DuplexLossPreservesProxyIdentityAndReleasesReservations(t *testing.
 				t.Helper()
 				select {
 				case chunk := <-result.Chunks:
-					if chunk.Err != nil || gjson.GetBytes(chunk.Payload, "type").String() != kind {
+					if chunk.Err != nil || ojson.GetBytes(chunk.Payload, "type").String() != kind {
 						t.Fatalf("event=%s err=%v, want %s", chunk.Payload, chunk.Err, kind)
 					}
 				case <-time.After(5 * time.Second):
@@ -147,7 +147,7 @@ func TestV847DuplexLossPreservesProxyIdentityAndReleasesReservations(t *testing.
 			}
 			readEvent("response.created")
 			initial := <-frames
-			if gjson.GetBytes(initial, "audit").Raw != `["once847"]` || gjson.GetBytes(initial, "service_tier").String() != "priority" || gjson.GetBytes(initial, "prompt_cache_key").String() == "configured847" {
+			if ojson.GetBytes(initial, "audit").Raw != `["once847"]` || ojson.GetBytes(initial, "service_tier").String() != "priority" || ojson.GetBytes(initial, "prompt_cache_key").String() == "configured847" {
 				t.Fatalf("final payload/identity boundary failed: %s", initial)
 			}
 			if phase == "pending_create" {

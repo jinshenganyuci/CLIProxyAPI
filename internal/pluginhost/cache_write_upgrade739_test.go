@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	_ "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestPluginCacheWriteUpgrade739ResponseAndAccounting(t *testing.T) {
@@ -38,10 +38,10 @@ func TestPluginCacheWriteUpgrade739ResponseAndAccounting(t *testing.T) {
 			if errExecute != nil {
 				t.Fatal(errExecute)
 			}
-			if got := gjson.GetBytes(response.Payload, "usage.input_tokens").Int(); got != 50 {
+			if got := ojson.GetBytes(response.Payload, "usage.input_tokens").Int(); got != 50 {
 				t.Errorf("Claude uncached input=%d, want 50: %s", got, response.Payload)
 			}
-			if gjson.GetBytes(response.Payload, "usage.cache_read_input_tokens").Int() != 800 || gjson.GetBytes(response.Payload, "usage.cache_creation_input_tokens").Int() != 150 {
+			if ojson.GetBytes(response.Payload, "usage.cache_read_input_tokens").Int() != 800 || ojson.GetBytes(response.Payload, "usage.cache_creation_input_tokens").Int() != 150 {
 				t.Errorf("Claude cache categories changed: %s", response.Payload)
 			}
 			coreusage.PublishRecord(context.Background(), coreusage.Record{AuthID: authID, Model: "barrier"})

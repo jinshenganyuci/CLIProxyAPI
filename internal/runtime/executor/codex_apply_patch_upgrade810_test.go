@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // Native apply_patch declarations and tool identities must survive the fork's
@@ -59,16 +59,16 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 				}
 				wantHeaderSession := internalcodex.DeriveCredentialIdentity(namespaceID, "session", headerSession)
 				inspect := func(body []byte, headers http.Header) []byte {
-					if finalOverrides && (gjson.GetBytes(body, "model").String() != "configured-model" || gjson.GetBytes(body, "instructions").String() != "configured-instructions" || gjson.GetBytes(body, "input.2.content").String() != "configured-message" || gjson.GetBytes(body, "reasoning.effort").String() != "high") {
+					if finalOverrides && (ojson.GetBytes(body, "model").String() != "configured-model" || ojson.GetBytes(body, "instructions").String() != "configured-instructions" || ojson.GetBytes(body, "input.2.content").String() != "configured-message" || ojson.GetBytes(body, "reasoning.effort").String() != "high") {
 						t.Errorf("final business overrides were lost: %s", body)
 					}
-					if got := gjson.GetBytes(body, "tools.0").Raw; got != declaration {
+					if got := ojson.GetBytes(body, "tools.0").Raw; got != declaration {
 						t.Errorf("native grammar changed: %s", got)
 					}
-					if gjson.GetBytes(body, "input.0.call_id").String() != "history-call" || gjson.GetBytes(body, "input.0.input").String() != "original patch" || gjson.GetBytes(body, "input.1.call_id").String() != "history-call" {
+					if ojson.GetBytes(body, "input.0.call_id").String() != "history-call" || ojson.GetBytes(body, "input.0.input").String() != "original patch" || ojson.GetBytes(body, "input.1.call_id").String() != "history-call" {
 						t.Errorf("native tool history changed: %s", body)
 					}
-					if gjson.GetBytes(body, "prompt_cache_key").String() != wantSession || codexSessionHeaderValue(headers) != wantHeaderSession || gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String() != wantInstall {
+					if ojson.GetBytes(body, "prompt_cache_key").String() != wantSession || codexSessionHeaderValue(headers) != wantHeaderSession || ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String() != wantInstall {
 						t.Errorf("native tool request bypassed credential namespace: body=%s session=%q", body, codexSessionHeaderValue(headers))
 					}
 					return []byte(fmt.Sprintf(`{"id":"response-patch","object":"response","status":"completed","output":[{"type":"custom_tool_call","id":"patch-item","call_id":"patch-call","name":"apply_patch","input":%q}],"metadata":{"prompt_cache_key":%q,"x-codex-installation-id":%q},"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}`, patch, wantSession, wantInstall))
@@ -187,8 +187,8 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 								t.Fatal(chunk.Err)
 							}
 							for _, event := range applyPatchTestPayloads(chunk.Payload) {
-								if gjson.GetBytes(event, "type").String() == "response.completed" {
-									response.Payload = []byte(gjson.GetBytes(event, "response").Raw)
+								if ojson.GetBytes(event, "type").String() == "response.completed" {
+									response.Payload = []byte(ojson.GetBytes(event, "response").Raw)
 								}
 							}
 						}
@@ -218,10 +218,10 @@ func runCodexApplyPatchNamespaceAndProxy(t *testing.T, finalOverrides bool) {
 				} else if response.Headers.Get("Session-Id") != headerSession {
 					t.Fatalf("response Session-Id was not restored: %v", response.Headers)
 				}
-				if gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String() != clientSession || gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String() != clientInstall {
+				if ojson.GetBytes(response.Payload, "metadata.prompt_cache_key").String() != clientSession || ojson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String() != clientInstall {
 					t.Fatalf("response identity was not restored: headers=%v payload=%s", response.Headers, response.Payload)
 				}
-				item := gjson.GetBytes(response.Payload, "output.0")
+				item := ojson.GetBytes(response.Payload, "output.0")
 				if item.Get("type").String() != "custom_tool_call" || item.Get("id").String() != "patch-item" || item.Get("call_id").String() != "patch-call" || item.Get("input").String() != patch {
 					t.Fatalf("native patch identity or input changed: %s", response.Payload)
 				}
@@ -261,7 +261,7 @@ func TestV810CodexApplyPatchTranslationFailureKeepsFailureAccounting(t *testing.
 						t.Error(errRead)
 						return
 					}
-					session := gjson.GetBytes(body, "prompt_cache_key").String()
+					session := ojson.GetBytes(body, "prompt_cache_key").String()
 					if session == "client-session" || session == "" {
 						t.Errorf("unmapped upstream session: %s", body)
 					}
@@ -291,7 +291,7 @@ func TestV810CodexApplyPatchTranslationFailureKeepsFailureAccounting(t *testing.
 					if compact {
 						path = "metadata.prompt_cache_key"
 					}
-					if got := gjson.GetBytes(body, path).String(); got != "client-session" {
+					if got := ojson.GetBytes(body, path).String(); got != "client-session" {
 						t.Errorf("translator received upstream identity %q: %s", got, body)
 					}
 					if retainedError {

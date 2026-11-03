@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/MoeForge/moego/ojson"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
-	"github.com/tidwall/gjson"
 )
 
 const claudeOAuthToolAliasStateLimit = 1024
@@ -87,7 +87,7 @@ func claudeOAuthToolAliasKeys(scope string, payload []byte, messageID string) []
 		return nil
 	}
 	keys := make([]string, 0, 2)
-	if previousMessageID := gjson.GetBytes(payload, "thread.previous_message_id").String(); previousMessageID != "" {
+	if previousMessageID := ojson.GetBytesNoCopy(payload, "thread.previous_message_id").String(); previousMessageID != "" {
 		keys = append(keys, scope+":message:"+previousMessageID)
 	}
 	if messageID != "" {
@@ -96,32 +96,61 @@ func claudeOAuthToolAliasKeys(scope string, payload []byte, messageID string) []
 	return keys
 }
 
+func claudeOAuthToolAliasKeysDoc(scope string, doc *ojson.Doc, messageID string) []string {
+	if scope == "" {
+		return nil
+	}
+	keys := make([]string, 0, 2)
+	if doc != nil {
+		if previousMessageID := doc.Get("thread.previous_message_id").String(); previousMessageID != "" {
+			keys = append(keys, scope+":message:"+previousMessageID)
+		}
+	}
+	if messageID != "" {
+		keys = append(keys, scope+":message:"+messageID)
+	}
+	return keys
+}
+
 func claudeThreadContinuationNeedsAliasState(payload []byte) bool {
-	if gjson.GetBytes(payload, "thread.type").String() != "continue" {
+	return claudeThreadContinuationNeedsAliasStateDoc(ojson.NewDoc(payload))
+}
+
+func claudeThreadContinuationNeedsAliasStateDoc(doc *ojson.Doc) bool {
+	if doc == nil || doc.Get("thread.type").String() != "continue" {
 		return false
 	}
-	previousMessageID := gjson.GetBytes(payload, "thread.previous_message_id")
+	previousMessageID := doc.Get("thread.previous_message_id")
 	if !previousMessageID.Exists() || previousMessageID.String() == "" {
 		return false
 	}
-	tools := gjson.GetBytes(payload, "tools")
+	tools := doc.Get("tools")
 	return !tools.Exists() || !tools.IsArray() || len(tools.Array()) == 0
 }
 
 func (e *ClaudeExecutor) prepareClaudeOAuthToolNamesForRequest(scope string, payload []byte, options claudeMCPAliasOptions) ([]byte, map[string]string, error) {
-	if claudeThreadContinuationNeedsAliasState(payload) {
-		aliases, ok := e.claudeOAuthToolAliasStore().load(claudeOAuthToolAliasKeys(scope, payload, ""))
-		if !ok {
-			return nil, nil, newClaudeThreadNotFoundError()
-		}
-		return payload, aliases, nil
+	doc := ojson.NewDoc(payload)
+	aliases, err := e.prepareClaudeOAuthToolNamesForRequestDoc(scope, doc, options)
+	if err != nil {
+		return nil, nil, err
 	}
-	remapped, aliases := prepareClaudeOAuthToolNamesForUpstream(payload, options)
-	return remapped, aliases, nil
+	return doc.Bytes(), aliases, nil
+}
+
+func (e *ClaudeExecutor) prepareClaudeOAuthToolNamesForRequestDoc(scope string, doc *ojson.Doc, options claudeMCPAliasOptions) (map[string]string, error) {
+	if claudeThreadContinuationNeedsAliasStateDoc(doc) {
+		aliases, ok := e.claudeOAuthToolAliasStore().load(claudeOAuthToolAliasKeysDoc(scope, doc, ""))
+		if !ok {
+			return nil, newClaudeThreadNotFoundError()
+		}
+		return aliases, nil
+	}
+	aliases, _ := prepareClaudeOAuthToolNamesForUpstreamDoc(doc, options)
+	return aliases, nil
 }
 
 func (e *ClaudeExecutor) rememberClaudeOAuthToolAliases(scope string, payload []byte, aliases map[string]string, messageID string) {
-	if gjson.GetBytes(payload, "thread.type").String() == "" {
+	if ojson.GetBytesNoCopy(payload, "thread.type").String() == "" {
 		return
 	}
 	keys := claudeOAuthToolAliasKeys(scope, payload, messageID)

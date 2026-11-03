@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	geminiresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	chatresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/openai/responses"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade851DeveloperRolesSurviveCommentaryRestoration(t *testing.T) {
@@ -17,7 +17,7 @@ func TestUpgrade851DeveloperRolesSurviveCommentaryRestoration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		messages := gjson.GetBytes(out, "messages").Array()
+		messages := ojson.GetBytes(out, "messages").Array()
 		wantRoles := []string{"user", "assistant", "developer", "assistant"}
 		wantTexts := []string{"inspect", "Checking files.", "Read only.", "Done."}
 		if len(messages) != len(wantRoles) || strings.Contains(string(out), "cpa:commentary:v1") {
@@ -47,7 +47,7 @@ func TestUpgrade851GeminiParallelRemoteMediaAcrossDeveloperNotice(t *testing.T) 
 		t.Fatalf("parallel remote media pairing failed: %v; output=%s", errValidate, out)
 	}
 	var resultTurns int
-	for _, content := range gjson.GetBytes(out, "contents").Array() {
+	for _, content := range ojson.GetBytes(out, "contents").Array() {
 		parts := content.Get("parts").Array()
 		if len(parts) == 0 || !parts[0].Get("functionResponse").Exists() {
 			continue

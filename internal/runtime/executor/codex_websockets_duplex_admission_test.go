@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	auth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // Admission is observed at the actual upstream frame boundary. A busy steer
@@ -99,7 +99,7 @@ func TestCodexDuplexAdmissionReservationsAndIdleRelease(t *testing.T) {
 		t.Helper()
 		select {
 		case payload := <-frames:
-			if got := gjson.GetBytes(payload, "type").String(); got != want {
+			if got := ojson.GetBytes(payload, "type").String(); got != want {
 				t.Fatalf("upstream frame=%s, want %s", payload, want)
 			}
 		case <-time.After(3 * time.Second):
@@ -110,7 +110,7 @@ func TestCodexDuplexAdmissionReservationsAndIdleRelease(t *testing.T) {
 		t.Helper()
 		select {
 		case chunk := <-stream.Chunks:
-			if chunk.Err != nil || gjson.GetBytes(chunk.Payload, "type").String() != want {
+			if chunk.Err != nil || ojson.GetBytes(chunk.Payload, "type").String() != want {
 				t.Fatalf("downstream chunk=%s error=%v, want %s", chunk.Payload, chunk.Err, want)
 			}
 			return chunk.Payload
@@ -141,7 +141,7 @@ func TestCodexDuplexAdmissionReservationsAndIdleRelease(t *testing.T) {
 		t.Fatal(errAcquire)
 	}
 	sendSteer("r1")
-	if payload := readEvent("error"); gjson.GetBytes(payload, "status").Int() != 429 {
+	if payload := readEvent("error"); ojson.GetBytes(payload, "status").Int() != 429 {
 		t.Fatalf("busy steer=%s", payload)
 	}
 	assertOccupied(2)

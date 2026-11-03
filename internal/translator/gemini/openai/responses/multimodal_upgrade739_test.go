@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	antigravity "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/openai/responses"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
-	"github.com/tidwall/gjson"
 )
 
 func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
@@ -42,7 +42,7 @@ func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
 						t.Fatalf("request translation failed: %v", errConvert)
 					}
 					observed := make(map[string]string)
-					collect := func(part gjson.Result) {
+					collect := func(part ojson.Result) {
 						file := part.Get("fileData")
 						if !file.Exists() {
 							file = part.Get("file_data")
@@ -60,7 +60,7 @@ func TestMultimodalUpgrade739RemoteMediaHasNoLocalFetch(t *testing.T) {
 						}
 						observed[uri] = mime
 					}
-					for _, content := range gjson.GetBytes(out, target.contents).Array() {
+					for _, content := range ojson.GetBytes(out, target.contents).Array() {
 						for _, part := range content.Get("parts").Array() {
 							if toolResult {
 								for _, mediaPart := range part.Get("functionResponse.parts").Array() {
@@ -92,7 +92,7 @@ func TestMultimodalUpgrade739UnknownBlocksDoNotBecomeFiles(t *testing.T) {
 		if errConvert != nil {
 			t.Fatalf("request translation failed: %v", errConvert)
 		}
-		if gjson.GetBytes(out, "contents.0.parts.#").Int() > 1 || gjson.GetBytes(out, "request.contents.0.parts.#").Int() > 1 {
+		if ojson.GetBytes(out, "contents.0.parts.#").Int() > 1 || ojson.GetBytes(out, "request.contents.0.parts.#").Int() > 1 {
 			t.Fatalf("unknown content was reinterpreted as a document: %s", out)
 		}
 	}

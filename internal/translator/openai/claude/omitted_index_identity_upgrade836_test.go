@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade836RevisitedOmittedIndexIDPreservesParallelCalls(t *testing.T) {
@@ -31,15 +31,15 @@ func TestUpgrade836RevisitedOmittedIndexIDPreservesParallelCalls(t *testing.T) {
 			}
 			got := map[int]string{}
 			for _, e := range events {
-				if e.Type == "content_block_delta" && gjson.Get(e.Payload, "delta.type").String() == "input_json_delta" {
-					idx := int(gjson.Get(e.Payload, "index").Int())
-					got[idx] += gjson.Get(e.Payload, "delta.partial_json").String()
+				if e.Type == "content_block_delta" && ojson.Get(e.Payload, "delta.type").String() == "input_json_delta" {
+					idx := int(ojson.Get(e.Payload, "index").Int())
+					got[idx] += ojson.Get(e.Payload, "delta.partial_json").String()
 				}
 			}
 			for i, s := range starts {
-				idx := int(gjson.Get(s.Payload, "index").Int())
+				idx := int(ojson.Get(s.Payload, "index").Int())
 				wantID := []string{"a", "b"}[i]
-				if gjson.Get(s.Payload, "content_block.id").String() != wantID || !gjson.Valid(got[idx]) || gjson.Get(got[idx], "n").Int() != int64(i+1) {
+				if ojson.Get(s.Payload, "content_block.id").String() != wantID || !ojson.Valid(got[idx]) || ojson.Get(got[idx], "n").Int() != int64(i+1) {
 					t.Fatalf("call %s arguments = %q, expected completed original call", wantID, got[idx])
 				}
 			}

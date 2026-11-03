@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.T) {
@@ -21,7 +21,7 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 			t.Fatalf("chunk %d returned %d outputs", i, len(outputs))
 		}
 		out := outputs[0]
-		tools := gjson.GetBytes(out, "choices.0.delta.tool_calls")
+		tools := ojson.GetBytes(out, "choices.0.delta.tool_calls")
 		if i == 1 {
 			if tools.Get("#").Int() != 1 || tools.Get("0.function.name").String() != "read_file" {
 				t.Fatalf("real tool delta missing: %s", out)
@@ -29,10 +29,10 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 		} else if tools.Exists() {
 			t.Fatalf("chunk %d contains phantom/null tool_calls: %s", i, out)
 		}
-		if i == 2 && (gjson.GetBytes(out, "choices.0.delta.reasoning_content").String() != "continue thinking" || gjson.GetBytes(out, "choices.0.finish_reason").String() != "") {
+		if i == 2 && (ojson.GetBytes(out, "choices.0.delta.reasoning_content").String() != "continue thinking" || ojson.GetBytes(out, "choices.0.finish_reason").String() != "") {
 			t.Fatalf("thinking chunk lost content or finalized early: %s", out)
 		}
-		if i == 3 && (gjson.GetBytes(out, "choices.0.finish_reason").String() != "tool_calls" || gjson.GetBytes(out, "usage.completion_tokens").Int() != 14 || gjson.GetBytes(out, "usage.completion_tokens_details.reasoning_tokens").Int() != 11) {
+		if i == 3 && (ojson.GetBytes(out, "choices.0.finish_reason").String() != "tool_calls" || ojson.GetBytes(out, "usage.completion_tokens").Int() != 14 || ojson.GetBytes(out, "usage.completion_tokens_details.reasoning_tokens").Int() != 11) {
 			t.Fatalf("terminal lost real tool state or thought usage: %s", out)
 		}
 	}

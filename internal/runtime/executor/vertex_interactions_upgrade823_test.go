@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestVertexInteractionsManagerUsageAndProxyUpgrade823(t *testing.T) {
@@ -31,7 +31,7 @@ func TestVertexInteractionsManagerUsageAndProxyUpgrade823(t *testing.T) {
 				if r.URL.Path != "/v1beta1/interactions" || r.Header.Get("Api-Revision") != "synthetic-revision" || r.Header.Get("X-Goog-Api-Key") != "synthetic" {
 					t.Error("native Interactions path or credential headers changed")
 				}
-				if gjson.GetBytes(body, "generation_config.temperature").Float() != 0.4 || gjson.GetBytes(body, "store").Exists() {
+				if ojson.GetBytes(body, "generation_config.temperature").Float() != 0.4 || ojson.GetBytes(body, "store").Exists() {
 					t.Errorf("final payload override/filter was overwritten: %s", body)
 				}
 				if mode == "patch-json" {

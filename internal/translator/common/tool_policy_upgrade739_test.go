@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	claudechat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/chat-completions"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
 	geminichat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/chat-completions"
-	"github.com/tidwall/gjson"
 )
 
 func TestToolPolicyUpgrade739UnknownRestrictionsStayClosed(t *testing.T) {
@@ -40,7 +40,7 @@ func TestToolPolicyUpgrade739UnknownRestrictionsStayClosed(t *testing.T) {
 				if errConvert != nil {
 					t.Fatalf("request translation failed: %v", errConvert)
 				}
-				if got := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
+				if got := ojson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != "NONE" {
 					t.Fatalf("explicit restriction broadened to %q: %s", got, out)
 				}
 				return
@@ -57,7 +57,7 @@ func TestToolPolicyUpgrade739UnknownRestrictionsStayClosed(t *testing.T) {
 				if errConvert != nil {
 					t.Fatalf("request translation failed: %v", errConvert)
 				}
-				if got := gjson.GetBytes(out, target.path).String(); got != target.want {
+				if got := ojson.GetBytes(out, target.path).String(); got != target.want {
 					t.Errorf("%s explicit restriction broadened to %q: %s", target.name, got, out)
 				}
 			}
@@ -88,11 +88,11 @@ func TestToolPolicyUpgrade739GeminiBuiltinsRespectRestrictions(t *testing.T) {
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			if got := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != tc.wantMode {
+			if got := ojson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); got != tc.wantMode {
 				t.Fatalf("mode=%q want=%q", got, tc.wantMode)
 			}
 			count := 0
-			for _, tool := range gjson.GetBytes(out, "tools").Array() {
+			for _, tool := range ojson.GetBytes(out, "tools").Array() {
 				if tool.Get("googleSearch").Exists() || tool.Get("codeExecution").Exists() || tool.Get("urlContext").Exists() {
 					count++
 				}
@@ -110,7 +110,7 @@ func TestToolPolicyUpgrade739ClaudeGeminiNameCollisions(t *testing.T) {
 	if errConvert != nil {
 		t.Fatalf("request translation failed: %v", errConvert)
 	}
-	if mode := gjson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); mode != "NONE" {
+	if mode := ojson.GetBytes(out, "toolConfig.functionCallingConfig.mode").String(); mode != "NONE" {
 		t.Fatalf("ambiguous sanitized declarations can call wrong tool: %s", out)
 	}
 }

@@ -2,10 +2,13 @@ package helps
 
 import (
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 type cacheKey struct {
@@ -258,5 +261,117 @@ func TestTransportCacheEvictionClosesIdleConnections(t *testing.T) {
 	}
 	if !cache.Contains(cacheKey{"auth-2", ""}) || !cache.Contains(cacheKey{"auth-3", ""}) {
 		t.Fatal("expected auth-2 and auth-3 to remain in cache")
+	}
+}
+
+func TestTransportCacheBuilderPanicReleasesMutex(t *testing.T) {
+	cache := NewTransportCache[cacheKey](4)
+	key := cacheKey{"auth-panic", ""}
+
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("expected panic from builder to propagate")
+			}
+		}()
+		_, _ = cache.Get(key, func() (*http.Transport, error) {
+			panic("builder boom")
+		})
+	}()
+
+	if got := cache.Len(); got != 0 {
+		t.Fatalf("Len() after panicked build = %d, want 0", got)
+	}
+
+	transport, err := cache.Get(key, func() (*http.Transport, error) {
+		return &http.Transport{}, nil
+	})
+	if err != nil || transport == nil {
+		t.Fatalf("Get() after recovered builder panic = (%p, %v), want usable cache", transport, err)
+	}
+}
+
+func TestTransportCachePurgeRetiresEntries(t *testing.T) {
+	cache := NewTransportCache[cacheKey](4)
+	key := cacheKey{"auth-purge", ""}
+
+	_, err := cache.Get(key, func() (*http.Transport, error) {
+		return &http.Transport{}, nil
+	})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	entry := cache.items[key].Value.(*transportCacheEntry[cacheKey])
+	cache.Purge()
+	if !entry.retired.Load() {
+		t.Fatal("expected Purge() to mark removed entry as retired")
+	}
+}
+
+func TestTransportCachePredicatePanicPreservesIdleConnectionOwnership(t *testing.T) {
+	idle, closed := make(chan struct{}, 1), make(chan struct{}, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateIdle:
+			select {
+			case idle <- struct{}{}:
+			default:
+			}
+		case http.StateClosed:
+			select {
+			case closed <- struct{}{}:
+			default:
+			}
+		}
+	}
+	server.Start()
+	defer server.Close()
+	cache := NewTransportCache[string](4)
+	defer cache.Purge()
+	build := func() (*http.Transport, error) { return &http.Transport{}, nil }
+	if _, errBuild := cache.Get("panic", build); errBuild != nil {
+		t.Fatal(errBuild)
+	}
+	transport, errBuild := cache.Get("matched-first", build)
+	if errBuild != nil {
+		t.Fatal(errBuild)
+	}
+	defer transport.CloseIdleConnections()
+	response, errRequest := (&http.Client{Transport: transport}).Get(server.URL)
+	if errRequest != nil {
+		t.Fatal(errRequest)
+	}
+	if _, errRead := io.Copy(io.Discard, response.Body); errRead != nil {
+		t.Fatal(errRead)
+	}
+	if errClose := response.Body.Close(); errClose != nil {
+		t.Fatal(errClose)
+	}
+	<-idle
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("expected predicate panic to propagate")
+			}
+		}()
+		cache.CloseMatching(func(key string) bool {
+			if key == "panic" {
+				panic("predicate failed after matching one entry")
+			}
+			return true
+		})
+	}()
+	if cache.Len() != 2 || !cache.Contains("matched-first") {
+		t.Fatal("predicate panic detached a transport before cleanup could take ownership")
+	}
+	cache.Purge()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("cache purge did not close the retained idle connection")
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/klauspost/compress/zstd"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -21,7 +22,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV844CodexCompressionKeepsFinalIdentityProxyUsageAndLease(t *testing.T) {
@@ -76,12 +76,12 @@ func TestV844CodexCompressionKeepsFinalIdentityProxyUsageAndLease(t *testing.T) 
 						t.Errorf("retry changed the finalized/mapped business body")
 					}
 					bodiesMu.Unlock()
-					mappedSession := gjson.GetBytes(plain, "prompt_cache_key").String()
-					mappedInstall := gjson.GetBytes(plain, "client_metadata.x-codex-installation-id").String()
+					mappedSession := ojson.GetBytes(plain, "prompt_cache_key").String()
+					mappedInstall := ojson.GetBytes(plain, "client_metadata.x-codex-installation-id").String()
 					if mappedSession == "" || mappedSession == "configured-cache844" || mappedInstall == "" || mappedInstall == "configured-install844" {
 						t.Errorf("final rules escaped identity mapping: %s", plain)
 					}
-					if codexSessionHeaderValue(r.Header) != mappedSession || gjson.GetBytes(plain, "service_tier").String() != "priority" || gjson.GetBytes(plain, "operator_marker").String() != "final844" {
+					if codexSessionHeaderValue(r.Header) != mappedSession || ojson.GetBytes(plain, "service_tier").String() != "priority" || ojson.GetBytes(plain, "operator_marker").String() != "final844" {
 						t.Errorf("final body/header mismatch: %s, headers=%v", plain, r.Header)
 					}
 					w.Header().Set("Content-Type", "text/event-stream")

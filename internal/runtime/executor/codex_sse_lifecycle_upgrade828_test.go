@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV828CodexSplitSSELifecyclePreservesIdentityUsageAndLease(t *testing.T) {
@@ -39,7 +39,7 @@ func TestV828CodexSplitSSELifecyclePreservesIdentityUsageAndLease(t *testing.T) 
 						t.Error(errRead)
 						return
 					}
-					mappedSession := gjson.GetBytes(body, "prompt_cache_key").String()
+					mappedSession := ojson.GetBytes(body, "prompt_cache_key").String()
 					if mappedSession == "" || mappedSession == "caller-session" || r.Header.Get("Authorization") == "" {
 						t.Errorf("credential request identity missing: session=%q", mappedSession)
 					}

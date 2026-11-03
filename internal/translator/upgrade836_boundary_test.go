@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	clauderesponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	openaiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
 	openaigemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/gemini"
 	chatresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/openai/responses"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade836MissingIndexToolsCrossClaudeResponses(t *testing.T) {
@@ -22,7 +22,7 @@ func TestUpgrade836MissingIndexToolsCrossClaudeResponses(t *testing.T) {
 		`data: [DONE]`,
 	}
 	var claudeState, responseState any
-	var terminal gjson.Result
+	var terminal ojson.Result
 	var stop string
 	responsesRequest := []byte(`{"tools":[{"type":"function","name":"Weather","parameters":{"type":"object"}}]}`)
 	for _, chunk := range chunks {
@@ -31,12 +31,12 @@ func TestUpgrade836MissingIndexToolsCrossClaudeResponses(t *testing.T) {
 				if !bytes.HasPrefix(line, []byte("data: ")) {
 					continue
 				}
-				if parsed := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))); parsed.Get("type").String() == "message_delta" {
+				if parsed := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))); parsed.Get("type").String() == "message_delta" {
 					stop = parsed.Get("delta.stop_reason").String()
 				}
 				for _, output := range clauderesponses.ConvertClaudeResponseToOpenAIResponses(t.Context(), "claude-test", responsesRequest, nil, line, &responseState) {
 					for _, responseLine := range bytes.Split(output, []byte("\n")) {
-						parsed := gjson.ParseBytes(bytes.TrimPrefix(responseLine, []byte("data: ")))
+						parsed := ojson.ParseBytes(bytes.TrimPrefix(responseLine, []byte("data: ")))
 						if parsed.Get("type").String() == "response.completed" {
 							terminal = parsed.Get("response")
 						}
@@ -53,7 +53,7 @@ func TestUpgrade836MissingIndexToolsCrossClaudeResponses(t *testing.T) {
 		t.Fatalf("calls = %d, want 2: %s", len(calls), terminal.Raw)
 	}
 	for i, want := range []struct{ id, city string }{{"call_paris", "Paris"}, {"call_tokyo", "Tokyo"}} {
-		if calls[i].Get("call_id").String() != want.id || calls[i].Get("name").String() != "Weather" || gjson.Get(calls[i].Get("arguments").String(), "city").String() != want.city {
+		if calls[i].Get("call_id").String() != want.id || calls[i].Get("name").String() != "Weather" || ojson.Get(calls[i].Get("arguments").String(), "city").String() != want.city {
 			t.Fatalf("tool identity or arguments crossed: %s", calls[i].Raw)
 		}
 	}
@@ -70,10 +70,10 @@ func TestUpgrade836GeminiSignedParallelToolRoundTrip(t *testing.T) {
 		`{"choices":[{"delta":{"content":"visible signature text","tool_calls":[{"index":1,"id":"unsigned","function":{"name":"inspect","arguments":"{\"thoughtSignature\":\"literal-data\"}"}},{"index":0,"id":"signed","function":{"name":"inspect","arguments":"{\"value\":1}"}}]}}]}`,
 		`{"choices":[{"delta":{"tool_calls":[{"index":0,"extra_content":{"google":{"thought_signature":"opaque-sig836"}}}]},"finish_reason":"tool_calls"}]}`,
 	}
-	var parts []gjson.Result
+	var parts []ojson.Result
 	for _, chunk := range chunks {
 		for _, output := range openaigemini.ConvertOpenAIResponseToGemini(t.Context(), "google/gemini-test", nil, nil, []byte(chunk), &state) {
-			parts = append(parts, gjson.GetBytes(output, "candidates.0.content.parts").Array()...)
+			parts = append(parts, ojson.GetBytes(output, "candidates.0.content.parts").Array()...)
 		}
 	}
 	if len(parts) != 3 || parts[0].Get("text").String() != "visible signature text" || parts[1].Get("functionCall.id").String() != "signed" || parts[2].Get("functionCall.id").String() != "unsigned" {
@@ -87,11 +87,11 @@ func TestUpgrade836GeminiSignedParallelToolRoundTrip(t *testing.T) {
 	if errConvert != nil {
 		t.Fatal(errConvert)
 	}
-	calls := gjson.GetBytes(out, "messages.0.tool_calls").Array()
-	if len(calls) != 2 || calls[0].Get("extra_content.google.thought_signature").String() != "opaque-sig836" || calls[1].Get("extra_content").Exists() || gjson.Get(calls[1].Get("function.arguments").String(), "thoughtSignature").String() != "literal-data" {
+	calls := ojson.GetBytes(out, "messages.0.tool_calls").Array()
+	if len(calls) != 2 || calls[0].Get("extra_content.google.thought_signature").String() != "opaque-sig836" || calls[1].Get("extra_content").Exists() || ojson.Get(calls[1].Get("function.arguments").String(), "thoughtSignature").String() != "literal-data" {
 		t.Fatalf("Gemini history lost signed/unsigned distinction: %s", out)
 	}
-	if gjson.GetBytes(out, "messages.1.tool_call_id").String() != calls[0].Get("id").String() || gjson.GetBytes(out, "messages.2.tool_call_id").String() != calls[1].Get("id").String() {
+	if ojson.GetBytes(out, "messages.1.tool_call_id").String() != calls[0].Get("id").String() || ojson.GetBytes(out, "messages.2.tool_call_id").String() != calls[1].Get("id").String() {
 		t.Fatalf("tool result pairings changed during replay: %s", out)
 	}
 }
@@ -110,18 +110,18 @@ func TestUpgrade836ReasoningUsageDialectsStreamParity(t *testing.T) {
 			raw := []byte(fmt.Sprintf(`{"id":"usage836","model":"model","choices":[{"index":0,"message":{"role":"assistant","content":"answer"},"finish_reason":"stop"}],"usage":%s}`, usage))
 			plain := chatresponses.ConvertOpenAIChatCompletionsResponseToOpenAIResponsesNonStream(t.Context(), "model", nil, nil, raw, nil)
 			var state any
-			var completed gjson.Result
+			var completed ojson.Result
 			for _, chunk := range []string{`data: {"id":"usage836","model":"model","choices":[{"index":0,"delta":{"content":"answer"}}]}`, fmt.Sprintf(`data: {"id":"usage836","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":%s}`, usage), "data: [DONE]"} {
 				for _, out := range chatresponses.ConvertOpenAIChatCompletionsResponseToOpenAIResponses(t.Context(), "model", nil, nil, []byte(chunk), &state) {
 					for _, line := range bytes.Split(out, []byte("\n")) {
-						p := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+						p := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 						if p.Get("type").String() == "response.completed" {
 							completed = p.Get("response")
 						}
 					}
 				}
 			}
-			for _, result := range []gjson.Result{gjson.ParseBytes(plain), completed} {
+			for _, result := range []ojson.Result{ojson.ParseBytes(plain), completed} {
 				for field, want := range map[string]int64{"input_tokens": 12, "output_tokens": 9, "total_tokens": 21, "input_tokens_details.cached_tokens": 4, "output_tokens_details.reasoning_tokens": tc.want} {
 					got := result.Get("usage." + field)
 					// Streaming omits zero-valued reasoning details; an explicit

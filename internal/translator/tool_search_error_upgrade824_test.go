@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	claude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 type upgrade824RequestHooks struct {
@@ -58,7 +58,7 @@ func TestUpgrade824ClaudeToolSearchEnvelopeKeepsErrorAndMetadata(t *testing.T) {
 					if errTranslate != nil || out.Err != nil || hooks.normalized != 1 {
 						t.Fatalf("sendable control failed: err=%v normalized=%d", errTranslate, hooks.normalized)
 					}
-					if got := gjson.GetBytes(out.Body, `tools.#(name=="tool_search")`).Exists(); got != pinned {
+					if got := ojson.GetBytes(out.Body, `tools.#(name=="tool_search")`).Exists(); got != pinned {
 						t.Fatalf("context pin=%t was not honored: %s", pinned, out.Body)
 					}
 				})

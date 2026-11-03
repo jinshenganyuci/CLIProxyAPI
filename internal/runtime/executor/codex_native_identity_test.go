@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexNativeCredentialIdentityHeaderShapes(t *testing.T) {
@@ -73,7 +73,7 @@ func TestCodexNativeCredentialIdentityHeaderShapes(t *testing.T) {
 							want = internalcodex.DeriveCredentialIdentity(namespace, kind, original)
 						}
 						if kind == "turn_metadata" && identityEnabled {
-							if gjson.Get(values[index], "turn_id").String() != internalcodex.DeriveCredentialIdentity(namespace, "turn", "turn-a") || gjson.Get(values[index], "future").String() != "opaque" {
+							if ojson.Get(values[index], "turn_id").String() != internalcodex.DeriveCredentialIdentity(namespace, "turn", "turn-a") || ojson.Get(values[index], "future").String() != "opaque" {
 								t.Fatalf("turn metadata mapping lost: %s", values[index])
 							}
 						} else if values[index] != want {
@@ -156,7 +156,7 @@ func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCred
 								return
 							}
 							capturedBody <- body
-							completed := fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[],"metadata":{"prompt_cache_key":%q},"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, gjson.GetBytes(body, "prompt_cache_key").String())
+							completed := fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_native","status":"completed","output":[],"metadata":{"prompt_cache_key":%q},"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, ojson.GetBytes(body, "prompt_cache_key").String())
 							for _, event := range []string{metadata, `{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_native","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}}`, completed} {
 								if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(event)); errWrite != nil {
 									t.Error(errWrite)
@@ -206,7 +206,7 @@ func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCred
 								}
 								for _, line := range bytes.Split(chunk.Payload, []byte("\n")) {
 									data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-									switch gjson.GetBytes(data, "type").String() {
+									switch ojson.GetBytes(data, "type").String() {
 									case "codex.response.metadata":
 										metadataEvents = append(metadataEvents, string(data))
 									case "response.completed":
@@ -217,7 +217,7 @@ func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCred
 							if !reflect.DeepEqual(metadataEvents, []string{metadata}) {
 								t.Errorf("opaque native metadata changed: %v", metadataEvents)
 							}
-							if gjson.GetBytes(terminal, "response.output").Raw != "[]" || gjson.GetBytes(terminal, "response.metadata.prompt_cache_key").String() != "body-session" {
+							if ojson.GetBytes(terminal, "response.output").Raw != "[]" || ojson.GetBytes(terminal, "response.metadata.prompt_cache_key").String() != "body-session" {
 								t.Errorf("native output or identity restoration lost: %s", terminal)
 							}
 						} else {
@@ -225,7 +225,7 @@ func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCred
 							if errExecute != nil {
 								t.Fatal(errExecute)
 							}
-							if gjson.GetBytes(result.Payload, "response.metadata.prompt_cache_key").String() != "body-session" || gjson.GetBytes(result.Payload, "response.output.0.id").String() != "msg_native" {
+							if ojson.GetBytes(result.Payload, "response.metadata.prompt_cache_key").String() != "body-session" || ojson.GetBytes(result.Payload, "response.output.0.id").String() != "msg_native" {
 								t.Errorf("non-stream identity restoration or output assembly lost: %s", result.Payload)
 							}
 						}
@@ -246,7 +246,7 @@ func testCodexNativeCredentialIdentityWebsocketIntegration(t *testing.T, perCred
 								t.Errorf("upstream %s = %v, want %v", header, upstream.Values(header), want)
 							}
 						}
-						if upstream.Get("X-Codex-Turn-State") != "opaque-client-state" || gjson.GetBytes(upstreamBody, "instructions").Exists() {
+						if upstream.Get("X-Codex-Turn-State") != "opaque-client-state" || ojson.GetBytes(upstreamBody, "instructions").Exists() {
 							t.Errorf("native request fidelity lost: state=%q body=%s", upstream.Get("X-Codex-Turn-State"), upstreamBody)
 						}
 						if marker == "metadata" && !strings.Contains(string(upstreamBody), "ws_request_header_x_openai_internal_codex_responses_lite") {

@@ -16,13 +16,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
-func legacyAntigravityFunctionResponseContentIndexForReplay(payload []byte, itemResult gjson.Result) (int, string, bool) {
+func legacyAntigravityFunctionResponseContentIndexForReplay(payload []byte, itemResult ojson.Result) (int, string, bool) {
 	callID := strings.TrimSpace(itemResult.Get("call_id").String())
 	name := strings.TrimSpace(itemResult.Get("name").String())
 	args := itemResult.Get("args")
@@ -91,7 +90,7 @@ func legacyAntigravityFunctionCallPartLocation(payload []byte, callID string) (c
 	return -1, -1, false
 }
 
-func legacyAntigravityFunctionCallPartLocationForReplayWithSchemas(payload []byte, itemResult gjson.Result, toolSchemas map[string]any) (contentIndex int, partIndex int, ok bool) {
+func legacyAntigravityFunctionCallPartLocationForReplayWithSchemas(payload []byte, itemResult ojson.Result, toolSchemas map[string]any) (contentIndex int, partIndex int, ok bool) {
 	name := strings.TrimSpace(itemResult.Get("name").String())
 	args := itemResult.Get("args")
 	if name == "" || !args.Exists() {
@@ -114,7 +113,7 @@ func legacyAntigravityFunctionCallPartLocationForReplayWithSchemas(payload []byt
 			continue
 		}
 		if legacyAntigravityReplayItemContextMatches(payload, itemResult, ci) {
-			fc := gjson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d.functionCall", ci, pi))
+			fc := ojson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d.functionCall", ci, pi))
 			if antigravityFunctionCallMatchesReplayItem(fc, itemResult, toolSchemas) {
 				return ci, pi, true
 			}
@@ -175,7 +174,7 @@ func legacyAntigravityFunctionCallPartLocationForReplayWithSchemas(payload []byt
 	return -1, -1, false
 }
 
-func legacyAntigravityFunctionCallProvenanceLocation(payload []byte, itemResult gjson.Result, toolSchemas map[string]any) (contentIndex int, partIndex int, ok bool) {
+func legacyAntigravityFunctionCallProvenanceLocation(payload []byte, itemResult ojson.Result, toolSchemas map[string]any) (contentIndex int, partIndex int, ok bool) {
 	name := strings.TrimSpace(itemResult.Get("name").String())
 	args := itemResult.Get("args")
 	callID := strings.TrimSpace(itemResult.Get("call_id").String())
@@ -190,22 +189,22 @@ func legacyAntigravityFunctionCallProvenanceLocation(payload []byte, itemResult 
 	if !found {
 		return -1, -1, false
 	}
-	fc := gjson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d.functionCall", ci, pi))
+	fc := ojson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d.functionCall", ci, pi))
 	if !antigravityFunctionCallMatchesReplayItem(fc, itemResult, toolSchemas) {
 		return -1, -1, false
 	}
 	return ci, pi, true
 }
 
-func legacyAntigravityRequestHasThoughtSignatureAt(payload []byte, itemResult gjson.Result) bool {
+func legacyAntigravityRequestHasThoughtSignatureAt(payload []byte, itemResult ojson.Result) bool {
 	partPath, ok := legacyAntigravityThoughtSignatureReplayPartPath(payload, itemResult)
 	if !ok {
 		return false
 	}
-	return antigravityHasNativeThoughtSignature(gjson.GetBytes(payload, partPath+".thoughtSignature").String())
+	return antigravityHasNativeThoughtSignature(ojson.GetBytes(payload, partPath+".thoughtSignature").String())
 }
 
-func legacyAntigravityThoughtSignatureReplayPartPath(payload []byte, itemResult gjson.Result) (string, bool) {
+func legacyAntigravityThoughtSignatureReplayPartPath(payload []byte, itemResult ojson.Result) (string, bool) {
 	ci := int(itemResult.Get("contentIndex").Int())
 	contents := util.GetGJSONBytesNoCopy(payload, "request.contents")
 	if !contents.IsArray() {
@@ -266,7 +265,7 @@ func legacyAntigravityThoughtSignatureReplayPartPath(payload []byte, itemResult 
 		return "", false
 	}
 	pi := int(itemResult.Get("partIndex").Int())
-	if pi >= 0 && pi < len(partArr) && partArr[pi].Type != gjson.Null {
+	if pi >= 0 && pi < len(partArr) && partArr[pi].Type != ojson.Null {
 		if kind, _ := antigravityReplayPartFingerprint(partArr[pi]); kind != "" {
 			return fmt.Sprintf("request.contents.%d.parts.%d", ci, pi), true
 		}
@@ -293,7 +292,7 @@ func legacyAntigravityReplayContextFingerprint(payload []byte, beforeContentInde
 	}
 	var context strings.Builder
 	for _, path := range []string{"request.systemInstruction", "request.tools", "request.toolConfig"} {
-		if value := gjson.GetBytes(payload, path); value.Exists() {
+		if value := ojson.GetBytes(payload, path); value.Exists() {
 			context.WriteString(path)
 			context.WriteByte('\x00')
 			context.Write(antigravityCanonicalReplayJSON([]byte(value.Raw)))
@@ -308,10 +307,12 @@ func legacyAntigravityReplayContextFingerprint(payload []byte, beforeContentInde
 		if !parts.IsArray() {
 			continue
 		}
-		parts.ForEach(func(_, part gjson.Result) bool {
+		parts.ForEach(func(_, part ojson.Result) bool {
 			normalized := []byte(part.Raw)
 			for _, signaturePath := range []string{"thoughtSignature", "thought_signature", "extra_content.google.thought_signature"} {
-				normalized, _ = sjson.DeleteBytes(normalized, signaturePath)
+				mutationDoc1 := ojson.NewDoc(normalized)
+				_ = mutationDoc1.Delete(signaturePath)
+				normalized = mutationDoc1.Bytes()
 			}
 			context.Write(antigravityCanonicalReplayJSON(normalized))
 			context.WriteByte('\x00')
@@ -325,14 +326,16 @@ func legacyAntigravityReplayContextFingerprint(payload []byte, beforeContentInde
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func legacyAntigravityReplayItemContextMatches(payload []byte, itemResult gjson.Result, contentIndex int) bool {
+func legacyAntigravityReplayItemContextMatches(payload []byte, itemResult ojson.Result, contentIndex int) bool {
 	expected := strings.TrimSpace(itemResult.Get("contextHash").String())
 	return expected == "" || expected == legacyAntigravityReplayContextFingerprint(payload, contentIndex)
 }
 
 func legacyAntigravitySetReplayItemContextHash(item []byte, payload []byte, contentIndex int) []byte {
 	if contextHash := legacyAntigravityReplayContextFingerprint(payload, contentIndex); contextHash != "" {
-		item, _ = sjson.SetBytes(item, "contextHash", contextHash)
+		mutationDoc2 := ojson.NewDoc(item)
+		_ = mutationDoc2.Set("contextHash", contextHash)
+		item = mutationDoc2.Bytes()
 	}
 	return item
 }
@@ -341,7 +344,7 @@ func legacyInsertAntigravityReasoningReplayItemsWithSchemas(payload []byte, item
 	out := payload
 	changed := false
 	for _, item := range items {
-		itemResult := gjson.ParseBytes(item)
+		itemResult := ojson.ParseBytes(item)
 		switch strings.TrimSpace(itemResult.Get("type").String()) {
 		case "thought_signature":
 			sig := strings.TrimSpace(itemResult.Get("thoughtSignature").String())
@@ -353,12 +356,14 @@ func legacyInsertAntigravityReasoningReplayItemsWithSchemas(payload []byte, item
 				continue
 			}
 			path := partPath + ".thoughtSignature"
-			if antigravityHasNativeThoughtSignature(gjson.GetBytes(out, path).String()) {
+			if antigravityHasNativeThoughtSignature(ojson.GetBytes(out, path).String()) {
 				continue
 			}
 			ci := int(itemResult.Get("contentIndex").Int())
 			out = antigravityRemoveThoughtSignatureFromOtherParts(out, ci, sig, partPath)
-			updated, err := sjson.SetBytes(out, path, sig)
+			mutationDoc3 := ojson.NewDoc(out)
+			errMutation3 := mutationDoc3.Set(path, sig)
+			updated, err := mutationDoc3.Bytes(), errMutation3
 			if err != nil {
 				continue
 			}
@@ -375,7 +380,7 @@ func legacyInsertAntigravityReasoningReplayItemsWithSchemas(payload []byte, item
 	return out, changed
 }
 
-func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, itemResult gjson.Result, toolSchemas map[string]any) ([]byte, bool) {
+func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, itemResult ojson.Result, toolSchemas map[string]any) ([]byte, bool) {
 	name := strings.TrimSpace(itemResult.Get("name").String())
 	args := itemResult.Get("args")
 	callID := strings.TrimSpace(itemResult.Get("call_id").String())
@@ -405,7 +410,7 @@ func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, ite
 		}
 		if frIndex, currentResponseID, ok := legacyAntigravityFunctionResponseContentIndexForReplay(payload, itemResult); ok {
 			parallelModelIndex := frIndex - 1
-			if parallelModelIndex >= 0 && strings.EqualFold(strings.TrimSpace(gjson.GetBytes(payload, fmt.Sprintf("request.contents.%d.role", parallelModelIndex)).String()), "model") && legacyAntigravityReplayItemContextMatches(payload, itemResult, parallelModelIndex) {
+			if parallelModelIndex >= 0 && strings.EqualFold(strings.TrimSpace(ojson.GetBytes(payload, fmt.Sprintf("request.contents.%d.role", parallelModelIndex)).String()), "model") && legacyAntigravityReplayItemContextMatches(payload, itemResult, parallelModelIndex) {
 				if updated, appended := appendAntigravityFunctionCallToModelContent(payload, parallelModelIndex, name, callID, sig, args); appended {
 					return restoreAntigravityFunctionResponseReplayIdentity(updated, currentResponseID, callID, name), true
 				}
@@ -436,7 +441,7 @@ func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, ite
 		if callID != "" {
 			fc["id"] = callID
 		}
-		if args.Type == gjson.String {
+		if args.Type == ojson.String {
 			fc["args"] = args.String()
 		} else {
 			var parsed any
@@ -448,27 +453,37 @@ func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, ite
 		if sig != "" {
 			part["thoughtSignature"] = sig
 		}
-		if updated, err := sjson.SetBytes(out, antigravityReplayPartWritePath(out, ci, pi), part); err == nil {
-			return updated, true
+		{
+			mutationDoc4 := ojson.NewDoc(out)
+			errMutation4 := mutationDoc4.Set(antigravityReplayPartWritePath(out, ci, pi), part)
+			updated, err := mutationDoc4.Bytes(), errMutation4
+			if err == nil {
+				return updated, true
+			}
 		}
 		return payload, false
 	}
 
 	pathSig := partPath + ".thoughtSignature"
-	if sig != "" && !antigravityHasNativeThoughtSignature(gjson.GetBytes(out, pathSig).String()) {
+	if sig != "" && !antigravityHasNativeThoughtSignature(ojson.GetBytes(out, pathSig).String()) {
 		out = antigravityRemoveThoughtSignatureFromOtherParts(out, ci, sig, partPath)
-		if updated, err := sjson.SetBytes(out, pathSig, sig); err == nil {
-			out = updated
-			changed = true
+		{
+			mutationDoc5 := ojson.NewDoc(out)
+			errMutation5 := mutationDoc5.Set(pathSig, sig)
+			updated, err := mutationDoc5.Bytes(), errMutation5
+			if err == nil {
+				out = updated
+				changed = true
+			}
 		}
 	}
 	pathFC := partPath + ".functionCall"
-	if !gjson.GetBytes(out, pathFC).Exists() {
+	if !ojson.GetBytes(out, pathFC).Exists() {
 		fc := map[string]any{"name": name}
 		if callID != "" {
 			fc["id"] = callID
 		}
-		if args.Type == gjson.String {
+		if args.Type == ojson.String {
 			fc["args"] = args.String()
 		} else {
 			var parsed any
@@ -476,9 +491,14 @@ func legacyMergeAntigravityFunctionCallPartReplayWithSchemas(payload []byte, ite
 				fc["args"] = parsed
 			}
 		}
-		if updated, err := sjson.SetBytes(out, pathFC, fc); err == nil {
-			out = updated
-			changed = true
+		{
+			mutationDoc6 := ojson.NewDoc(out)
+			errMutation6 := mutationDoc6.Set(pathFC, fc)
+			updated, err := mutationDoc6.Bytes(), errMutation6
+			if err == nil {
+				out = updated
+				changed = true
+			}
 		}
 	}
 	return out, changed

@@ -1,26 +1,38 @@
 package helps
 
-import "github.com/tidwall/gjson"
+import "github.com/MoeForge/moego/ojson"
 
 // ClaudePayloadHasCacheEviction checks protocol cache controls, excluding user
 // text, tool inputs, schema properties, and other arbitrary data.
 func ClaudePayloadHasCacheEviction(payload []byte) bool {
-	root := gjson.ParseBytes(payload)
-	hasEviction := func(block gjson.Result) bool {
+	return claudePayloadHasCacheEviction(ojson.ParseBytes(payload).Get)
+}
+
+// ClaudePayloadHasCacheEvictionDoc observes the current staged payload without serialization.
+func ClaudePayloadHasCacheEvictionDoc(doc *ojson.Doc) bool {
+	if doc == nil {
+		return false
+	}
+	return claudePayloadHasCacheEviction(doc.Get)
+}
+
+func claudePayloadHasCacheEviction(get func(string) ojson.Result) bool {
+	hasEviction := func(block ojson.Result) bool {
 		control := block.Get("cache_control")
 		return control.IsObject() && control.Get("evict_on_complete").Exists()
 	}
-	if hasEviction(root) {
+	control := get("cache_control")
+	if control.IsObject() && control.Get("evict_on_complete").Exists() {
 		return true
 	}
 	for _, field := range []string{"system", "tools"} {
-		for _, block := range root.Get(field).Array() {
+		for _, block := range get(field).Array() {
 			if hasEviction(block) {
 				return true
 			}
 		}
 	}
-	for _, message := range root.Get("messages").Array() {
+	for _, message := range get("messages").Array() {
 		for _, block := range message.Get("content").Array() {
 			if hasEviction(block) {
 				return true

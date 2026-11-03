@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	_ "github.com/router-for-me/CLIProxyAPI/v8/internal/translator"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade848CapsuleExpansionWithCommentaryAndLiteralReplay(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUpgrade848CapsuleExpansionWithCommentaryAndLiteralReplay(t *testing.T) 
 				}
 			}
 			if target == sdktranslator.FormatCodex {
-				items := gjson.GetBytes(out, "input").Array()
+				items := ojson.GetBytes(out, "input").Array()
 				if len(items) != 7 || items[0].Get("role").String() != "developer" || items[1].Get("encrypted_content").String() != "foreign-native-opaque" || items[2].Get("role").String() != "assistant" || items[2].Get("phase").String() != "commentary" || items[2].Get("encrypted_content").Exists() || items[6].Get("encrypted_content").String() != "foreign-opaque-reasoning" {
 					t.Fatalf("typed/opaque boundary changed: %s", out)
 				}
@@ -68,11 +68,11 @@ func TestUpgrade848ParallelToolResultsKeepErrorAndLiteralBoundaries(t *testing.T
 	for _, target := range []sdktranslator.Format{sdktranslator.FormatGemini, sdktranslator.FormatAntigravity} {
 		t.Run(string(target), func(t *testing.T) {
 			out := sdktranslator.TranslateRequest(sdktranslator.FormatClaude, target, "gemini-4-argon", request, false)
-			root := gjson.ParseBytes(out)
+			root := ojson.ParseBytes(out)
 			if root.Get("request").Exists() {
 				root = root.Get("request")
 			}
-			results := map[string]gjson.Result{}
+			results := map[string]ojson.Result{}
 			for _, content := range root.Get("contents").Array() {
 				for _, part := range content.Get("parts").Array() {
 					if fr := part.Get("functionResponse"); fr.Exists() {
@@ -80,7 +80,7 @@ func TestUpgrade848ParallelToolResultsKeepErrorAndLiteralBoundaries(t *testing.T
 					}
 				}
 			}
-			if len(results) != 2 || results["first"].Get("error.text").String() != "failed" || results["first"].Get("result").Exists() || results["second"].Get("error").Exists() || results["second"].Get("result.n").Raw != "9007199254740993" || results["second"].Get("result.is_error").Type != gjson.True {
+			if len(results) != 2 || results["first"].Get("error.text").String() != "failed" || results["first"].Get("result").Exists() || results["second"].Get("error").Exists() || results["second"].Get("result.n").Raw != "9007199254740993" || results["second"].Get("result.is_error").Type != ojson.True {
 				t.Fatalf("tool identity/error/literal boundary changed: %s", out)
 			}
 			if !strings.Contains(string(out), "aGVsbG8=") || !strings.Contains(string(out), "cpa:commentary:v1") || !bytes.Equal(request, before) {

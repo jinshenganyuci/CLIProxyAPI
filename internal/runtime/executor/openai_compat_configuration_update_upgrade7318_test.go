@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestOpenAICompatConfigurationUpdateMerge7318(t *testing.T) {
@@ -93,11 +93,11 @@ func TestOpenAICompatConfigurationUpdateMerge7318(t *testing.T) {
 			path := "reasoning_effort"
 			if tc.compact {
 				path = "reasoning.effort"
-				if got := gjson.GetBytes(body, "reasoning.summary").String(); got != "auto" {
+				if got := ojson.GetBytes(body, "reasoning.summary").String(); got != "auto" {
 					t.Fatalf("summary = %q; body=%s", got, body)
 				}
 			}
-			if got := gjson.GetBytes(body, path).String(); got != tc.wantEffort {
+			if got := ojson.GetBytes(body, path).String(); got != tc.wantEffort {
 				t.Fatalf("%s = %q, want %q; body=%s", path, got, tc.wantEffort, body)
 			}
 			if bytes.Contains(body, []byte("configuration_update")) || !bytes.Contains(body, []byte("preserve message")) {

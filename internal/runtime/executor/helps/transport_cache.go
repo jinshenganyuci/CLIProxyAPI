@@ -109,20 +109,23 @@ func (c *TransportCache[K]) Get(key K, build func() (*http.Transport, error)) (*
 	}
 
 	c.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			c.mu.Unlock()
+		}
+	}()
 	if element, ok := c.items[key]; ok {
 		c.order.MoveToFront(element)
 		transport := element.Value.(*transportCacheEntry[K]).transport
-		c.mu.Unlock()
 		return transport, nil
 	}
 
 	transport, errBuild := build()
 	if errBuild != nil {
-		c.mu.Unlock()
 		return nil, errBuild
 	}
 	if transport == nil {
-		c.mu.Unlock()
 		return nil, errors.New("transport cache: build returned no transport")
 	}
 
@@ -130,6 +133,7 @@ func (c *TransportCache[K]) Get(key K, build func() (*http.Transport, error)) (*
 	if element, ok := c.items[key]; ok {
 		c.order.MoveToFront(element)
 		existing := element.Value.(*transportCacheEntry[K]).transport
+		locked = false
 		c.mu.Unlock()
 		transport.CloseIdleConnections()
 		return existing, nil
@@ -139,6 +143,7 @@ func (c *TransportCache[K]) Get(key K, build func() (*http.Transport, error)) (*
 	attachTransportRetirementGuard(transport, &entry.retired)
 	c.items[key] = c.order.PushFront(entry)
 	evicted := c.evictLocked()
+	locked = false
 	c.mu.Unlock()
 
 	for _, t := range evicted {
@@ -219,19 +224,24 @@ func (c *TransportCache[K]) detachMatching(predicate func(key K) bool) []*http.T
 		return nil
 	}
 	c.mu.Lock()
-	var toClose []*http.Transport
-	var next *list.Element
-	for element := c.order.Front(); element != nil; element = next {
-		next = element.Next()
+	defer c.mu.Unlock()
+	// Evaluate every predicate before detaching anything. If a predicate panics,
+	// the cache must retain ownership of all idle connections for later cleanup.
+	var matched []*list.Element
+	for element := c.order.Front(); element != nil; element = element.Next() {
 		entry := element.Value.(*transportCacheEntry[K])
 		if predicate(entry.key) {
-			c.order.Remove(element)
-			entry.retired.Store(true)
-			delete(c.items, entry.key)
-			toClose = append(toClose, entry.transport)
+			matched = append(matched, element)
 		}
 	}
-	c.mu.Unlock()
+	var toClose []*http.Transport
+	for _, element := range matched {
+		entry := element.Value.(*transportCacheEntry[K])
+		c.order.Remove(element)
+		entry.retired.Store(true)
+		delete(c.items, entry.key)
+		toClose = append(toClose, entry.transport)
+	}
 	return toClose
 }
 
@@ -253,7 +263,9 @@ func (c *TransportCache[K]) Purge() {
 	c.mu.Lock()
 	var toClose []*http.Transport
 	for element := c.order.Front(); element != nil; element = element.Next() {
-		toClose = append(toClose, element.Value.(*transportCacheEntry[K]).transport)
+		entry := element.Value.(*transportCacheEntry[K])
+		entry.retired.Store(true)
+		toClose = append(toClose, entry.transport)
 	}
 	c.order.Init()
 	c.items = make(map[K]*list.Element, c.capacity)

@@ -1,8 +1,23 @@
 # Codex OAuth 凭据独立身份方案
 
-当前修订为 `v8.0.51-codex-identity.1`，基于官方 `v8.0.51`（`7cad1cb7df48c6c5ffb7ff0b34ef8198806115bc`）。从已发布 `v8.0.48.1` 合入上游 44 个提交（38 个非 merge、6 个 merge），涉及 159 个文件。固定镜像标签为 `codex-identity-v8.0.51.1`；摘要、最终源码提交和验收收据以对应 Release 附件为准。
+当前修订为 `v8.0.53-codex-identity.1`，基于官方 `v8.0.53`（`01b24f1f95dc9b309765212c52b25b25e005ff01`）。从已发布 `v8.0.51.1` 合入 32 个上游提交（25 个非 merge、7 个 merge），涉及 764 个文件；其中两个 README 赞助文案提交没有单列在原生 Release changelog。固定镜像标签为 `codex-identity-v8.0.53.1`；摘要、最终源码提交和本轮验收以 Release 附件为准。
 
-## v8.0.51 更新
+## v8.0.53 更新
+
+- **JSON 与 Base64 库迁移**：随上游切换至 MoeForge/moego，并采用官方 `router-for-me/moego v0.1.1` 替换版本。二开额外代码同步迁移；请求构建保留单一 `ojson.Doc` 修改链，身份映射、媒体、commentary 和 payload 配置在各自边界衔接，避免中途编码造成数字精度、转义或未知字段损失。已有 no-op 复用、参数原始 JSON 和响应快照语义保持。
+- **最大输出预算**：Codex 各协议转换保留 `max_output_tokens`，适用时从 `max_completion_tokens` 或 `max_tokens` 回填；显式零值、SIWC、HTTP、流式和 WebSocket 路径一致。用户 payload override/filter 仍是最终业务语义，续传或重试不能再次应用非幂等规则。
+- **定向 OAuth 重登**：所有内置供应商遵循目标凭据匹配、保存与采纳结果；Codex 身份 namespace、原凭据代理、文件锁、RegistrationEpoch、opaque ID 和精确元数据回滚保留。Devin、Meta、Kimi 两地区沿用目标凭据出口和冻结代理快照。
+- **刷新调度**：禁用且 refresh token 已拒绝的凭据不再空转；插件刷新保持 disabled 状态，原 SIWC 分区、epoch 和并发 lease 控制继续适用。
+- **连接池与去重**：修复 transport builder panic 锁未释放及 purge 后旧条目重新进入缓存；配置去重计入 connection-pool 选项，避免不同池配置被合并。原严格凭据出口、失败不静默直连、请求代理不能覆盖凭据代理及默认本机并发 10 保留。
+- **插件隔离**：模型执行流绑定所属插件和实例，禁止 teardown 后并发注册；Unix 动态库先由子进程预检，异常初始化不会直接崩溃宿主。Access Guard 原版二进制兼容单独验证；不因此升级或重编用户插件。
+- **Claude / Gemini / Antigravity**：Fable-only 429 在 7d 正常且缺失 5h 头的明确场景保持模型级限制；重放搜索引用缺少结果时删除无效引用；Gemini 省略/function 角色规范化，Claude 工具图片置于 functionResponse.parts；Antigravity safety/filter 终态映射 refusal，并补 aicode OAuth scope。
+- **Devin**：保留 Responses 回传的 sealed reasoning，规范化嵌入 exec 工具措辞，并停止重试请求本身导致的 403；不把凭据级故障和用户输入故障混为一类。
+- **日志与客户端**：handler panic 时完成请求日志；非 Codex 目录路由关闭 supports_image_detail_original。Claude 原生客户端入口可通过 `upstream.claude.header-defaults.native-entrypoints` 配置，缺省行为沿用上游；无需新增必填配置。
+- **管理页**：官方独立网页仍为 `v1.27.2`，保留上一版字节一致的补丁与 HTML，重新验证源码、构建复现、配置字段透传和新镜像浏览器。已有完全相同凭据身份、仅模型配置不同的重复行重排边界仍保留，不宣称全面识别这类重排。
+
+默认模型目录与显式兼容测试目录分别验证。业务部署不随源码/镜像发布自动切换；既有工作区、凭据与其他任务容器保留。
+
+## v8.0.51 历史记录
 
 - **Codex 续期与隔离**：无 `refresh_token` 且没有 SIWC 续期材料的本地凭据退出自动刷新队列；Home 和自带刷新评估器保留原控制。未变化的失效 refresh token 不再因手动刷新被错误视为成功；禁用凭据保留刷新结果和退避。二开将新恢复分支移入共用生命周期 helper，并把 no-op 刷新错误归一化放在失败事务锁判断之前，保留注册世代、文件持久化和 SIWC 分区保护。
 - **Responses WebSocket 回放**：自动回放上游输出时移除 output-only `content_token_count`，避免下次请求或换凭据后被拒绝；不修改原始客户端输入或下行响应。

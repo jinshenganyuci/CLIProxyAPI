@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestResponsesIndexUpgrade7312ParallelRequestIsolation(t *testing.T) {
@@ -47,7 +47,7 @@ func TestResponsesIndexUpgrade7312ParallelRequestIsolation(t *testing.T) {
 					if !bytes.HasPrefix(line, []byte("data: ")) {
 						continue
 					}
-					root := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+					root := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 					if root.Get("type").String() != "response.completed" {
 						continue
 					}

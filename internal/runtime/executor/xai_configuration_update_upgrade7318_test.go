@@ -3,11 +3,11 @@ package executor
 import (
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestXAICompactCompatibilityUpdateMerge7318(t *testing.T) {
@@ -38,13 +38,13 @@ func TestXAICompactCompatibilityUpdateMerge7318(t *testing.T) {
 			if errPrepare != nil {
 				t.Fatalf("prepare compact request: %v", errPrepare)
 			}
-			if got := gjson.GetBytes(prepared.body, "reasoning.effort").String(); got != tc.want {
+			if got := ojson.GetBytes(prepared.body, "reasoning.effort").String(); got != tc.want {
 				t.Fatalf("effort = %q, want %q; body=%s", got, tc.want, prepared.body)
 			}
-			if got := gjson.GetBytes(prepared.body, "reasoning.summary").String(); got != "auto" {
+			if got := ojson.GetBytes(prepared.body, "reasoning.summary").String(); got != "auto" {
 				t.Fatalf("summary = %q; body=%s", got, prepared.body)
 			}
-			input := gjson.GetBytes(prepared.body, "input").Array()
+			input := ojson.GetBytes(prepared.body, "input").Array()
 			if len(input) != 1 || input[0].Get("content").String() != "preserve message" {
 				t.Fatalf("unsupported updates remain or user message changed: %s", prepared.body)
 			}

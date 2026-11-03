@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade842ServerToolsSeparateFunctionSignatureGroups(t *testing.T) {
@@ -26,7 +26,7 @@ func TestUpgrade842ServerToolsSeparateFunctionSignatureGroups(t *testing.T) {
 					if err := ValidateGeminiThoughtSignatures(out, GeminiThoughtSignatureValidationOptions{AllowBypassSentinel: true}); err != nil {
 						t.Fatalf("sanitized replay failed validation: %v", err)
 					}
-					parts := gjson.GetBytes(out, "contents.0.parts").Array()
+					parts := ojson.GetBytes(out, "contents.0.parts").Array()
 					if parts[1].Raw != server || parts[2].Get("functionCall.args.thoughtSignature").String() != "literal-function" {
 						t.Fatal("signature grouping altered server payload or literal arguments")
 					}

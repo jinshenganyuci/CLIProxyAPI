@@ -2,7 +2,6 @@ package management
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -71,7 +70,6 @@ func (h *Handler) RequestMetaToken(c *gin.Context) {
 		record.Storage = storage
 		return claimOAuthSessionCommit(state, "meta")
 	}
-	go snapshot.completeMetaOAuth(ctx, state, explicitProxy, authSvc, deviceFlow)
 	response := gin.H{"status": "ok", "url": authURL, "state": state, "flow": "device"}
 	if userCode := strings.TrimSpace(deviceFlow.UserCode); userCode != "" {
 		response["user_code"] = userCode
@@ -81,6 +79,8 @@ func (h *Handler) RequestMetaToken(c *gin.Context) {
 	} else {
 		response["expires_in"] = int(metaauth.MaxPollDuration / time.Second)
 	}
+	bindOAuthSessionTarget(c, state, response)
+	go snapshot.completeMetaOAuth(ctx, state, explicitProxy, authSvc, deviceFlow)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -114,6 +114,9 @@ func (h *Handler) prepareMetaOAuthSession(c *gin.Context) (*Handler, bool, int, 
 	}
 	snapshot.cfg.AuthDir = authDir
 	proxyURL := snapshot.cfg.ProxyURL
+	if selectedProxy := oauthSessionProxyURLFromContext(c); selectedProxy != "" {
+		proxyURL = selectedProxy
+	}
 	if request.ProxyURL != nil {
 		proxyURL = strings.TrimSpace(*request.ProxyURL)
 		if proxyURL == "" {
@@ -159,17 +162,9 @@ func (h *Handler) completeMetaOAuth(ctx context.Context, state string, explicit 
 	}
 	// The shared store may be reconfigured while device authorization is pending.
 	record.Attributes[coreauth.AttributePath] = filepath.Join(h.cfg.AuthDir, record.FileName)
-	if _, errSave := h.saveTokenRecord(ctx, record); errSave != nil {
-		if IsOAuthSessionPending(state, "meta") {
-			if errors.Is(errSave, metaauth.ErrOAuthProxyMismatch) {
-				FailOAuthSessionCommit(state, metaauth.ErrOAuthProxyMismatch.Error())
-			} else {
-				FailOAuthSessionCommit(state, "Failed to save authentication tokens")
-			}
-		}
+	if _, okSaved := h.commitAndCompleteBuiltinOAuthSession(ctx, state, "meta", h.cfg.ProxyURL, record, "Failed to save authentication tokens", false, h.saveTokenRecord); !okSaved {
 		return
 	}
-	CompleteOAuthSession(state)
 	log.Info("Meta authentication successful")
 }
 

@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	auth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	usage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexDuplexUsageTracksResponseIdentityAndCancellation(t *testing.T) {
@@ -78,7 +78,7 @@ func TestCodexDuplexUsageTracksResponseIdentityAndCancellation(t *testing.T) {
 			}
 			sent := false
 			for chunk := range stream.Chunks {
-				kind := gjson.GetBytes(chunk.Payload, "type").String()
+				kind := ojson.GetBytes(chunk.Payload, "type").String()
 				if kind == "response.completed" && !sent && scenario != "idle_close" {
 					input <- core.WebsocketInput{Payload: []byte(`{"type":"response.create","input":[]}`)}
 					sent = true

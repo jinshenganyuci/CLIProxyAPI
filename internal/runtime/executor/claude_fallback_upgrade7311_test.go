@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestClaudeFallbackUpgrade7311ActualRequestBetaGating(t *testing.T) {
@@ -57,10 +57,10 @@ func TestClaudeFallbackUpgrade7311ActualRequestBetaGating(t *testing.T) {
 			if enabled != tc.want {
 				t.Fatalf("fallback credit beta=%t want=%t header=%s", enabled, tc.want, got.header.Get("Anthropic-Beta"))
 			}
-			if strings.Contains(tc.extra, "fallback_credit_token") && gjson.GetBytes(got.body, "fallback_credit_token").String() != "synthetic-fct" {
+			if strings.Contains(tc.extra, "fallback_credit_token") && ojson.GetBytes(got.body, "fallback_credit_token").String() != "synthetic-fct" {
 				t.Fatal("explicit fallback token changed")
 			}
-			if strings.Contains(tc.extra, "fallbacks") && gjson.GetBytes(got.body, "fallbacks.0.model").String() != "claude-opus-5" {
+			if strings.Contains(tc.extra, "fallbacks") && ojson.GetBytes(got.body, "fallbacks.0.model").String() != "claude-opus-5" {
 				t.Fatal("explicit fallback model changed")
 			}
 		})

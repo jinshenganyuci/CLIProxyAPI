@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -16,7 +17,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV836ClaudeChatStopOutcomeKeepsUsageRouteAndLease(t *testing.T) {
@@ -31,7 +31,7 @@ func TestV836ClaudeChatStopOutcomeKeepsUsageRouteAndLease(t *testing.T) {
 					t.Errorf("active lease = %d/%d, want 1/10", active, limit)
 				}
 				body, errRead := io.ReadAll(r.Body)
-				if errRead != nil || gjson.GetBytes(body, "operator_marker").String() != "final836" {
+				if errRead != nil || ojson.GetBytes(body, "operator_marker").String() != "final836" {
 					t.Errorf("final payload missing: body=%s err=%v", body, errRead)
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -78,7 +78,7 @@ func TestV836ClaudeChatStopOutcomeKeepsUsageRouteAndLease(t *testing.T) {
 			if stop == "model_context_window_exceeded" {
 				wantFinish = "length"
 			}
-			if errExecute != nil || gjson.GetBytes(resp.Payload, "choices.0.finish_reason").String() != wantFinish {
+			if errExecute != nil || ojson.GetBytes(resp.Payload, "choices.0.finish_reason").String() != wantFinish {
 				t.Fatalf("stop response = %s, err=%v, want %s", resp.Payload, errExecute, wantFinish)
 			}
 			records := antigravityUsageRecordsAfterDelivery815(t, capture)

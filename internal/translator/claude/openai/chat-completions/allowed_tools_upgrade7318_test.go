@@ -3,8 +3,7 @@ package chat_completions
 import (
 	"testing"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestClaudeAllowedToolsUpgrade7318PreservesRestrictionsAndNativeNames(t *testing.T) {
@@ -30,16 +29,18 @@ func TestClaudeAllowedToolsUpgrade7318PreservesRestrictionsAndNativeNames(t *tes
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body := []byte(`{"messages":[{"role":"assistant","tool_calls":[{"id":"call:time","type":"function","function":{"name":"mcp.server:get_time","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call:time","content":"stale result"},{"role":"tool","tool_call_id":"call:time","content":"latest result"}],"tools":[{"type":"function","function":{}},{"type":"function","function":{"name":"unrelated"}}]}`)
-			body, _ = sjson.SetBytes(body, "tools.0.function.name", tc.declaration)
-			body, _ = sjson.SetRawBytes(body, "tool_choice", []byte(tc.choice))
+			bodyDoc := ojson.NewDoc(body)
+			_ = bodyDoc.Set("tools.0.function.name", tc.declaration)
+			_ = bodyDoc.SetRaw("tool_choice", tc.choice)
+			body = bodyDoc.Bytes()
 			out, errConvert := ConvertOpenAIRequestToClaude("claude-sonnet-4-6", body, false)
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			if got := gjson.GetBytes(out, "tool_choice.type").String(); got != tc.wantChoice {
+			if got := ojson.GetBytes(out, "tool_choice.type").String(); got != tc.wantChoice {
 				t.Fatalf("tool_choice=%q, want %q; payload=%s", got, tc.wantChoice, out)
 			}
-			tools := gjson.GetBytes(out, "tools").Array()
+			tools := ojson.GetBytes(out, "tools").Array()
 			if tc.wantTool {
 				if len(tools) != 1 || tools[0].Get("name").String() != nativeName || tools[0].Get("input_schema.type").String() != "object" {
 					t.Fatalf("selected tool name or parameterless schema changed: %s", out)
@@ -47,7 +48,7 @@ func TestClaudeAllowedToolsUpgrade7318PreservesRestrictionsAndNativeNames(t *tes
 			} else if len(tools) != 0 {
 				t.Fatalf("empty or invalid restriction broadened the allowed tools: %s", out)
 			}
-			messages := gjson.GetBytes(out, "messages").Array()
+			messages := ojson.GetBytes(out, "messages").Array()
 			if len(messages) != 2 {
 				t.Fatalf("duplicate tool results were not coalesced: %s", out)
 			}

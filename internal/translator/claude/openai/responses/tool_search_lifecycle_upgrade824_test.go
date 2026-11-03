@@ -6,8 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade824ToolSearchReloadPreservesCitationsNamespacesAndUsage(t *testing.T) {
@@ -18,7 +17,7 @@ func TestUpgrade824ToolSearchReloadPreservesCitationsNamespacesAndUsage(t *testi
 	if errConvert != nil {
 		t.Fatal(errConvert)
 	}
-	if !gjson.GetBytes(translated, `tools.#(name=="mcp__codex_apps__calendar_create_event").defer_loading`).Bool() {
+	if !ojson.GetBytes(translated, `tools.#(name=="mcp__codex_apps__calendar_create_event").defer_loading`).Bool() {
 		t.Fatal("discovered namespace tool was not declared deferred")
 	}
 	citation := map[string]any{"type": "web_search_result_location", "url": "https://example.com/synthetic", "title": "Shared source", "cited_text": "甲🙂", "encrypted_index": "synthetic-citation-index"}
@@ -26,13 +25,15 @@ func TestUpgrade824ToolSearchReloadPreservesCitationsNamespacesAndUsage(t *testi
 	frames = append(frames, citationsUpgrade7316Text(t, 0, "甲🙂", citation)...)
 	for _, frame := range claudeToolSearchStream[1 : len(claudeToolSearchStream)-2] {
 		raw := []byte(frame[len("data: "):])
-		raw, _ = sjson.SetBytes(raw, "index", gjson.GetBytes(raw, "index").Int()+1)
+		rawDoc := ojson.NewDoc(raw)
+		_ = rawDoc.Set("index", rawDoc.Get("index").Int()+1)
+		raw = rawDoc.Bytes()
 		frames = append(frames, append([]byte("data: "), raw...))
 	}
 	frames = append(frames, citationsUpgrade7316Text(t, 4, "后续 café", citation)...)
 	frames = append(frames, []byte(`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}`), []byte(`data: {"type":"message_stop"}`))
 	var state any
-	var terminal gjson.Result
+	var terminal ojson.Result
 	counts := map[string]int{}
 	for i, frame := range frames {
 		// Both the process default and later caller contexts may change; the
@@ -75,12 +76,12 @@ func TestUpgrade824ToolSearchReloadPreservesCitationsNamespacesAndUsage(t *testi
 	}
 	SetClientToolSearchEnabled(false)
 	nonstream := ConvertClaudeResponseToOpenAIResponsesNonStream(ctx, "claude-test", request, translated, bytes.Join(frames, []byte("\n")), nil)
-	if !reflect.DeepEqual(gjson.GetBytes(nonstream, "output").Value(), terminal.Get("output").Value()) {
+	if !reflect.DeepEqual(ojson.GetBytes(nonstream, "output").Value(), terminal.Get("output").Value()) {
 		t.Fatalf("stream/non-stream disagreed under pinned tool search:\nstream=%s\nnonstream=%s", terminal.Raw, nonstream)
 	}
 	// A zero reasoning count is optional in the non-stream representation.
 	for _, path := range []string{"usage.input_tokens", "usage.input_tokens_details.cached_tokens", "usage.output_tokens", "usage.total_tokens", "usage.output_tokens_details.reasoning_tokens"} {
-		if gjson.GetBytes(nonstream, path).Int() != terminal.Get(path).Int() {
+		if ojson.GetBytes(nonstream, path).Int() != terminal.Get(path).Int() {
 			t.Errorf("stream/non-stream usage differs at %s", path)
 		}
 	}

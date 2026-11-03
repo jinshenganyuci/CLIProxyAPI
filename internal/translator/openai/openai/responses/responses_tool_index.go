@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
-	"github.com/tidwall/gjson"
 )
 
 type responsesToolIdentity struct {
@@ -24,7 +24,7 @@ type responsesToolIndex struct {
 	custom       map[string]struct{}
 }
 
-func newResponsesToolIndex(root gjson.Result) *responsesToolIndex {
+func newResponsesToolIndex(root ojson.Result) *responsesToolIndex {
 	idx := &responsesToolIndex{
 		byChat:     make(map[string]responsesToolDeclaration),
 		byIdentity: make(map[responsesToolIdentity]string),
@@ -35,7 +35,7 @@ func newResponsesToolIndex(root gjson.Result) *responsesToolIndex {
 	walkResponsesToolDeclarations(root, func(d responsesToolDeclaration) bool {
 		// The index outlives parsing; retain each declaration without pinning
 		// the full request, including unrelated input history.
-		d.tool = gjson.Parse(strings.Clone(d.tool.Raw))
+		d.tool = ojson.Parse(strings.Clone(d.tool.Raw))
 		d.chatName = strings.Clone(d.chatName)
 		d.localName = strings.Clone(d.localName)
 		d.namespace = strings.Clone(d.namespace)
@@ -103,6 +103,14 @@ func (idx *responsesToolIndex) applyIdentity(item []byte, qualifiedName, itemPat
 		name, namespace = d.localName, d.namespace
 	}
 	return translatorcommon.SetResponsesToolCallIdentity(item, name, namespace, itemPath)
+}
+
+func (idx *responsesToolIndex) applyIdentityDoc(doc *ojson.Doc, qualifiedName, itemPath string) {
+	name, namespace := strings.TrimSpace(qualifiedName), ""
+	if d, ok := idx.byChat[name]; ok {
+		name, namespace = d.localName, d.namespace
+	}
+	translatorcommon.SetResponsesToolCallIdentityDoc(doc, name, namespace, itemPath)
 }
 
 func (idx *responsesToolIndex) singleCustomName() (string, bool) {

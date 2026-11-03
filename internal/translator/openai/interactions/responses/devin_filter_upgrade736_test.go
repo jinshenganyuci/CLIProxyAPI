@@ -3,7 +3,7 @@ package responses
 import (
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade736InteractionsDevinFilteringIsProviderScoped(t *testing.T) {
@@ -30,14 +30,14 @@ func TestUpgrade736InteractionsDevinFilteringIsProviderScoped(t *testing.T) {
 					t.Fatalf("request translation failed: %v", errConvert)
 				}
 				descriptions := make(map[string]string)
-				for _, tool := range gjson.GetBytes(out, "tools").Array() {
+				for _, tool := range ojson.GetBytes(out, "tools").Array() {
 					descriptions[tool.Get("name").String()] = tool.Get("description").String()
 				}
 				_, hasAutomation := descriptions["mcp__codex_app__automation_update"]
 				if hasAutomation == tc.devin {
 					t.Errorf("automation tool present = %v, want %v", hasAutomation, !tc.devin)
 				}
-				choice := gjson.GetBytes(out, "generation_config.tool_choice")
+				choice := ojson.GetBytes(out, "generation_config.tool_choice")
 				if choice.Exists() == tc.devin {
 					t.Errorf("tool choice present = %v, want %v", choice.Exists(), !tc.devin)
 				}

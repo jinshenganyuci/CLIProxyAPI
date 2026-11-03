@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestOpenAICompatExecutorToolResultContentByInputModalities(t *testing.T) {
@@ -118,10 +118,10 @@ func TestOpenAICompatExecutorToolResultContentByInputModalities(t *testing.T) {
 
 			var toolContents, userImages []string
 			foundUserText := tt.wantUserText == ""
-			for _, message := range gjson.GetBytes(gotBody, "messages").Array() {
+			for _, message := range ojson.GetBytes(gotBody, "messages").Array() {
 				content := message.Get("content")
 				if message.Get("role").String() == "tool" {
-					if content.Type != gjson.String {
+					if content.Type != ojson.String {
 						t.Fatalf("tool content must remain a string: %s", gotBody)
 					}
 					toolContents = append(toolContents, content.String())

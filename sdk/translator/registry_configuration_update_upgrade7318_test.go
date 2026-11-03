@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tidwall/sjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestRegistryUpgrade7318TracksPluginConfigurationOwnership(t *testing.T) {
@@ -22,20 +22,24 @@ func TestRegistryUpgrade7318TracksPluginConfigurationOwnership(t *testing.T) {
 			}{
 				{"unchanged update", func(body []byte) []byte { return body }, false},
 				{"unrelated user edit", func(body []byte) []byte {
-					out, _ := sjson.SetBytes(body, "input.1.content", "operator text")
-					return out
+					doc := ojson.NewDoc(body)
+					_ = doc.Set("input.1.content", "operator text")
+					return doc.Bytes()
 				}, false},
 				{"remove update", func(body []byte) []byte {
-					out, _ := sjson.DeleteBytes(body, "input.0")
-					return out
+					doc := ojson.NewDoc(body)
+					_ = doc.Delete("input.0")
+					return doc.Bytes()
 				}, true},
 				{"rewrite update", func(body []byte) []byte {
-					out, _ := sjson.SetBytes(body, "input.0.reasoning.effort", "high")
-					return out
+					doc := ojson.NewDoc(body)
+					_ = doc.Set("input.0.reasoning.effort", "high")
+					return doc.Bytes()
 				}, true},
 				{"append update", func(body []byte) []byte {
-					out, _ := sjson.SetRawBytes(body, "input.-1", []byte(`{"type":"configuration_update","reasoning":{"effort":"high"}}`))
-					return out
+					doc := ojson.NewDoc(body)
+					_ = doc.SetRaw("input.-1", `{"type":"configuration_update","reasoning":{"effort":"high"}}`)
+					return doc.Bytes()
 				}, true},
 			} {
 				t.Run(tc.name, func(t *testing.T) {

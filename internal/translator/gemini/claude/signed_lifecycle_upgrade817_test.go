@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade817GeminiSignedTextToolAndPartlessTerminalLifecycle(t *testing.T) {
@@ -21,14 +21,14 @@ func TestUpgrade817GeminiSignedTextToolAndPartlessTerminalLifecycle(t *testing.T
 				`[DONE]`,
 			}
 			var state any
-			var events []gjson.Result
+			var events []ojson.Result
 			for _, frame := range frames {
 				raw := []byte(frame)
 				before := bytes.Clone(raw)
 				for _, out := range ConvertGeminiResponseToClaude(t.Context(), "gemini-test", request, request, raw, &state) {
 					for _, line := range bytes.Split(out, []byte("\n")) {
 						if bytes.HasPrefix(line, []byte("data: ")) {
-							events = append(events, gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))))
+							events = append(events, ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))))
 						}
 					}
 				}
@@ -92,7 +92,7 @@ func TestUpgrade817GeminiSignedTextToolAndPartlessTerminalLifecycle(t *testing.T
 					t.Fatalf("signature %q count=%d", sig, signatures[sig])
 				}
 			}
-			if gjson.Get(args.String(), "count").Raw != "9007199254740993" || gjson.Get(args.String(), "enabled").Raw != "false" {
+			if ojson.Get(args.String(), "count").Raw != "9007199254740993" || ojson.Get(args.String(), "enabled").Raw != "false" {
 				t.Fatal("tool arguments lost exact values")
 			}
 		})

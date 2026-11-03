@@ -8,9 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestNormalizeAntigravityGeminiFunctionResponseRolesMatchesLegacy(t *testing.T) {
@@ -224,7 +223,7 @@ func TestRepairAntigravityGeminiFunctionResponseNames(t *testing.T) {
 				t.Fatalf("payload changed: got=%s", got)
 			}
 			for path, wantName := range test.wantName {
-				if gotName := gjson.GetBytes(got, path).String(); gotName != wantName {
+				if gotName := ojson.GetBytes(got, path).String(); gotName != wantName {
 					t.Fatalf("%s = %q, want %q; output=%s", path, gotName, wantName, got)
 				}
 			}
@@ -241,7 +240,9 @@ func TestApplyAntigravityIndexedEditsFallsBackWhenOffsetsInvalid(t *testing.T) {
 		end:         -1,
 		replacement: replacement,
 	}}
-	want, errSet := sjson.SetRawBytes(payload, "request.contents.0.parts.0", replacement)
+	mutationDoc1 := ojson.NewDoc(payload)
+	errMutation1 := mutationDoc1.SetRawBytes("request.contents.0.parts.0", replacement)
+	want, errSet := mutationDoc1.Bytes(), errMutation1
 	if errSet != nil {
 		t.Fatal(errSet)
 	}
@@ -260,7 +261,9 @@ func TestApplyAntigravityContentEditsWithSJSONFallback(t *testing.T) {
 		end:         -1,
 		replacement: replacement,
 	}}
-	want, errSet := sjson.SetRawBytes(payload, "request.contents.0", replacement)
+	mutationDoc2 := ojson.NewDoc(payload)
+	errMutation2 := mutationDoc2.SetRawBytes("request.contents.0", replacement)
+	want, errSet := mutationDoc2.Bytes(), errMutation2
 	if errSet != nil {
 		t.Fatal(errSet)
 	}

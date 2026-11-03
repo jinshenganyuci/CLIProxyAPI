@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
@@ -23,7 +24,6 @@ import (
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 type v820BoundaryHost struct {
@@ -130,14 +130,14 @@ func TestV820SpeechThreeCredentialsThreeKeysKeepProxyAdmissionAndLifecycle(t *te
 				t.Errorf("credential proxy/header binding lost: %s", r.URL)
 			}
 			body, _ := io.ReadAll(r.Body)
-			marker := gjson.GetBytes(body, "text").String()
+			marker := ojson.GetBytes(body, "text").String()
 			if marker == "unknown-voice" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(404)
 				_, _ = io.WriteString(w, `{"error":{"message":"unknown voice id"}}`)
 				return
 			}
-			if gjson.GetBytes(body, "model").Exists() || gjson.GetBytes(body, "voice_id").String() != "eve" {
+			if ojson.GetBytes(body, "model").Exists() || ojson.GetBytes(body, "voice_id").String() != "eve" {
 				t.Errorf("speech translation changed: %s", body)
 			}
 			entered <- id
@@ -239,7 +239,7 @@ func TestV820SpeechThreeCredentialsThreeKeysKeepProxyAdmissionAndLifecycle(t *te
 		}
 	}
 	errorResponse := v820Request(router, "/v1/audio/speech", `{"input":"unknown-voice"}`, "synthetic-client-0")
-	if errorResponse.Code != 404 || !gjson.ValidBytes(errorResponse.Body.Bytes()) || errorResponse.Header().Get("Content-Type") != "application/json" {
+	if errorResponse.Code != 404 || !ojson.ValidBytes(errorResponse.Body.Bytes()) || errorResponse.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("speech error was returned as audio: %d %v %s", errorResponse.Code, errorResponse.Header(), errorResponse.Body.String())
 	}
 	if completion := v820Await(t, host.completions); completion.Outcome != pluginapi.RequestCompletionFailed {
@@ -304,7 +304,7 @@ func TestV820UnsupportedUserTurnFailsBeforeUpstreamAtHTTPBoundary(t *testing.T) 
 					body = fmt.Sprintf(`{"model":"v820-invalid-model","stream":%t,"input":[{"role":"user","content":[{"type":"input_file","file_id":"file-synthetic"}]}]}`, stream)
 				}
 				result := v820Request(v820Router(base), path, body, "synthetic-invalid-client")
-				if result.Code != 400 || !gjson.ValidBytes(result.Body.Bytes()) || !strings.Contains(result.Body.String(), "unsupported content part") {
+				if result.Code != 400 || !ojson.ValidBytes(result.Body.Bytes()) || !strings.Contains(result.Body.String(), "unsupported content part") {
 					t.Fatalf("translation error did not reach HTTP boundary: %d %s", result.Code, result.Body.String())
 				}
 				completion := v820Await(t, host.completions)
@@ -417,12 +417,12 @@ func TestV820CommittedSSECompactsPrettyUpstreamErrorWithoutLosingFields(t *testi
 		if payload == "[DONE]" {
 			continue
 		}
-		if !gjson.Valid(payload) {
+		if !ojson.Valid(payload) {
 			t.Fatalf("pretty error split into invalid SSE data line: %q", line)
 		}
-		if gjson.Get(payload, "error").Exists() {
+		if ojson.Get(payload, "error").Exists() {
 			errorsSeen++
-			if gjson.Get(payload, "error.status_code").Int() != 422 || gjson.Get(payload, "error.details.field").String() != "input" || gjson.Get(payload, "error.details.retryable").Raw != "false" {
+			if ojson.Get(payload, "error.status_code").Int() != 422 || ojson.Get(payload, "error.details.field").String() != "input" || ojson.Get(payload, "error.details.retryable").Raw != "false" {
 				t.Fatalf("SSE compaction lost structured error: %s", payload)
 			}
 		}

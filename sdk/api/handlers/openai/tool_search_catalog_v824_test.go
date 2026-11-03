@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -12,7 +13,6 @@ import (
 	responsesclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestV824PublicCodexCatalogRequiresToolSearchOnEveryServingCredential(t *testing.T) {
@@ -60,7 +60,7 @@ func TestV824PublicCodexCatalogRequiresToolSearchOnEveryServingCredential(t *tes
 			t.Fatalf("catalog failed: %d %s", writer.Code, writer.Body.String())
 		}
 		actual := map[string]bool{}
-		for _, model := range gjson.GetBytes(writer.Body.Bytes(), "models").Array() {
+		for _, model := range ojson.GetBytes(writer.Body.Bytes(), "models").Array() {
 			actual[model.Get("slug").String()] = model.Get("supports_search_tool").Bool()
 		}
 		for model, supported := range map[string]bool{"v824-official": true, "v824-mixed": false, "v824-opt-in": true, "v824-disabled-mixed": true, "v824-mixed-provider": false, "v824-unknown": false, "v824-legacy-alias": false, "team/v824-exact": true} {

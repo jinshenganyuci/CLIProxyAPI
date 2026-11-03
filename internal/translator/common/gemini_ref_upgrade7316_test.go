@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	agclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/claude"
 	aginteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/interactions"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
 	geminiinteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/interactions"
 	geminiresponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
-	"github.com/tidwall/gjson"
 )
 
 func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
@@ -49,9 +49,9 @@ func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
 					if route.directResponse && payload.stringify {
 						path += ".result"
 					}
-					got := gjson.GetBytes(out, path)
+					got := ojson.GetBytes(out, path)
 					if payload.stringify {
-						if got.Type != gjson.String || got.String() != payload.raw {
+						if got.Type != ojson.String || got.String() != payload.raw {
 							t.Fatalf("opaque JSON text changed at %s: %s", path, out)
 						}
 					} else if !got.IsObject() || got.Raw != payload.raw {
@@ -71,7 +71,7 @@ func TestGeminiRefUpgrade7316HelperPreservesFalseNullAndLargeNumbers(t *testing.
 		for _, path := range []string{"response.result", "functionResponse.response.result", "functionResponse.response"} {
 			t.Run(path+"/"+raw, func(t *testing.T) {
 				out := common.SetGeminiFunctionResponseRaw([]byte(`{}`), path, raw)
-				if got := gjson.GetBytes(out, path).Raw; got != raw {
+				if got := ojson.GetBytes(out, path).Raw; got != raw {
 					t.Fatalf("value changed: got %s, want %s", got, raw)
 				}
 			})

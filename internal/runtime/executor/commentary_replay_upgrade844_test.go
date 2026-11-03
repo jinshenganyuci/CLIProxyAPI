@@ -8,11 +8,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // A Responses client can replay the reasoning carrier produced by a previous
@@ -59,10 +59,10 @@ func TestV844CommentaryResponsesReplayDoesNotSendInternalSignature(t *testing.T)
 				t.Fatal(errExecute)
 			}
 			wire := <-captured
-			if got := gjson.GetBytes(wire, `input.#(type=="reasoning").encrypted_content`).String(); got == "cpa:commentary:v1" {
+			if got := ojson.GetBytes(wire, `input.#(type=="reasoning").encrypted_content`).String(); got == "cpa:commentary:v1" {
 				t.Errorf("internal commentary marker reached upstream encrypted_content: %s", wire)
 			}
-			commentary := gjson.GetBytes(wire, `input.#(phase=="commentary")`)
+			commentary := ojson.GetBytes(wire, `input.#(phase=="commentary")`)
 			if commentary.Get("type").String() != "message" || commentary.Get("role").String() != "assistant" || commentary.Get("content.0.text").String() != "COMMENTARY_SENTINEL" {
 				t.Errorf("commentary did not become an assistant message: %s", wire)
 			}

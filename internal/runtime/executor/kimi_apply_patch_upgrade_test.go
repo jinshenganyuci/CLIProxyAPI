@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestKimiApplyPatchCountTokensPreservesSelectedExitAndSharedAuth(t *testing.T) {
@@ -34,7 +34,7 @@ func TestKimiApplyPatchCountTokensPreservesSelectedExitAndSharedAuth(t *testing.
 		if errRead != nil {
 			t.Error(errRead)
 		}
-		if gjson.GetBytes(body, "model").String() != "k3" || gjson.GetBytes(body, "tools.0.name").String() != "apply_patch" || gjson.GetBytes(body, "tools.0.input_schema.properties.input.type").String() != "string" {
+		if ojson.GetBytes(body, "model").String() != "k3" || ojson.GetBytes(body, "tools.0.name").String() != "apply_patch" || ojson.GetBytes(body, "tools.0.input_schema.properties.input.type").String() != "string" {
 			t.Errorf("native patch declaration was not adapted for token counting: %s", body)
 		}
 		w.Header().Set("Content-Type", "application/json")

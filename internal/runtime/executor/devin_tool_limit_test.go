@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -64,7 +64,7 @@ func TestStreamDevinFrames_ToolLimitMatchesNonStream(t *testing.T) {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
-			event := gjson.Parse(strings.TrimPrefix(line, "data: "))
+			event := ojson.Parse(strings.TrimPrefix(line, "data: "))
 			index := int(event.Get("index").Int())
 			switch event.Get("event_type").String() {
 			case "step.start":

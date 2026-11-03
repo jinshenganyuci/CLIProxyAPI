@@ -9,12 +9,12 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 // Check backing addresses instead of GC timing or heap thresholds: a short
 // substring can retain the whole request even when its visible text is small.
-func assertNoRequestBacking837(t *testing.T, root gjson.Result, snapshot any) {
+func assertNoRequestBacking837(t *testing.T, root ojson.Result, snapshot any) {
 	t.Helper()
 	start := uintptr(unsafe.Pointer(unsafe.StringData(root.Raw)))
 	end := start + uintptr(len(root.Raw))
@@ -66,10 +66,10 @@ func TestUpgrade837ResponsesInterleavedEchoSnapshot(t *testing.T) {
 		chunk := []byte(fmt.Sprintf(`data: {"id":"snapshot","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"%s__read","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`, owner))
 		out := ConvertOpenAIChatCompletionsResponseToOpenAIResponses(t.Context(), "", requests[1-i], nil, chunk, &states[i])
 		out = append(out, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(t.Context(), "", nil, nil, []byte("data: [DONE]"), &states[i])...)
-		var completed gjson.Result
+		var completed ojson.Result
 		for _, block := range out {
 			for _, line := range bytes.Split(block, []byte("\n")) {
-				p := gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
+				p := ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: ")))
 				if p.Get("type").String() == "response.completed" {
 					completed = p.Get("response")
 				}
@@ -86,14 +86,14 @@ func TestUpgrade837ResponsesInterleavedEchoSnapshot(t *testing.T) {
 }
 
 func TestUpgrade837ResponsesSnapshotsDoNotPinInput(t *testing.T) {
-	root := gjson.Parse(`{"model":"client-model","instructions":"short instructions","previous_response_id":"previous","prompt_cache_key":"key","safety_identifier":"safety","service_tier":"priority","truncation":"auto","reasoning":{"effort":"high"},"text":{"format":{"type":"text"}},"tool_choice":"auto","user":"user","metadata":{"nested":[{"tag":"value"}]},"tools":[{"type":"namespace","name":"editor","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}],"input":[{"role":"user","content":"` + strings.Repeat("private-history-", 8192) + `"},{"type":"additional_tools","tools":[{"type":"custom","name":"patch","format":{"type":"text"}}]}]}`)
+	root := ojson.Parse(`{"model":"client-model","instructions":"short instructions","previous_response_id":"previous","prompt_cache_key":"key","safety_identifier":"safety","service_tier":"priority","truncation":"auto","reasoning":{"effort":"high"},"text":{"format":{"type":"text"}},"tool_choice":"auto","user":"user","metadata":{"nested":[{"tag":"value"}]},"tools":[{"type":"namespace","name":"editor","tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}],"input":[{"role":"user","content":"` + strings.Repeat("private-history-", 8192) + `"},{"type":"additional_tools","tools":[{"type":"custom","name":"patch","format":{"type":"text"}}]}]}`)
 	t.Run("echo", func(t *testing.T) {
 		assertNoRequestBacking837(t, root, extractResponsesRequestEcho(root))
 	})
 	t.Run("tool_index", func(t *testing.T) {
 		idx := newResponsesToolIndex(root)
 		assertNoRequestBacking837(t, root, idx)
-		if got := idx.applyIdentity([]byte(`{}`), "editor__read", ""); gjson.GetBytes(got, "name").String() != "read" || gjson.GetBytes(got, "namespace").String() != "editor" {
+		if got := idx.applyIdentity([]byte(`{}`), "editor__read", ""); ojson.GetBytes(got, "name").String() != "read" || ojson.GetBytes(got, "namespace").String() != "editor" {
 			t.Fatalf("namespace identity changed: %s", got)
 		}
 		if _, ok := idx.custom["patch"]; !ok || len(idx.chatTools()) != 2 {

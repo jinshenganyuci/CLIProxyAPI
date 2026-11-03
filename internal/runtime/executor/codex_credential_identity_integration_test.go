@@ -10,13 +10,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 type codexCredentialIdentityCapture struct {
@@ -41,8 +41,8 @@ func TestCodexCredentialIdentityHTTPIntegrationAndConcurrency(t *testing.T) {
 			return
 		}
 		capture := codexCredentialIdentityCapture{
-			prompt:       gjson.GetBytes(body, "prompt_cache_key").String(),
-			installation: gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
+			prompt:       ojson.GetBytes(body, "prompt_cache_key").String(),
+			installation: ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
 			session:      codexSessionHeaderValue(r.Header),
 			conversation: headerValueCaseInsensitive(r.Header, "Conversation_id"),
 			thread:       headerValueCaseInsensitive(r.Header, "Thread-Id"),
@@ -98,10 +98,10 @@ func TestCodexCredentialIdentityHTTPIntegrationAndConcurrency(t *testing.T) {
 		if got := response.Headers.Get("Session-Id"); got != "client-session" {
 			t.Fatalf("downstream Session-Id = %q, want original", got)
 		}
-		if got := gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "client-session" {
+		if got := ojson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "client-session" {
 			t.Fatalf("downstream payload prompt_cache_key = %q; payload=%s", got, response.Payload)
 		}
-		if got := gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "client-install" {
+		if got := ojson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "client-install" {
 			t.Fatalf("downstream payload installation ID = %q; payload=%s", got, response.Payload)
 		}
 	}
@@ -152,8 +152,8 @@ func TestCodexCredentialIdentityCompactUsesSameSnapshot(t *testing.T) {
 			t.Errorf("upstream path = %q", r.URL.Path)
 		}
 		body, _ := io.ReadAll(r.Body)
-		captured.prompt = gjson.GetBytes(body, "prompt_cache_key").String()
-		captured.installation = gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+		captured.prompt = ojson.GetBytes(body, "prompt_cache_key").String()
+		captured.installation = ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
 		captured.session = codexSessionHeaderValue(r.Header)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Session-Id", captured.session)
@@ -185,10 +185,10 @@ func TestCodexCredentialIdentityCompactUsesSameSnapshot(t *testing.T) {
 	if captured.prompt != captured.session {
 		t.Fatalf("compact body/header snapshot diverged: %+v", captured)
 	}
-	if got := gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "compact-session" {
+	if got := ojson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "compact-session" {
 		t.Fatalf("compact response prompt = %q; payload=%s", got, response.Payload)
 	}
-	if got := gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "compact-install" {
+	if got := ojson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "compact-install" {
 		t.Fatalf("compact response installation = %q; payload=%s", got, response.Payload)
 	}
 	if got := response.Headers.Get("Session-Id"); got != "compact-session" {
@@ -206,8 +206,8 @@ func TestCodexCredentialIdentityHTTPStreamIntegration(t *testing.T) {
 			return
 		}
 		capture := codexCredentialIdentityCapture{
-			prompt:       gjson.GetBytes(body, "prompt_cache_key").String(),
-			installation: gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
+			prompt:       ojson.GetBytes(body, "prompt_cache_key").String(),
+			installation: ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
 			session:      codexSessionHeaderValue(r.Header),
 		}
 		captured <- capture
@@ -276,8 +276,8 @@ func TestCodexCredentialIdentityWebsocketPathsIntegration(t *testing.T) {
 					return
 				}
 				capture := codexCredentialIdentityCapture{
-					prompt:       gjson.GetBytes(body, "prompt_cache_key").String(),
-					installation: gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
+					prompt:       ojson.GetBytes(body, "prompt_cache_key").String(),
+					installation: ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String(),
 					session:      codexSessionHeaderValue(r.Header),
 				}
 				captured <- capture
@@ -324,10 +324,10 @@ func TestCodexCredentialIdentityWebsocketPathsIntegration(t *testing.T) {
 				if errExecute != nil {
 					t.Fatal(errExecute)
 				}
-				if got := gjson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "ws-session" {
+				if got := ojson.GetBytes(response.Payload, "metadata.prompt_cache_key").String(); got != "ws-session" {
 					t.Fatalf("websocket response prompt = %q; payload=%s", got, response.Payload)
 				}
-				if got := gjson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "ws-install" {
+				if got := ojson.GetBytes(response.Payload, "metadata.x-codex-installation-id").String(); got != "ws-install" {
 					t.Fatalf("websocket response installation = %q; payload=%s", got, response.Payload)
 				}
 			}
@@ -346,7 +346,7 @@ func TestCodexCredentialIdentityWebsocketPathsIntegration(t *testing.T) {
 func TestCodexCredentialIdentityPrettyJSONCompact(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		mapped := gjson.GetBytes(body, "prompt_cache_key").String()
+		mapped := ojson.GetBytes(body, "prompt_cache_key").String()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, "{\n  \"id\": \"resp_compact\",\n  \"object\": \"response.compaction\",\n  \"metadata\": {\n    \"prompt_cache_key\": %q\n  }\n}\n", mapped)
 	}))
@@ -358,7 +358,7 @@ func TestCodexCredentialIdentityPrettyJSONCompact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(res.Payload, "metadata.prompt_cache_key").String(); got != "client-session" {
+	if got := ojson.GetBytes(res.Payload, "metadata.prompt_cache_key").String(); got != "client-session" {
 		t.Fatalf("pretty JSON leaked mapped identity=%s payload=%s", got, res.Payload)
 	}
 }
@@ -389,7 +389,7 @@ func TestCodexCredentialIdentityWebsocketHandshakeError(t *testing.T) {
 				if errExecute == nil {
 					t.Fatal("expected handshake failure")
 				}
-				if got := gjson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
+				if got := ojson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
 					t.Fatalf("handshake error identity=%s error=%v", got, errExecute)
 				}
 			})
@@ -428,7 +428,7 @@ func TestCodexCredentialIdentityHTTPTerminalError(t *testing.T) {
 			if errExecute == nil {
 				t.Fatal("expected terminal failure")
 			}
-			if got := gjson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
+			if got := ojson.Get(errExecute.Error(), "error.session_id").String(); got != "client-session" {
 				t.Fatalf("terminal error identity=%s error=%v", got, errExecute)
 			}
 		})
@@ -440,7 +440,7 @@ func TestCodexCredentialIdentityDirectImageResponse(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				mapped := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+				mapped := ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
 				if stream {
 					w.Header().Set("Content-Type", "text/event-stream")
 					_, _ = fmt.Fprintf(w, "data: {\"type\":\"image_generation.completed\",\"padding\":%q,\"installation_id\":%q}\n\n", string(bytes.Repeat([]byte("a"), 40*1024)), mapped)
@@ -487,11 +487,11 @@ func TestV815CodexDirectImagePayloadOverridePreservesIdentity(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				mapped := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+				mapped := ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
 				if mapped == "configured-install" || mapped == "client-install" || mapped == "" {
 					t.Errorf("final image override escaped credential identity: %s", body)
 				}
-				if gjson.GetBytes(body, "prompt").String() != "configured-prompt" {
+				if ojson.GetBytes(body, "prompt").String() != "configured-prompt" {
 					t.Errorf("image business override missing: %s", body)
 				}
 				if stream {

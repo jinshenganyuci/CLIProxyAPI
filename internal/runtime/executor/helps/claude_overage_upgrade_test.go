@@ -30,10 +30,8 @@ func TestClaudeUpgradeOverageResetScopeAndDeadlines(t *testing.T) {
 			wantReset:   7 * 24 * time.Hour,
 		},
 		{
-			name:        "missing-shared-health-remains-conservative",
-			headers:     http.Header{"Anthropic-Ratelimit-Unified-7d-Status": {"allowed"}},
-			wantUnified: true,
-			wantReset:   7 * 24 * time.Hour,
+			name:    "missing-5h-with-allowed-7d-remains-model-scoped",
+			headers: http.Header{"Anthropic-Ratelimit-Unified-7d-Status": {"allowed"}},
 		},
 		{
 			name:    "both-shared-windows-allowed",

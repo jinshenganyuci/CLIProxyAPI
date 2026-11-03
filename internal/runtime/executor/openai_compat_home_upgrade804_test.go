@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executionregistry"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestHome804SelectedTextOnlyImageResultPreserved(t *testing.T) {
@@ -71,11 +71,11 @@ func TestHome804SelectedTextOnlyImageResultPreserved(t *testing.T) {
 				t.Fatal(errExecute)
 			}
 			body := <-bodies
-			if strings.Contains(string(body), "image_url") || gjson.GetBytes(body, "max_completion_tokens").Int() != 64 {
+			if strings.Contains(string(body), "image_url") || ojson.GetBytes(body, "max_completion_tokens").Int() != 64 {
 				t.Fatalf("selected Home model options were not applied: %s", body)
 			}
 			found := false
-			for _, message := range gjson.GetBytes(body, "messages").Array() {
+			for _, message := range ojson.GetBytes(body, "messages").Array() {
 				if message.Get("role").String() == "tool" && message.Get("tool_call_id").String() == "call" && message.Get("content").String() == "[image omitted: unsupported by upstream]" {
 					found = true
 				}

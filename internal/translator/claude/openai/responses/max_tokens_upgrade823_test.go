@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade823ClaudeRegistryDefaultsPreserveExplicitAndFableLimits(t *testing.T) {
@@ -43,10 +43,10 @@ func TestUpgrade823ClaudeRegistryDefaultsPreserveExplicitAndFableLimits(t *testi
 				if errConvert != nil {
 					t.Fatal(errConvert)
 				}
-				if got := gjson.GetBytes(out, "max_tokens").Int(); got != tc.want {
+				if got := ojson.GetBytes(out, "max_tokens").Int(); got != tc.want {
 					t.Fatalf("max_tokens = %d, want %d: %s", got, tc.want, out)
 				}
-				if got := gjson.GetBytes(out, "messages.0.content").String(); got != "hello" {
+				if got := ojson.GetBytes(out, "messages.0.content").String(); got != "hello" {
 					t.Fatalf("request content changed: %s", out)
 				}
 			})

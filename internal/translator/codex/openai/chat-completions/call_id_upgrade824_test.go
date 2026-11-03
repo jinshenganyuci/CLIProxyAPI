@@ -7,7 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade824LongCallIDsPreserveUTF8AndCustomResultIdentity(t *testing.T) {
@@ -49,7 +49,7 @@ func TestUpgrade824LongCallIDsPreserveUTF8AndCustomResultIdentity(t *testing.T) 
 				}
 				ids := map[string]string{}
 				outputs := map[string]string{}
-				for _, item := range gjson.GetBytes(out, "input").Array() {
+				for _, item := range ojson.GetBytes(out, "input").Array() {
 					id := item.Get("call_id").String()
 					if len(id) > 64 || !utf8.ValidString(id) {
 						t.Fatalf("normalized call_id is invalid or exceeds 64 bytes: %q", id)

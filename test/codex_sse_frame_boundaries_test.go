@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -15,7 +16,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/openai"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexHTTPStreamPreservesSSEBoundariesBeforeTerminalError(t *testing.T) {
@@ -71,9 +71,9 @@ func TestCodexHTTPStreamPreservesSSEBoundariesBeforeTerminalError(t *testing.T) 
 							}
 						}
 						payload := strings.Join(data, "\n")
-						switch gjson.Get(payload, "type").String() {
+						switch ojson.Get(payload, "type").String() {
 						case "response.output_text.delta":
-							deltaSeen = gjson.Get(payload, "delta").String() == "synthetic-boundary-delta"
+							deltaSeen = ojson.Get(payload, "delta").String() == "synthetic-boundary-delta"
 						case "error", "response.failed":
 							if failureSeen || !deltaSeen || !strings.Contains(payload, "Synthetic public stream failure") || !strings.Contains(payload, "fixture_terminal_failure") || strings.Contains(payload, "synthetic-boundary-delta") {
 								t.Fatalf("preceding SSE frame replaced the real terminal error: %q", body)

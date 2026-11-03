@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
@@ -19,7 +20,6 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T) {
@@ -57,15 +57,15 @@ func testCodexExecutionProxyKeepsCredentialAuthoritative(t *testing.T, disableCl
 					if got := r.Header.Get(codexRoutingHintHeader); got != wantHint {
 						t.Errorf("routing hint = %q, want resolved model and overridden tier", got)
 					}
-					if gjson.GetBytes(body, "model").String() != "gpt-5.5" || gjson.GetBytes(body, "service_tier").String() != "priority" {
+					if ojson.GetBytes(body, "model").String() != "gpt-5.5" || ojson.GetBytes(body, "service_tier").String() != "priority" {
 						t.Errorf("upstream body model/tier do not match routing hint: %s", body)
 					}
 					wantSession := internalcodex.DeriveCredentialIdentity(uuid.MustParse("c8775040-a5bc-4bc5-893c-bd631bacd584"), "session", "client-session")
 					wantInstall := internalcodex.DeriveCredentialIdentity(uuid.MustParse("c8775040-a5bc-4bc5-893c-bd631bacd584"), "installation", "client-install")
-					if got := gjson.GetBytes(body, "prompt_cache_key").String(); got != wantSession {
+					if got := ojson.GetBytes(body, "prompt_cache_key").String(); got != wantSession {
 						t.Errorf("credential session identity = %q, want %q", got, wantSession)
 					}
-					if got := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String(); got != wantInstall {
+					if got := ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String(); got != wantInstall {
 						t.Errorf("credential installation identity = %q, want %q", got, wantInstall)
 					}
 					if got := codexSessionHeaderValue(r.Header); got != wantSession {

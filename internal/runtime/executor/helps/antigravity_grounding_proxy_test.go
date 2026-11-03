@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
-	"github.com/tidwall/gjson"
 )
 
 // These probes use actual proxy sockets and a local TLS origin. A direct dial or
@@ -72,7 +72,7 @@ func TestAntigravityGroundingHEADUsesOnlySelectedCredentialProxy(t *testing.T) {
 			before := originHits.Load()
 			output := ResolveAntigravityGroundingURLs(ctx, cfg, auth, input)
 			for _, path := range []string{"candidates.0.groundingMetadata.groundingChunks.0.web.uri", "candidates.0.groundingMetadata.groundingChunks.1.web.uri"} {
-				if got := gjson.GetBytes(output, path).String(); got != resolvedURL {
+				if got := ojson.GetBytes(output, path).String(); got != resolvedURL {
 					t.Fatalf("resolved URL=%q, want %q", got, resolvedURL)
 				}
 			}

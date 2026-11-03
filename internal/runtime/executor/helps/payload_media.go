@@ -2,17 +2,18 @@ package helps
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/MoeForge/moego/base64"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/textproto"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
-	"github.com/tidwall/gjson"
 )
 
 // ApplyMediaPayloadConfig exposes multipart fields as JSON business values. File
@@ -22,22 +23,20 @@ func ApplyMediaPayloadConfig(cfg *config.Config, executor, model, protocol strin
 	if errDecode != nil {
 		return nil, "", errDecode
 	}
-	original := req.Payload
-	if len(opts.OriginalRequest) > 0 {
-		original = opts.OriginalRequest
+	finalize, errFinalize := NewMediaPayloadFinalizer(cfg, executor, model, protocol, req, opts)
+	if errFinalize != nil {
+		return nil, "", errFinalize
 	}
-	originalView, _, errOriginal := mediaPayloadJSON(original, opts.Headers.Get("Content-Type"))
-	if errOriginal != nil {
-		return nil, "", errOriginal
-	}
-	out := NewPayloadFinalizer(cfg, executor, model, protocol, "", originalView, req, opts)(view)
+	doc := ojson.NewDoc(view)
+	finalize.FinalizeDoc(doc)
+	out := doc.Bytes()
 	if !multipartBody || bytes.Equal(out, view) {
 		return outOrBody(out, body, multipartBody), contentType, nil
 	}
 	var buffer bytes.Buffer
 	writer := multipart.NewWriter(&buffer)
-	for key, value := range gjson.ParseBytes(out).Map() {
-		values := []gjson.Result{value}
+	for key, value := range util.ParseGJSONBytesNoCopy(out).Map() {
+		values := []ojson.Result{value}
 		if value.IsArray() {
 			values = value.Array()
 		}
@@ -66,6 +65,19 @@ func ApplyMediaPayloadConfig(cfg *config.Config, executor, model, protocol strin
 		return nil, "", errClose
 	}
 	return buffer.Bytes(), writer.FormDataContentType(), nil
+}
+
+// NewMediaPayloadFinalizer keeps the original media view separate from the staged business document.
+func NewMediaPayloadFinalizer(cfg *config.Config, executor, model, protocol string, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (PayloadFinalizer, error) {
+	original := req.Payload
+	if len(opts.OriginalRequest) > 0 {
+		original = opts.OriginalRequest
+	}
+	originalView, _, errOriginal := mediaPayloadJSON(original, opts.Headers.Get("Content-Type"))
+	if errOriginal != nil {
+		return nil, errOriginal
+	}
+	return NewPayloadFinalizer(cfg, executor, model, protocol, "", originalView, req, opts), nil
 }
 
 func outOrBody(out, body []byte, multipartBody bool) []byte {

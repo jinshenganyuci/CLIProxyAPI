@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -17,7 +18,6 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
-	"github.com/tidwall/gjson"
 )
 
 type websocketCancellationCall struct {
@@ -157,7 +157,7 @@ func TestResponsesWebsocketDownstreamDisconnectCancelsSilentExecution(t *testing
 					if errDeadline := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); errDeadline != nil {
 						t.Fatalf("set test read deadline: %v", errDeadline)
 					}
-					if _, payload, errRead := conn.ReadMessage(); errRead != nil || gjson.GetBytes(payload, "type").String() != "response.created" {
+					if _, payload, errRead := conn.ReadMessage(); errRead != nil || ojson.GetBytes(payload, "type").String() != "response.created" {
 						t.Fatalf("upstream stream did not start: payload = %s, error = %v", payload, errRead)
 					}
 				}
@@ -243,20 +243,20 @@ func TestResponsesWebsocketQueuedTurnRemainsSequential(t *testing.T) {
 	close(first.finish)
 	select {
 	case result := <-responses:
-		if result.err != nil || gjson.GetBytes(result.payload, "response.id").String() != "response-1" {
+		if result.err != nil || ojson.GetBytes(result.payload, "response.id").String() != "response-1" {
 			t.Fatalf("first response = %s, error = %v", result.payload, result.err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for first response")
 	}
 	second := awaitWebsocketCancellationCall(t, executor)
-	if got := gjson.GetBytes(second.payload, "previous_response_id").String(); got != "response-1" {
+	if got := ojson.GetBytes(second.payload, "previous_response_id").String(); got != "response-1" {
 		t.Fatalf("queued continuation previous_response_id = %q", got)
 	}
 	close(second.finish)
 	select {
 	case result := <-responses:
-		if result.err != nil || gjson.GetBytes(result.payload, "response.id").String() != "response-2" {
+		if result.err != nil || ojson.GetBytes(result.payload, "response.id").String() != "response-2" {
 			t.Fatalf("second response = %s, error = %v", result.payload, result.err)
 		}
 	case <-time.After(3 * time.Second):

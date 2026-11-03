@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature/signaturetest"
 	claudechat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/chat-completions"
 	clauderesponses "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade815ClaudeNativeJSONPreservesMixedBlocksAndUsage(t *testing.T) {
@@ -33,40 +33,40 @@ func TestUpgrade815ClaudeNativeJSONPreservesMixedBlocksAndUsage(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for path, want := range map[string]int64{tc.inputPath: 23, tc.outputPath: 5, tc.totalPath: 28, tc.cachedPath: 7} {
-				if gjson.GetBytes(tc.out, path).Int() != want {
+				if ojson.GetBytes(tc.out, path).Int() != want {
 					t.Fatalf("usage %s was lost or counted twice: %s", path, tc.out)
 				}
 			}
-			call := gjson.GetBytes(tc.out, tc.callPath)
+			call := ojson.GetBytes(tc.out, tc.callPath)
 			args, id := call.Get("arguments").String(), call.Get("call_id").String()
 			if tc.name == "chat" {
 				args, id = call.Get("function.arguments").String(), call.Get("id").String()
 			}
-			parsed := gjson.Parse(args)
+			parsed := ojson.Parse(args)
 			if id != "call-original" || parsed.Get("count").Raw != "9007199254740993" || parsed.Get("enabled").Raw != "false" || parsed.Get("nested.value").Raw != "null" {
 				t.Fatalf("native adaptation changed tool identity or arguments: %s", tc.out)
 			}
 		})
 	}
-	if gjson.GetBytes(chat, "usage.prompt_tokens_details.cached_creation_tokens").Int() != 3 {
+	if ojson.GetBytes(chat, "usage.prompt_tokens_details.cached_creation_tokens").Int() != 3 {
 		t.Fatalf("cache creation usage was lost: %s", chat)
 	}
-	if gjson.GetBytes(responses, "output.0.encrypted_content").String() != qSignature || gjson.GetBytes(responses, "output.0.summary.0.text").String() != "plan <>&" {
+	if ojson.GetBytes(responses, "output.0.encrypted_content").String() != qSignature || ojson.GetBytes(responses, "output.0.summary.0.text").String() != "plan <>&" {
 		t.Fatal("response translation changed the opaque reasoning carrier")
 	}
-	annotations := gjson.GetBytes(responses, "output.1.content.0.annotations").Array()
+	annotations := ojson.GetBytes(responses, "output.1.content.0.annotations").Array()
 	if len(annotations) != 1 || annotations[0].Get("encrypted_index").String() != "opaque-citation" {
 		t.Fatalf("native citations were lost or duplicated: %s", responses)
 	}
 	var state any
-	var terminal gjson.Result
+	var terminal ojson.Result
 	for _, line := range bytes.Split(sse, []byte("\n")) {
 		if !bytes.HasPrefix(line, []byte("data: ")) {
 			continue
 		}
 		for _, event := range clauderesponses.ConvertClaudeResponseToOpenAIResponses(t.Context(), "claude-observed", request, request, line, &state) {
 			for _, eventLine := range bytes.Split(event, []byte("\n")) {
-				payload := gjson.ParseBytes(bytes.TrimPrefix(eventLine, []byte("data: ")))
+				payload := ojson.ParseBytes(bytes.TrimPrefix(eventLine, []byte("data: ")))
 				if payload.Get("type").String() == "response.completed" {
 					terminal = payload.Get("response")
 				}

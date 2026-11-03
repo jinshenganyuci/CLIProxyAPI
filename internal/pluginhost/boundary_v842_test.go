@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
@@ -17,7 +18,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV842PluginThinkingPayloadRedirectPreservesCredentialLease(t *testing.T) {
@@ -84,7 +84,7 @@ func TestV842PluginThinkingPayloadRedirectPreservesCredentialLease(t *testing.T)
 			if first.headers.Get("Authorization") == "" || last.headers.Get("Authorization") != "" || last.headers.Get("X-API-Key") != "" || last.headers.Get("X-Trace") != "keep" {
 				t.Fatal("cross-origin redirect credential policy changed")
 			}
-			if !reflect.DeepEqual(first.body, last.body) || gjson.GetBytes(last.body, "thinking_level").String() != "payload-wins" || gjson.GetBytes(last.body, "applied_by_plugin").Exists() || gjson.GetBytes(last.body, "max_tokens").Int() != 64 {
+			if !reflect.DeepEqual(first.body, last.body) || ojson.GetBytes(last.body, "thinking_level").String() != "payload-wins" || ojson.GetBytes(last.body, "applied_by_plugin").Exists() || ojson.GetBytes(last.body, "max_tokens").Int() != 64 {
 				t.Fatalf("final payload barrier did not survive plugin HTTP: %s", last.body)
 			}
 			if count, limit := manager.CredentialConcurrencySnapshot(auth.ID); count != 1 || limit != 3 {

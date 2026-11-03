@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestGeminiToolSearchSchemaAndIdentityRoundTripUpgrade828(t *testing.T) {
@@ -37,7 +37,7 @@ func TestGeminiToolSearchSchemaAndIdentityRoundTripUpgrade828(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := gjson.ParseBytes(converted)
+	root := ojson.ParseBytes(converted)
 	if root.Get("tools.0.googleSearch.includedDomains.0").String() != "example.com" {
 		t.Fatalf("native web search was replaced by client discovery: %s", converted)
 	}
@@ -80,7 +80,7 @@ func TestGeminiToolSearchSchemaAndIdentityRoundTripUpgrade828(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			upstream := []byte(fmt.Sprintf(`{"responseId":"roundtrip-828","candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"call-native-828","name":%q,"args":{"query":"<render>&"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":3,"thoughtsTokenCount":2,"totalTokenCount":16}}`, names[tc.description]))
 			var state any
-			var completed, done gjson.Result
+			var completed, done ojson.Result
 			var addedID string
 			for _, chunk := range [][]byte{append([]byte("data: "), upstream...), []byte("data: [DONE]")} {
 				for _, event := range ConvertGeminiResponseToOpenAIResponses(context.Background(), model, request, converted, chunk, &state) {
@@ -95,8 +95,8 @@ func TestGeminiToolSearchSchemaAndIdentityRoundTripUpgrade828(t *testing.T) {
 					}
 				}
 			}
-			nonstream := gjson.ParseBytes(ConvertGeminiResponseToOpenAIResponsesNonStream(context.Background(), model, request, converted, upstream, nil))
-			for _, item := range []gjson.Result{done, completed.Get("output.0"), nonstream.Get("output.0")} {
+			nonstream := ojson.ParseBytes(ConvertGeminiResponseToOpenAIResponsesNonStream(context.Background(), model, request, converted, upstream, nil))
+			for _, item := range []ojson.Result{done, completed.Get("output.0"), nonstream.Get("output.0")} {
 				if item.Get("type").String() != tc.typ || item.Get("name").String() != tc.name || item.Get("namespace").String() != tc.namespace || item.Get("status").String() != "completed" {
 					t.Fatalf("stream/nonstream identity changed: %s", item.Raw)
 				}

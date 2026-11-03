@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -22,7 +23,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/openai"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
-	"github.com/tidwall/gjson"
 )
 
 const nativeHTTPOutputItem = `{"type":"response.output_item.done","output_index":0,"item":{"id":"native-http-message","type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}`
@@ -47,7 +47,7 @@ func TestCodexNativeHTTPHandlerFidelityWithCredentialIdentity(t *testing.T) {
 						}
 						captured <- body
 						w.Header().Set("Content-Type", "text/event-stream")
-						_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\ndata: %s\n\n", nativeHTTPMetadata, nativeHTTPOutputItem, nativeHTTPCompletion(gjson.GetBytes(body, "prompt_cache_key").String()))
+						_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\ndata: %s\n\n", nativeHTTPMetadata, nativeHTTPOutputItem, nativeHTTPCompletion(ojson.GetBytes(body, "prompt_cache_key").String()))
 					}))
 					defer upstream.Close()
 					cfg := &config.Config{Codex: config.CodexConfig{StreamBootstrapBuffering: buffering, CredentialIdentity: config.CodexCredentialIdentityConfig{Enabled: identity}}}
@@ -91,7 +91,7 @@ func TestCodexNativeHTTPHandlerFidelityWithCredentialIdentity(t *testing.T) {
 						ns, _, _ := internalcodex.ParseCredentialIdentity(auth.Metadata)
 						mappedSession = internalcodex.DeriveCredentialIdentity(ns, "session", session)
 					}
-					if gjson.GetBytes(body, "prompt_cache_key").String() != mappedSession {
+					if ojson.GetBytes(body, "prompt_cache_key").String() != mappedSession {
 						t.Fatalf("credential identity not applied to request: %s", body)
 					}
 					var completed []byte
@@ -100,7 +100,7 @@ func TestCodexNativeHTTPHandlerFidelityWithCredentialIdentity(t *testing.T) {
 							continue
 						}
 						data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
-						if gjson.GetBytes(data, "type").String() == "response.completed" {
+						if ojson.GetBytes(data, "type").String() == "response.completed" {
 							completed = data
 						}
 					}
@@ -108,13 +108,13 @@ func TestCodexNativeHTTPHandlerFidelityWithCredentialIdentity(t *testing.T) {
 						var got, want any
 						errDecode := json.Unmarshal(completed, &got)
 						_ = json.Unmarshal([]byte(nativeHTTPCompletion(session)), &want)
-						if gjson.GetBytes(body, "instructions").Exists() || errDecode != nil || !reflect.DeepEqual(got, want) || (!identity && string(completed) != nativeHTTPCompletion(session)) {
+						if ojson.GetBytes(body, "instructions").Exists() || errDecode != nil || !reflect.DeepEqual(got, want) || (!identity && string(completed) != nativeHTTPCompletion(session)) {
 							t.Fatalf("native HTTP fidelity lost: request=%s completion=%s", body, completed)
 						}
 						if !strings.Contains(recorder.Body.String(), nativeHTTPMetadata) || !strings.Contains(recorder.Body.String(), nativeHTTPOutputItem) {
 							t.Fatal("native metadata or output item changed")
 						}
-					} else if gjson.GetBytes(completed, "response.output.0.id").String() != "native-http-message" {
+					} else if ojson.GetBytes(completed, "response.output.0.id").String() != "native-http-message" {
 						t.Fatalf("ordinary Responses completion repair lost: %s", completed)
 					}
 				})

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -21,7 +22,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 func TestV823LocalInterruptRejectsStaleFramesAndWebsocketFallback(t *testing.T) {
@@ -192,7 +192,7 @@ func TestV823HTTPInterruptPreservesProxyLeaseAccountingAndNextTurn(t *testing.T)
 		if errRead != nil {
 			t.Fatal(errRead)
 		}
-		if gjson.GetBytes(payload, "type").String() != kind || (id != "" && gjson.GetBytes(payload, "response.id").String() != id) {
+		if ojson.GetBytes(payload, "type").String() != kind || (id != "" && ojson.GetBytes(payload, "response.id").String() != id) {
 			t.Fatalf("expected %s/%s, got %s", kind, id, payload)
 		}
 		return payload
@@ -228,7 +228,7 @@ func TestV823HTTPInterruptPreservesProxyLeaseAccountingAndNextTurn(t *testing.T)
 		t.Fatal(errWrite)
 	}
 	_, foreignReply, errReadForeign := foreign.ReadMessage()
-	if errReadForeign != nil || gjson.GetBytes(foreignReply, "type").String() != "error" {
+	if errReadForeign != nil || ojson.GetBytes(foreignReply, "type").String() != "error" {
 		t.Fatalf("foreign session accepted another response ID: %s %v", foreignReply, errReadForeign)
 	}
 	_ = foreign.Close()

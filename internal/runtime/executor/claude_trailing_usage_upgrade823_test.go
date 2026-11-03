@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestChatToClaudeTerminalRequiresCleanTransportUpgrade823(t *testing.T) {
@@ -56,10 +56,10 @@ func TestChatToClaudeTerminalRequiresCleanTransportUpgrade823(t *testing.T) {
 					continue
 				}
 				payload := strings.TrimPrefix(line, "data: ")
-				switch gjson.Get(payload, "type").String() {
+				switch ojson.Get(payload, "type").String() {
 				case "message_delta":
 					deltas++
-					if gjson.Get(payload, "usage.output_tokens").Int() != 20 {
+					if ojson.Get(payload, "usage.output_tokens").Int() != 20 {
 						t.Fatalf("clean EOF lost final output usage: %s", payload)
 					}
 				case "message_stop":

@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
-	"github.com/tidwall/gjson"
 )
 
 func TestToolIDUpgrade7316ParallelRequestsAndTurnsStayPaired(t *testing.T) {
@@ -36,7 +36,7 @@ func TestToolIDUpgrade7316ParallelRequestsAndTurnsStayPaired(t *testing.T) {
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			contents := gjson.GetBytes(out, "request.contents").Array()
+			contents := ojson.GetBytes(out, "request.contents").Array()
 			if len(contents) != 5 {
 				t.Fatalf("unexpected turn count: %s", out)
 			}

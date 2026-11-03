@@ -12,13 +12,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
@@ -35,8 +35,8 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 		}
 		// Cloaking can prepend text blocks; the caller marker remains the last text.
 		caller := ""
-		content := gjson.GetBytes(body, "messages.0.content")
-		if content.Type == gjson.String {
+		content := ojson.GetBytes(body, "messages.0.content")
+		if content.Type == ojson.String {
 			caller = content.String()
 		} else {
 			for _, item := range content.Array() {
@@ -47,8 +47,8 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 		}
 		key := r.Header.Get("Authorization") + "/" + caller
 		mu.Lock()
-		if gjson.GetBytes(body, "thread.type").String() == "create" {
-			aliases[key] = gjson.GetBytes(body, "tools.0.name").String()
+		if ojson.GetBytes(body, "thread.type").String() == "create" {
+			aliases[key] = ojson.GetBytes(body, "tools.0.name").String()
 		}
 		alias := aliases[key]
 		mu.Unlock()
@@ -120,7 +120,7 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 					wantTool = "SearchGamma"
 				}
 			}
-			if got := gjson.GetBytes(response.Body, "content.0.name").String(); got != wantTool {
+			if got := ojson.GetBytes(response.Body, "content.0.name").String(); got != wantTool {
 				t.Fatalf("continuation alias crossed caller/credential scope: got %q want %q", got, wantTool)
 			}
 		}

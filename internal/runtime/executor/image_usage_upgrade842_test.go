@@ -3,8 +3,8 @@ package executor
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
+	"github.com/MoeForge/moego/base64"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,13 +12,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
-	"github.com/tidwall/gjson"
 )
 
 func TestV842ImageEffectiveTierMatchesFinalWireWithProxyAndLease(t *testing.T) {
@@ -58,15 +58,15 @@ func TestV842ImageEffectiveTierMatchesFinalWireWithProxyAndLease(t *testing.T) {
 							if errRead != nil {
 								t.Error(errRead)
 							}
-							tier, prompt = gjson.GetBytes(body, "service_tier").String(), gjson.GetBytes(body, "prompt").String()
+							tier, prompt = ojson.GetBytes(body, "service_tier").String(), ojson.GetBytes(body, "prompt").String()
 							if multipartBody && provider == "codex" {
 								wantImage := "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString([]byte("synthetic-image-842"))
-								if got := gjson.GetBytes(body, "images.0.image_url").String(); got != wantImage {
+								if got := ojson.GetBytes(body, "images.0.image_url").String(); got != wantImage {
 									t.Errorf("converted image changed: %q", got)
 								}
 							}
 							if provider == "codex" && !multipartBody {
-								identity := gjson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
+								identity := ojson.GetBytes(body, "client_metadata.x-codex-installation-id").String()
 								if identity == "" || identity == "configured-install" || identity == "client-install" {
 									t.Errorf("final identity mapping missing: %s", body)
 								}

@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	codexclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/claude"
 	openaiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/claude"
-	"github.com/tidwall/gjson"
 )
 
 func TestClaudeSchemaUpgrade7315NULOnlyAffectsSchemaPatterns(t *testing.T) {
@@ -24,7 +24,7 @@ func TestClaudeSchemaUpgrade7315NULOnlyAffectsSchemaPatterns(t *testing.T) {
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			schema := gjson.GetBytes(out, tt.schemaPath)
+			schema := ojson.GetBytes(out, tt.schemaPath)
 			if !schema.Exists() || schema.Get("properties.unsafe.pattern").Exists() || len(schema.Get("patternProperties").Map()) != 1 || !schema.Get("patternProperties").Map()["^safe"].Exists() {
 				t.Fatalf("unsupported schema pattern cleanup failed: %s", out)
 			}

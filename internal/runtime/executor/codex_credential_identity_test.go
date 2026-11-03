@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
 	internalcodex "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexCredentialIdentityMapsEverySupportedBodyAndHeaderField(t *testing.T) {
@@ -48,26 +48,26 @@ func TestCodexCredentialIdentityMapsEverySupportedBodyAndHeaderField(t *testing.
 			t.Fatalf("%s mapped value %q is not UUID: %v", label, value, errParse)
 		}
 	}
-	if got := gjson.GetBytes(upstreamBody, "prompt_cache_key").String(); got != mappedSession {
+	if got := ojson.GetBytes(upstreamBody, "prompt_cache_key").String(); got != mappedSession {
 		t.Fatalf("body prompt_cache_key = %q, want %q", got, mappedSession)
 	}
-	if got := gjson.GetBytes(upstreamBody, "client_metadata.x-codex-installation-id").String(); got != mappedInstall {
+	if got := ojson.GetBytes(upstreamBody, "client_metadata.x-codex-installation-id").String(); got != mappedInstall {
 		t.Fatalf("body installation = %q, want %q", got, mappedInstall)
 	}
-	if got := gjson.GetBytes(upstreamBody, "client_metadata.x-codex-window-id").String(); got != mappedWindow {
+	if got := ojson.GetBytes(upstreamBody, "client_metadata.x-codex-window-id").String(); got != mappedWindow {
 		t.Fatalf("body window = %q, want %q", got, mappedWindow)
 	}
-	turnMetadata := gjson.GetBytes(upstreamBody, "client_metadata.x-codex-turn-metadata").String()
-	if got := gjson.Get(turnMetadata, "prompt_cache_key").String(); got != mappedSession {
+	turnMetadata := ojson.GetBytes(upstreamBody, "client_metadata.x-codex-turn-metadata").String()
+	if got := ojson.Get(turnMetadata, "prompt_cache_key").String(); got != mappedSession {
 		t.Fatalf("turn metadata prompt = %q, want %q", got, mappedSession)
 	}
-	if got := gjson.Get(turnMetadata, "turn_id").String(); got != mappedTurn {
+	if got := ojson.Get(turnMetadata, "turn_id").String(); got != mappedTurn {
 		t.Fatalf("turn metadata turn = %q, want %q", got, mappedTurn)
 	}
-	if got := gjson.Get(turnMetadata, "window_id").String(); got != mappedWindow {
+	if got := ojson.Get(turnMetadata, "window_id").String(); got != mappedWindow {
 		t.Fatalf("turn metadata window = %q, want %q", got, mappedWindow)
 	}
-	if got := gjson.Get(turnMetadata, "untouched").String(); got != "session-original" {
+	if got := ojson.Get(turnMetadata, "untouched").String(); got != "session-original" {
 		t.Fatalf("unknown turn metadata field changed to %q", got)
 	}
 
@@ -110,7 +110,7 @@ func TestCodexCredentialIdentityInvariantsAcrossCredentialClientRestartAndRename
 		if errIdentity != nil {
 			t.Fatal(errIdentity)
 		}
-		return gjson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String()
+		return ojson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String()
 	}
 
 	aClient1First := mapInstall(authA, "client-1")
@@ -160,12 +160,12 @@ func TestCodexCredentialIdentityPreservesEqualityWithinKinds(t *testing.T) {
 	}
 	headers := http.Header{"Session-Id": {"shared"}, "Conversation_id": {"shared"}, "Thread-Id": {"shared"}, "X-Client-Request-Id": {"shared"}, "X-Codex-Window-Id": {"shared"}}
 	applyCodexIdentityHeaders(headers, &state)
-	metadata := gjson.GetBytes(upstream, "client_metadata.x-codex-turn-metadata").String()
+	metadata := ojson.GetBytes(upstream, "client_metadata.x-codex-turn-metadata").String()
 	byKind := map[string][]string{
-		"session":      {gjson.GetBytes(upstream, "prompt_cache_key").String(), gjson.Get(metadata, "prompt_cache_key").String(), codexSessionHeaderValue(headers), headerValueCaseInsensitive(headers, "Conversation_id"), headerValueCaseInsensitive(headers, "Thread-Id")},
-		"installation": {gjson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String()},
-		"window":       {gjson.GetBytes(upstream, "client_metadata.x-codex-window-id").String(), gjson.Get(metadata, "window_id").String(), headerValueCaseInsensitive(headers, "X-Codex-Window-Id")},
-		"turn":         {gjson.Get(metadata, "turn_id").String()},
+		"session":      {ojson.GetBytes(upstream, "prompt_cache_key").String(), ojson.Get(metadata, "prompt_cache_key").String(), codexSessionHeaderValue(headers), headerValueCaseInsensitive(headers, "Conversation_id"), headerValueCaseInsensitive(headers, "Thread-Id")},
+		"installation": {ojson.GetBytes(upstream, "client_metadata.x-codex-installation-id").String()},
+		"window":       {ojson.GetBytes(upstream, "client_metadata.x-codex-window-id").String(), ojson.Get(metadata, "window_id").String(), headerValueCaseInsensitive(headers, "X-Codex-Window-Id")},
+		"turn":         {ojson.Get(metadata, "turn_id").String()},
 		"request":      {headerValueCaseInsensitive(headers, "X-Client-Request-Id")},
 	}
 	seen := make(map[string]string)
@@ -201,7 +201,7 @@ func TestCodexCredentialIdentityStableAcrossFieldCombinations(t *testing.T) {
 			t.Fatal(errIdentity)
 		}
 		for key, kind := range map[string]string{"x-codex-installation-id": "installation", "x-codex-window-id": "window"} {
-			if got := gjson.GetBytes(upstream, "client_metadata."+key); got.Exists() {
+			if got := ojson.GetBytes(upstream, "client_metadata."+key); got.Exists() {
 				want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, "shared")
 				if got.String() != want {
 					t.Fatalf("%s changed with body %s: got %s want %s", key, body, got.String(), want)
@@ -242,16 +242,16 @@ func TestCodexCredentialIdentityResponseMappingUsesFieldKinds(t *testing.T) {
 	upstream := applyCodexIdentityConfuseResponsePayload(payload, state)
 	for key, kind := range map[string]string{"session_id": "session", "installation_id": "installation", "window_id": "window", "turn_id": "turn"} {
 		want := internalcodex.DeriveCredentialIdentity(state.credentialSnapshot.Namespace, kind, "shared")
-		if got := gjson.GetBytes(upstream, "metadata."+key).String(); got != want {
+		if got := ojson.GetBytes(upstream, "metadata."+key).String(); got != want {
 			t.Fatalf("response %s=%s want %s", key, got, want)
 		}
 	}
-	if got := gjson.Get(gjson.GetBytes(upstream, "x-codex-turn-metadata").String(), "turn_id").String(); got != state.forwardIdentities[codexIdentityMapKey("turn", "shared")] {
+	if got := ojson.Get(ojson.GetBytes(upstream, "x-codex-turn-metadata").String(), "turn_id").String(); got != state.forwardIdentities[codexIdentityMapKey("turn", "shared")] {
 		t.Fatalf("nested turn ID=%s", got)
 	}
 	client := applyCodexIdentityExposeResponsePayload(upstream, state)
 	for _, key := range []string{"session_id", "installation_id", "window_id", "turn_id", "note"} {
-		if got := gjson.GetBytes(client, "metadata."+key).String(); got != "shared" {
+		if got := ojson.GetBytes(client, "metadata."+key).String(); got != "shared" {
 			t.Fatalf("response %s not restored: %s", key, got)
 		}
 	}
@@ -278,7 +278,7 @@ func TestCodexCredentialIdentityFailClosedAndSynthesisPolicy(t *testing.T) {
 	if errIdentity != nil {
 		t.Fatal(errIdentity)
 	}
-	if gjson.GetBytes(withoutSynthesis, "client_metadata.x-codex-installation-id").Exists() {
+	if ojson.GetBytes(withoutSynthesis, "client_metadata.x-codex-installation-id").Exists() {
 		t.Fatal("installation ID was synthesized while policy was false")
 	}
 	cfg.Codex.CredentialIdentity.SynthesizeMissingInstallationID = true
@@ -286,7 +286,7 @@ func TestCodexCredentialIdentityFailClosedAndSynthesisPolicy(t *testing.T) {
 	if errIdentity != nil {
 		t.Fatal(errIdentity)
 	}
-	if got := gjson.GetBytes(withSynthesis, "client_metadata.x-codex-installation-id").String(); got == "" {
+	if got := ojson.GetBytes(withSynthesis, "client_metadata.x-codex-installation-id").String(); got == "" {
 		t.Fatal("installation ID was not synthesized while policy was true")
 	}
 }
@@ -379,10 +379,10 @@ func TestCodexCredentialIdentityWebsocketErrorPreservesQuotaMetadata(t *testing.
 				if retryAfter := metadata.RetryAfter(); retryAfter == nil || *retryAfter != *parsed.retryAfter {
 					t.Errorf("retry reset changed: got %v, want %v", retryAfter, *parsed.retryAfter)
 				}
-				if got := gjson.Get(client.Error(), "error.session_id").String(); got != originalSession {
+				if got := ojson.Get(client.Error(), "error.session_id").String(); got != originalSession {
 					t.Errorf("client session = %q, want %q", got, originalSession)
 				}
-				if got := gjson.Get(client.Error(), "error.note").String(); got != mappedSession {
+				if got := ojson.Get(client.Error(), "error.note").String(); got != mappedSession {
 					t.Errorf("unrelated error field changed to %q", got)
 				}
 				headers := metadata.Headers()
@@ -392,7 +392,7 @@ func TestCodexCredentialIdentityWebsocketErrorPreservesQuotaMetadata(t *testing.
 				if headers.Get("Retry-After") != "3600" || headers.Get("X-Unrelated") != mappedSession {
 					t.Errorf("unrelated error headers changed: %v", headers)
 				}
-				if got := gjson.Get(upstream.Error(), "error.session_id").String(); got != mappedSession || parsed.headers.Get("Session-Id") != mappedSession {
+				if got := ojson.Get(upstream.Error(), "error.session_id").String(); got != mappedSession || parsed.headers.Get("Session-Id") != mappedSession {
 					t.Errorf("upstream error was mutated: %s, headers=%v", upstream.Error(), parsed.headers)
 				}
 			})
@@ -434,10 +434,10 @@ func TestCodexCredentialIdentityResponsePreservesMultipleJSONRecords(t *testing.
 		t.Fatalf("response lost JSON records: %s", client)
 	}
 	for index, record := range records {
-		if got := gjson.GetBytes(record, "session_id").String(); got != "client-session" {
+		if got := ojson.GetBytes(record, "session_id").String(); got != "client-session" {
 			t.Fatalf("record %d identity = %s", index, got)
 		}
-		if got := gjson.GetBytes(record, "sequence").Int(); got != int64(index+1) {
+		if got := ojson.GetBytes(record, "sequence").Int(); got != int64(index+1) {
 			t.Fatalf("record %d sequence = %d", index, got)
 		}
 	}

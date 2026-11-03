@@ -119,8 +119,10 @@ func (h *Handler) RequestDevinToken(c *gin.Context) {
 	}
 	// Do not inherit the HTTP request cancellation: login continues after returning the URL.
 	ctx := PopulateAuthContext(context.Background(), c)
+	response := gin.H{"status": "ok", "url": authURL, "state": state}
+	bindOAuthSessionTarget(c, state, response)
 	go snapshot.completeDevinOAuth(ctx, authDir, state, pkceCodes.CodeVerifier, authSvc)
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "url": authURL, "state": state})
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) prepareDevinOAuthSession(c *gin.Context) (*Handler, bool, int, error) {
@@ -153,6 +155,9 @@ func (h *Handler) prepareDevinOAuthSession(c *gin.Context) (*Handler, bool, int,
 	}
 	snapshot.cfg.AuthDir = authDir
 	proxyURL := snapshot.cfg.ProxyURL
+	if selectedProxy := oauthSessionProxyURLFromContext(c); selectedProxy != "" {
+		proxyURL = selectedProxy
+	}
 	if request.ProxyURL != nil {
 		proxyURL = strings.TrimSpace(*request.ProxyURL)
 		if proxyURL == "" {
@@ -228,17 +233,9 @@ func (h *Handler) completeDevinOAuth(ctx context.Context, authDir, state, codeVe
 		// The shared token store may be reconfigured while the browser is open.
 		record.Attributes[coreauth.AttributePath] = filepath.Join(authDir, record.FileName)
 	}
-	if _, errSave := h.saveTokenRecord(ctx, record); errSave != nil {
-		if IsOAuthSessionPending(state, "devin") {
-			if errors.Is(errSave, devin.ErrOAuthProxyMismatch) {
-				FailOAuthSessionCommit(state, devin.ErrOAuthProxyMismatch.Error())
-			} else {
-				FailOAuthSessionCommit(state, "Failed to save authentication tokens")
-			}
-		}
+	if _, okSaved := h.commitAndCompleteBuiltinOAuthSession(ctx, state, "devin", sessionProxyURL, record, "Failed to save authentication tokens", false, h.saveTokenRecord); !okSaved {
 		return
 	}
-	CompleteOAuthSession(state)
 	log.Info("Devin authentication successful")
 }
 

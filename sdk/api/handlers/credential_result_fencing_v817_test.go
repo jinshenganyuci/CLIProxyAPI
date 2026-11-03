@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
 )
 
 type v817ResultHook struct {
@@ -68,7 +68,7 @@ func TestV817StaleCredentialResultsKeepSDKLifecycleAndAccounting(t *testing.T) {
 							t.Error(errRead)
 							return
 						}
-						old := gjson.GetBytes(body, "messages.0.content").String() == "old"
+						old := ojson.GetBytes(body, "messages.0.content").String() == "old"
 						wantToken := "synthetic-old-token"
 						if !old && replacement == "token-update" {
 							wantToken = "synthetic-new-token"
@@ -76,7 +76,7 @@ func TestV817StaleCredentialResultsKeepSDKLifecycleAndAccounting(t *testing.T) {
 						if !r.URL.IsAbs() || r.URL.Host != "v817-upstream.invalid" || r.Header.Get("Authorization") != "Bearer "+wantToken {
 							t.Errorf("credential-bound proxy or token snapshot changed: %s", r.URL)
 						}
-						isStream := gjson.GetBytes(body, "stream").Bool()
+						isStream := ojson.GetBytes(body, "stream").Bool()
 						if isStream {
 							w.Header().Set("Content-Type", "text/event-stream")
 							_, _ = io.WriteString(w, "data: {\"id\":\"old-response\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"old partial\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n")

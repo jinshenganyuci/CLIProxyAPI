@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade815CodexCitationsUseContentOriginsAcrossLifecycle(t *testing.T) {
@@ -17,14 +17,14 @@ func TestUpgrade815CodexCitationsUseContentOriginsAcrossLifecycle(t *testing.T) 
 			const ignored = `,{"type":"file_citation","file_id":"file-1"},{"type":"url_citation","url":"https://example.invalid/negative","start_index":-1,"end_index":1},{"type":"url_citation","url":"https://example.invalid/reversed","start_index":2,"end_index":1}`
 			var state any
 			var text strings.Builder
-			var annotations []gjson.Result
+			var annotations []ojson.Result
 			emit := func(raw string) {
 				t.Helper()
 				wire := []byte("data: " + raw)
 				before := bytes.Clone(wire)
 				for _, out := range ConvertCodexResponseToOpenAI(t.Context(), "gpt-5.5", nil, nil, wire, &state) {
-					text.WriteString(gjson.GetBytes(out, "choices.0.delta.content").String())
-					annotations = append(annotations, gjson.GetBytes(out, "choices.0.delta.annotations").Array()...)
+					text.WriteString(ojson.GetBytes(out, "choices.0.delta.content").String())
+					annotations = append(annotations, ojson.GetBytes(out, "choices.0.delta.annotations").Array()...)
 				}
 				if !bytes.Equal(before, wire) {
 					t.Fatal("citation conversion modified the caller event")
@@ -70,7 +70,7 @@ func TestUpgrade815CodexCitationsUseContentOriginsAcrossLifecycle(t *testing.T) 
 				}
 			}
 			nonStream := ConvertCodexResponseToOpenAINonStream(t.Context(), "gpt-5.5", nil, nil, []byte(terminal), nil)
-			nonStreamAnnotations := gjson.GetBytes(nonStream, "choices.0.message.annotations").Array()
+			nonStreamAnnotations := ojson.GetBytes(nonStream, "choices.0.message.annotations").Array()
 			if len(nonStreamAnnotations) != len(annotations) {
 				t.Fatalf("non-stream lost a repeated source in another block: %s", nonStream)
 			}
@@ -79,7 +79,7 @@ func TestUpgrade815CodexCitationsUseContentOriginsAcrossLifecycle(t *testing.T) 
 					t.Fatalf("stream/non-stream citation differs: %s / %s", annotation.Raw, nonStreamAnnotations[index].Raw)
 				}
 			}
-			if gjson.GetBytes(nonStream, "usage.prompt_tokens").Int() != 13 || gjson.GetBytes(nonStream, "usage.completion_tokens").Int() != 5 || gjson.GetBytes(nonStream, "usage.prompt_tokens_details.cached_tokens").Int() != 7 || gjson.GetBytes(nonStream, "usage.completion_tokens_details.reasoning_tokens").Int() != 2 {
+			if ojson.GetBytes(nonStream, "usage.prompt_tokens").Int() != 13 || ojson.GetBytes(nonStream, "usage.completion_tokens").Int() != 5 || ojson.GetBytes(nonStream, "usage.prompt_tokens_details.cached_tokens").Int() != 7 || ojson.GetBytes(nonStream, "usage.completion_tokens_details.reasoning_tokens").Int() != 2 {
 				t.Fatalf("citation processing changed usage: %s", nonStream)
 			}
 		})

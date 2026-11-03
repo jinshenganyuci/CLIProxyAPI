@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -19,8 +20,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestResponsesSteeringDisabledAccountCannotSendAnotherFrame(t *testing.T) {
@@ -136,7 +135,7 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 			if errRead != nil {
 				return
 			}
-			if gjson.GetBytes(raw, "type").String() == "response.steer" {
+			if ojson.GetBytesNoCopy(raw, "type").String() == "response.steer" {
 				upstreamSteers.Add(1)
 				continue
 			}
@@ -208,10 +207,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(steerErrMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(steerErrMsg, "type").String(); got != "error" {
 		t.Fatalf("steer after revoke event = %q, want error (%s)", got, steerErrMsg)
 	}
-	if got := int(gjson.GetBytes(steerErrMsg, "status").Int()); got != http.StatusForbidden {
+	if got := int(ojson.GetBytesNoCopy(steerErrMsg, "status").Int()); got != http.StatusForbidden {
 		t.Fatalf("steer after revoke status = %d, want %d (%s)", got, http.StatusForbidden, steerErrMsg)
 	}
 	if got := upstreamSteers.Load(); got != 0 {
@@ -225,10 +224,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(msg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(msg, "type").String(); got != "error" {
 		t.Fatalf("second create after revoke event = %q, want error (%s)", got, msg)
 	}
-	if got := int(gjson.GetBytes(msg, "status").Int()); got != http.StatusForbidden {
+	if got := int(ojson.GetBytesNoCopy(msg, "status").Int()); got != http.StatusForbidden {
 		t.Fatalf("second create status = %d, want %d (%s)", got, http.StatusForbidden, msg)
 	}
 	if got := upstreamCreates.Load(); got != 1 {
@@ -244,10 +243,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(steerModelDeniedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(steerModelDeniedMsg, "type").String(); got != "error" {
 		t.Fatalf("steer with spoofed model on denied bound model event = %q, want error (%s)", got, steerModelDeniedMsg)
 	}
-	if got := int(gjson.GetBytes(steerModelDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
+	if got := int(ojson.GetBytesNoCopy(steerModelDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
 		t.Fatalf("steer with spoofed model status = %d, want %d (%s)", got, http.StatusTooManyRequests, steerModelDeniedMsg)
 	}
 	if got := upstreamSteers.Load(); got != 0 {
@@ -261,10 +260,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(aliasDeniedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(aliasDeniedMsg, "type").String(); got != "error" {
 		t.Fatalf("omitted-model continuation with denied client alias event = %q, want error (%s)", got, aliasDeniedMsg)
 	}
-	if got := int(gjson.GetBytes(aliasDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
+	if got := int(ojson.GetBytesNoCopy(aliasDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
 		t.Fatalf("omitted-model continuation with denied client alias status = %d, want %d (%s)", got, http.StatusTooManyRequests, aliasDeniedMsg)
 	}
 	if got := upstreamCreates.Load(); got != 1 {
@@ -292,10 +291,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(steerRotatedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(steerRotatedMsg, "type").String(); got != "error" {
 		t.Fatalf("steer after key rotation event = %q, want error (%s)", got, steerRotatedMsg)
 	}
-	if got := int(gjson.GetBytes(steerRotatedMsg, "status").Int()); got != http.StatusUnauthorized {
+	if got := int(ojson.GetBytesNoCopy(steerRotatedMsg, "status").Int()); got != http.StatusUnauthorized {
 		t.Fatalf("steer after key rotation status = %d, want %d (%s)", got, http.StatusUnauthorized, steerRotatedMsg)
 	}
 	if got := upstreamSteers.Load(); got != 0 {
@@ -309,10 +308,10 @@ func TestResponsesSteeringRevokedClientKeyCannotSendSecondCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(createRotatedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(createRotatedMsg, "type").String(); got != "error" {
 		t.Fatalf("create after key rotation event = %q, want error (%s)", got, createRotatedMsg)
 	}
-	if got := int(gjson.GetBytes(createRotatedMsg, "status").Int()); got != http.StatusUnauthorized {
+	if got := int(ojson.GetBytesNoCopy(createRotatedMsg, "status").Int()); got != http.StatusUnauthorized {
 		t.Fatalf("create after key rotation status = %d, want %d (%s)", got, http.StatusUnauthorized, createRotatedMsg)
 	}
 	if got := upstreamCreates.Load(); got != 2 {
@@ -327,7 +326,9 @@ type stripModelInterceptorHost struct {
 func (*stripModelInterceptorHost) HasStreamInterceptors() bool { return false }
 
 func (*stripModelInterceptorHost) InterceptRequestBeforeAuth(_ context.Context, req pluginapi.RequestInterceptRequest) pluginapi.RequestInterceptResponse {
-	body, _ := sjson.DeleteBytes(req.Body, "model")
+	mutationDoc1 := ojson.NewDoc(req.Body)
+	_ = mutationDoc1.Delete("model")
+	body := mutationDoc1.Bytes()
 	return pluginapi.RequestInterceptResponse{Body: body}
 }
 
@@ -350,7 +351,7 @@ func TestResponsesSteeringInterceptorRewrittenBodyBindsClientModel(t *testing.T)
 			if errRead != nil {
 				return
 			}
-			if gjson.GetBytes(raw, "type").String() == "response.steer" {
+			if ojson.GetBytesNoCopy(raw, "type").String() == "response.steer" {
 				upstreamSteers.Add(1)
 				continue
 			}
@@ -425,10 +426,10 @@ func TestResponsesSteeringInterceptorRewrittenBodyBindsClientModel(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(aliasDeniedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(aliasDeniedMsg, "type").String(); got != "error" {
 		t.Fatalf("omitted-model continuation for denied client alias = %s, want 429 error", aliasDeniedMsg)
 	}
-	if got := int(gjson.GetBytes(aliasDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
+	if got := int(ojson.GetBytesNoCopy(aliasDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
 		t.Fatalf("omitted-model continuation status = %d, want %d (%s)", got, http.StatusTooManyRequests, aliasDeniedMsg)
 	}
 	if got := upstreamCreates.Load(); got != 1 {
@@ -442,10 +443,10 @@ func TestResponsesSteeringInterceptorRewrittenBodyBindsClientModel(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := gjson.GetBytes(steerDeniedMsg, "type").String(); got != "error" {
+	if got := ojson.GetBytesNoCopy(steerDeniedMsg, "type").String(); got != "error" {
 		t.Fatalf("steer for denied client alias = %s, want 429 error", steerDeniedMsg)
 	}
-	if got := int(gjson.GetBytes(steerDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
+	if got := int(ojson.GetBytesNoCopy(steerDeniedMsg, "status").Int()); got != http.StatusTooManyRequests {
 		t.Fatalf("steer status = %d, want %d (%s)", got, http.StatusTooManyRequests, steerDeniedMsg)
 	}
 	if got := upstreamSteers.Load(); got != 0 {
@@ -461,7 +462,7 @@ func TestResponsesSteeringInterceptorRewrittenBodyBindsClientModel(t *testing.T)
 		if errRead != nil {
 			t.Fatal(errRead)
 		}
-		if got := gjson.GetBytes(msg, "type").String(); got == "error" {
+		if got := ojson.GetBytesNoCopy(msg, "type").String(); got == "error" {
 			t.Fatalf("omitted-model continuation rejected when only upstream model is denied: %s", msg)
 		}
 	}
@@ -477,7 +478,7 @@ func TestResponsesSteeringInterceptorRewrittenBodyBindsClientModel(t *testing.T)
 		if errRead != nil {
 			t.Fatalf("explicit client alias continuation failed: %v", errRead)
 		}
-		if got := gjson.GetBytes(msg, "type").String(); got == "error" {
+		if got := ojson.GetBytesNoCopy(msg, "type").String(); got == "error" {
 			t.Fatalf("explicit client alias continuation returned error: %s", msg)
 		}
 	}
@@ -558,7 +559,7 @@ func TestResponsesSteeringSubsequentWebsocketMessagesRunRequestInterceptors(t *t
 				return
 			}
 			upstreamFrames <- bytes.Clone(msg)
-			switch gjson.GetBytes(msg, "type").String() {
+			switch ojson.GetBytesNoCopy(msg, "type").String() {
 			case "response.create", "response.append":
 				responseNumber++
 				// Distinct creates need distinct IDs; repeated created events are deduplicated.

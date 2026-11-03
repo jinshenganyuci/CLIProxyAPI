@@ -3,7 +3,7 @@ package chat_completions
 import (
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestToolResultCacheUpgrade7311ParallelResultsStayIsolated(t *testing.T) {
@@ -12,8 +12,8 @@ func TestToolResultCacheUpgrade7311ParallelResultsStayIsolated(t *testing.T) {
 	if errConvert != nil {
 		t.Fatalf("request translation failed: %v", errConvert)
 	}
-	results := make(map[string]gjson.Result)
-	for _, message := range gjson.GetBytes(out, "messages").Array() {
+	results := make(map[string]ojson.Result)
+	for _, message := range ojson.GetBytes(out, "messages").Array() {
 		for _, part := range message.Get("content").Array() {
 			if part.Get("type").String() == "tool_result" {
 				results[part.Get("tool_use_id").String()] = part

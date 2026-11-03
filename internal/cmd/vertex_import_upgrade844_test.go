@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	sdkauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade844VertexCLIImportPersistsGlobalLocation(t *testing.T) {
@@ -41,7 +41,7 @@ func TestUpgrade844VertexCLIImportPersistsGlobalLocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for field, want := range map[string]string{"location": "global", "project_id": "local-probe", "prefix": "separate", "type": "vertex"} {
-		if gjson.GetBytes(saved, field).String() != want {
+		if ojson.GetBytes(saved, field).String() != want {
 			t.Fatalf("persisted %s did not match import metadata", field)
 		}
 	}

@@ -75,7 +75,7 @@ func TestV815LoggingWriterPreservesFlushErrorAndDelayedDrain(t *testing.T) {
 					t.Error("flush completion discarded the delayed log worker")
 					wrapper.chunkChannel = chunks
 				}
-				go wrapper.processStreamingChunks(done)
+				go wrapper.processStreamingChunks(done, chunks, writer)
 				synctest.Wait()
 				if errFinalize := <-finished; errFinalize != nil {
 					t.Fatal(errFinalize)

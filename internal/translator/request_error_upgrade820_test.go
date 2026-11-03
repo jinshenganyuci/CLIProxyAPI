@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	antigravity "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/antigravity/openai/responses"
 	translatorcommon "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/common"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade820DirectAndPipelineAgreeOnUnsupportedUserTurns(t *testing.T) {
@@ -59,11 +59,11 @@ func TestUpgrade820DirectAndPipelineAgreeOnUnsupportedUserTurns(t *testing.T) {
 								t.Errorf("%s lost the request-scoped refusal: %v", name, got)
 							}
 						}
-						if !gjson.ValidBytes(body) || !gjson.ValidBytes(env.Body) || !bytes.Equal(raw, before) {
+						if !ojson.ValidBytes(body) || !ojson.ValidBytes(env.Body) || !bytes.Equal(raw, before) {
 							t.Fatal("translation changed input or lost diagnostic JSON")
 						}
 						if !test.wantError {
-							parts := gjson.GetBytes(env.Body, target.path+".0.parts").Array()
+							parts := ojson.GetBytes(env.Body, target.path+".0.parts").Array()
 							if len(parts) != 1 {
 								t.Fatalf("sendable turn contents changed: %s", env.Body)
 							}

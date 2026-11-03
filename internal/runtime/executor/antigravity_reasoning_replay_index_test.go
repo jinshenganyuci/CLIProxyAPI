@@ -7,10 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // antigravityReplayItemContextHashForTest stamps an item with the production
@@ -21,12 +20,12 @@ func antigravityReplayItemContextHashForTest(item, payload []byte, contentIndex 
 }
 
 func legacyAntigravityReasoningReplayItemsFromRequest(payload []byte) [][]byte {
-	contents := gjson.GetBytes(payload, "request.contents")
+	contents := ojson.GetBytes(payload, "request.contents")
 	if !contents.IsArray() {
 		return nil
 	}
 	items := make([][]byte, 0)
-	contents.ForEach(func(contentKey, content gjson.Result) bool {
+	contents.ForEach(func(contentKey, content ojson.Result) bool {
 		if !strings.EqualFold(strings.TrimSpace(content.Get("role").String()), "model") {
 			return true
 		}
@@ -68,7 +67,9 @@ func legacyAntigravityReasoningReplayItemsFromRequest(payload []byte) [][]byte {
 				continue
 			}
 			item := buildAntigravityThoughtSignatureItem(contentIndex, targetPartIndex, signature, kind, fingerprint)
-			item, _ = sjson.SetBytes(item, "targetOccurrence", antigravityReplayPartOccurrence(partArray, targetPartIndex, kind, fingerprint))
+			mutationDoc1 := ojson.NewDoc(item)
+			_ = mutationDoc1.Set("targetOccurrence", antigravityReplayPartOccurrence(partArray, targetPartIndex, kind, fingerprint))
+			item = mutationDoc1.Bytes()
 			items = append(items, legacyAntigravitySetReplayItemContextHash(item, payload, contentIndex))
 		}
 		return true
@@ -79,12 +80,12 @@ func legacyAntigravityReasoningReplayItemsFromRequest(payload []byte) [][]byte {
 func legacyFilterAntigravityReasoningReplayItemsForRequestWithSchemas(payload []byte, items [][]byte, toolSchemas map[string]any) [][]byte {
 	filtered := make([][]byte, 0, len(items))
 	for _, item := range items {
-		itemResult := gjson.ParseBytes(item)
+		itemResult := ojson.ParseBytes(item)
 		switch strings.TrimSpace(itemResult.Get("type").String()) {
 		case "function_call_part":
 			signature := strings.TrimSpace(itemResult.Get("thoughtSignature").String())
 			if contentIndex, partIndex, foundCall := legacyAntigravityFunctionCallPartLocationForReplayWithSchemas(payload, itemResult, toolSchemas); foundCall {
-				part := gjson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d", contentIndex, partIndex))
+				part := ojson.GetBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d", contentIndex, partIndex))
 				currentID := strings.TrimSpace(part.Get("functionCall.id").String())
 				nativeID := strings.TrimSpace(itemResult.Get("call_id").String())
 				needsNativeRestore := currentID != nativeID || !bytes.Equal(
@@ -109,7 +110,7 @@ func legacyFilterAntigravityReasoningReplayItemsForRequestWithSchemas(payload []
 			}
 			contextMatches := legacyAntigravityReplayItemContextMatches(payload, itemResult, responseIndex)
 			if !contextMatches && responseIndex > 0 {
-				previousRole := gjson.GetBytes(payload, fmt.Sprintf("request.contents.%d.role", responseIndex-1)).String()
+				previousRole := ojson.GetBytes(payload, fmt.Sprintf("request.contents.%d.role", responseIndex-1)).String()
 				contextMatches = strings.EqualFold(strings.TrimSpace(previousRole), "model") && legacyAntigravityReplayItemContextMatches(payload, itemResult, responseIndex-1)
 			}
 			if !contextMatches {
@@ -250,14 +251,14 @@ func TestFilterAntigravityReasoningReplayItemsWithIndexMatchesLegacy(t *testing.
 		]}
 	}`)
 	items := legacyAntigravityReasoningReplayItemsFromRequest(payload)
-	withoutSignatures, errDelete := sjson.DeleteBytes(payload, "request.contents.1.parts.0.thoughtSignature")
-	if errDelete != nil {
+	withoutSignaturesDoc := ojson.NewDoc(payload)
+	if errDelete := withoutSignaturesDoc.Delete("request.contents.1.parts.0.thoughtSignature"); errDelete != nil {
 		t.Fatal(errDelete)
 	}
-	withoutSignatures, errDelete = sjson.DeleteBytes(withoutSignatures, "request.contents.1.parts.1.thoughtSignature")
-	if errDelete != nil {
+	if errDelete := withoutSignaturesDoc.Delete("request.contents.1.parts.1.thoughtSignature"); errDelete != nil {
 		t.Fatal(errDelete)
 	}
+	withoutSignatures := withoutSignaturesDoc.Bytes()
 
 	for _, test := range []struct {
 		name    string
@@ -301,19 +302,33 @@ func TestAntigravityReplayRequestIndexRandomizedDifferential(t *testing.T) {
 			var errSet error
 			switch randomSource.Intn(7) {
 			case 0:
-				payload, errSet = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.thoughtSignature", callContentIndex))
+				mutationDoc2 := ojson.NewDoc(payload)
+				errMutation2 := mutationDoc2.Delete(fmt.Sprintf("request.contents.%d.parts.0.thoughtSignature", callContentIndex))
+				payload, errSet = mutationDoc2.Bytes(), errMutation2
 			case 1:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex), fmt.Sprintf("changed-%d", turn))
+				mutationDoc3 := ojson.NewDoc(payload)
+				errMutation3 := mutationDoc3.Set(fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex), fmt.Sprintf("changed-%d", turn))
+				payload, errSet = mutationDoc3.Bytes(), errMutation3
 			case 2:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.functionCall.args.turn", callContentIndex), turn+100)
+				mutationDoc4 := ojson.NewDoc(payload)
+				errMutation4 := mutationDoc4.Set(fmt.Sprintf("request.contents.%d.parts.0.functionCall.args.turn", callContentIndex), turn+100)
+				payload, errSet = mutationDoc4.Bytes(), errMutation4
 			case 3:
-				payload, errSet = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex))
+				mutationDoc5 := ojson.NewDoc(payload)
+				errMutation5 := mutationDoc5.Delete(fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex))
+				payload, errSet = mutationDoc5.Bytes(), errMutation5
 			case 4:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.functionResponse.id", responseContentIndex), fmt.Sprintf("changed-%d", turn))
+				mutationDoc6 := ojson.NewDoc(payload)
+				errMutation6 := mutationDoc6.Set(fmt.Sprintf("request.contents.%d.parts.0.functionResponse.id", responseContentIndex), fmt.Sprintf("changed-%d", turn))
+				payload, errSet = mutationDoc6.Bytes(), errMutation6
 			case 5:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.role", responseContentIndex), "user")
+				mutationDoc7 := ojson.NewDoc(payload)
+				errMutation7 := mutationDoc7.Set(fmt.Sprintf("request.contents.%d.role", responseContentIndex), "user")
+				payload, errSet = mutationDoc7.Bytes(), errMutation7
 			case 6:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex), "call-0")
+				mutationDoc8 := ojson.NewDoc(payload)
+				errMutation8 := mutationDoc8.Set(fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex), "call-0")
+				payload, errSet = mutationDoc8.Bytes(), errMutation8
 			}
 			if errSet != nil {
 				t.Fatalf("case %d mutation failed: %v", caseIndex, errSet)
@@ -364,7 +379,7 @@ func TestAntigravityReasoningReplayAccumulatorUsesIndexedContextHash(t *testing.
 	if len(accumulator.items) != 1 {
 		t.Fatalf("items = %d, want 1", len(accumulator.items))
 	}
-	if got := gjson.GetBytes(accumulator.items[0], "contextHash").String(); got != wantContextHash {
+	if got := ojson.GetBytes(accumulator.items[0], "contextHash").String(); got != wantContextHash {
 		t.Fatalf("item context hash = %q, want %q", got, wantContextHash)
 	}
 }
@@ -422,7 +437,7 @@ func TestApplyAntigravityReasoningReplayItemsBatchPreservesSignatureMoveOrder(t 
 	const signature = "shared-native-signature-123456789"
 	items := make([][]byte, 0, 2)
 	for partIndex, text := range []string{"first", "second"} {
-		kind, fingerprint := antigravityReplayPartFingerprint(gjson.Parse(`{"text":"` + text + `"}`))
+		kind, fingerprint := antigravityReplayPartFingerprint(ojson.Parse(`{"text":"` + text + `"}`))
 		item := buildAntigravityThoughtSignatureItem(1, partIndex, signature, kind, fingerprint)
 		items = append(items, antigravityReplayItemContextHashForTest(item, payload, 1))
 	}
@@ -440,10 +455,10 @@ func TestApplyAntigravityReasoningReplayItemsBatchPreservesSignatureMoveOrder(t 
 	if gotChanged != wantChanged || !bytes.Equal(got, want) {
 		t.Fatalf("batch differs from sequential replay\n got: %s\nwant: %s", got, want)
 	}
-	if first := gjson.GetBytes(got, "request.contents.1.parts.0.thoughtSignature"); first.Exists() {
+	if first := ojson.GetBytes(got, "request.contents.1.parts.0.thoughtSignature"); first.Exists() {
 		t.Fatalf("signature remained on the first part: %s", got)
 	}
-	if second := gjson.GetBytes(got, "request.contents.1.parts.1.thoughtSignature").String(); second != signature {
+	if second := ojson.GetBytes(got, "request.contents.1.parts.1.thoughtSignature").String(); second != signature {
 		t.Fatalf("second signature = %q, want %q", second, signature)
 	}
 }
@@ -456,7 +471,7 @@ func TestApplyAntigravityReasoningReplayItemsBatchPreservesStickyChangedResult(t
 		partIndex int
 		text      string
 	}{{partIndex: 1, text: "second"}, {partIndex: 0, text: "first"}} {
-		kind, fingerprint := antigravityReplayPartFingerprint(gjson.Parse(`{"text":"` + target.text + `"}`))
+		kind, fingerprint := antigravityReplayPartFingerprint(ojson.Parse(`{"text":"` + target.text + `"}`))
 		item := buildAntigravityThoughtSignatureItem(1, target.partIndex, signature, kind, fingerprint)
 		items = append(items, antigravityReplayItemContextHashForTest(item, payload, 1))
 	}
@@ -502,10 +517,10 @@ func TestApplyAntigravityReasoningReplayItemsBatchesStableProvenanceIDs(t *testi
 		callContentIndex := 1 + turn*2
 		responseContentIndex := callContentIndex + 1
 		wantID := fmt.Sprintf("call-%d", turn)
-		if gotID := gjson.GetBytes(got, fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex)).String(); gotID != wantID {
+		if gotID := ojson.GetBytes(got, fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", callContentIndex)).String(); gotID != wantID {
 			t.Fatalf("call %d ID = %q, want %q", turn, gotID, wantID)
 		}
-		if gotID := gjson.GetBytes(got, fmt.Sprintf("request.contents.%d.parts.0.functionResponse.id", responseContentIndex)).String(); gotID != wantID {
+		if gotID := ojson.GetBytes(got, fmt.Sprintf("request.contents.%d.parts.0.functionResponse.id", responseContentIndex)).String(); gotID != wantID {
 			t.Fatalf("response %d ID = %q, want %q", turn, gotID, wantID)
 		}
 	}
@@ -537,7 +552,7 @@ func TestApplyAntigravityReasoningReplayItemsSegmentsDuplicateStableProvenanceID
 	}
 	for _, contentIndex := range []int{1, 3} {
 		path := fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", contentIndex)
-		if gotID := gjson.GetBytes(got, path).String(); gotID != nativeID {
+		if gotID := ojson.GetBytes(got, path).String(); gotID != nativeID {
 			t.Fatalf("call at contents[%d] ID = %q, want %q", contentIndex, gotID, nativeID)
 		}
 	}
@@ -571,7 +586,7 @@ func TestApplyAntigravityReasoningReplayItemsFallsBackAfterIdentityChangesContex
 	if gotChanged != wantChanged || !bytes.Equal(got, want) {
 		t.Fatalf("fallback differs from sequential replay\n got: %s\nwant: %s", got, want)
 	}
-	if signature := gjson.GetBytes(got, "request.contents.3.parts.0.thoughtSignature"); signature.Exists() {
+	if signature := ojson.GetBytes(got, "request.contents.3.parts.0.thoughtSignature"); signature.Exists() {
 		t.Fatalf("stale-context signature was applied: %s", got)
 	}
 }
@@ -583,7 +598,9 @@ func TestApplyAntigravityReasoningReplayItemsSegmentsLateStructuralFallback(t *t
 	payload := syntheticAntigravityReplayBenchmarkPayloadWithoutSignatures(1<<10, turns)
 	lastCallPath := fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", 1+(turns-1)*2)
 	var errSet error
-	payload, errSet = sjson.SetBytes(payload, lastCallPath, "lookup-legacy-client-id")
+	mutationDoc9 := ojson.NewDoc(payload)
+	errMutation9 := mutationDoc9.Set(lastCallPath, "lookup-legacy-client-id")
+	payload, errSet = mutationDoc9.Bytes(), errMutation9
 	if errSet != nil {
 		t.Fatalf("set legacy call ID: %v", errSet)
 	}
@@ -600,7 +617,7 @@ func TestApplyAntigravityReasoningReplayItemsSegmentsLateStructuralFallback(t *t
 		t.Fatalf("segmented fallback differs from sequential replay\n got: %s\nwant: %s", got, want)
 	}
 	wantLastID := fmt.Sprintf("call-%d", turns-1)
-	if gotLastID := gjson.GetBytes(got, lastCallPath).String(); gotLastID != wantLastID {
+	if gotLastID := ojson.GetBytes(got, lastCallPath).String(); gotLastID != wantLastID {
 		t.Fatalf("last call ID = %q, want %q", gotLastID, wantLastID)
 	}
 }
@@ -762,7 +779,7 @@ func TestAntigravityReplayMergeRandomizedDifferential(t *testing.T) {
 	items := legacyAntigravityReasoningReplayItemsFromRequest(basePayload)
 	thoughtItems, callItems := 0, 0
 	for _, item := range items {
-		switch gjson.GetBytes(item, "type").String() {
+		switch ojson.GetBytes(item, "type").String() {
 		case "thought_signature":
 			thoughtItems++
 		case "function_call_part":
@@ -784,23 +801,41 @@ func TestAntigravityReplayMergeRandomizedDifferential(t *testing.T) {
 			var errSet error
 			switch randomSource.Intn(9) {
 			case 0:
-				payload, errSet = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", modelIndex, part))
+				mutationDoc10 := ojson.NewDoc(payload)
+				errMutation10 := mutationDoc10.Delete(fmt.Sprintf("request.contents.%d.parts.%d.thoughtSignature", modelIndex, part))
+				payload, errSet = mutationDoc10.Bytes(), errMutation10
 			case 1:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.2.functionCall.args.turn", modelIndex), turn+50)
+				mutationDoc11 := ojson.NewDoc(payload)
+				errMutation11 := mutationDoc11.Set(fmt.Sprintf("request.contents.%d.parts.2.functionCall.args.turn", modelIndex), turn+50)
+				payload, errSet = mutationDoc11.Bytes(), errMutation11
 			case 2:
-				payload, errSet = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.2.functionCall.id", modelIndex))
+				mutationDoc12 := ojson.NewDoc(payload)
+				errMutation12 := mutationDoc12.Delete(fmt.Sprintf("request.contents.%d.parts.2.functionCall.id", modelIndex))
+				payload, errSet = mutationDoc12.Bytes(), errMutation12
 			case 3:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.1.text", modelIndex), "drifted")
+				mutationDoc13 := ojson.NewDoc(payload)
+				errMutation13 := mutationDoc13.Set(fmt.Sprintf("request.contents.%d.parts.1.text", modelIndex), "drifted")
+				payload, errSet = mutationDoc13.Bytes(), errMutation13
 			case 4:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.role", responseIndex), "model")
+				mutationDoc14 := ojson.NewDoc(payload)
+				errMutation14 := mutationDoc14.Set(fmt.Sprintf("request.contents.%d.role", responseIndex), "model")
+				payload, errSet = mutationDoc14.Bytes(), errMutation14
 			case 5:
-				payload, errSet = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.%d", modelIndex, part))
+				mutationDoc15 := ojson.NewDoc(payload)
+				errMutation15 := mutationDoc15.Delete(fmt.Sprintf("request.contents.%d.parts.%d", modelIndex, part))
+				payload, errSet = mutationDoc15.Bytes(), errMutation15
 			case 6:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.thought", modelIndex), false)
+				mutationDoc16 := ojson.NewDoc(payload)
+				errMutation16 := mutationDoc16.Set(fmt.Sprintf("request.contents.%d.parts.0.thought", modelIndex), false)
+				payload, errSet = mutationDoc16.Bytes(), errMutation16
 			case 7:
-				payload, errSet = sjson.SetBytes(payload, fmt.Sprintf("request.contents.%d.parts.2.functionCall.id", modelIndex), "call-0")
+				mutationDoc17 := ojson.NewDoc(payload)
+				errMutation17 := mutationDoc17.Set(fmt.Sprintf("request.contents.%d.parts.2.functionCall.id", modelIndex), "call-0")
+				payload, errSet = mutationDoc17.Bytes(), errMutation17
 			case 8:
-				payload, errSet = sjson.SetBytes(payload, "request.toolConfig.functionCallingConfig.mode", "ANY")
+				mutationDoc18 := ojson.NewDoc(payload)
+				errMutation18 := mutationDoc18.Set("request.toolConfig.functionCallingConfig.mode", "ANY")
+				payload, errSet = mutationDoc18.Bytes(), errMutation18
 			}
 			if errSet != nil {
 				t.Fatalf("case %d mutation failed: %v", caseIndex, errSet)
@@ -871,7 +906,7 @@ func TestAntigravityReplayLegacyItemWithoutTargetHash(t *testing.T) {
 	// streamed signature-only part that no longer exists.
 	item := buildAntigravityThoughtSignatureItem(1, 7, signature, "", "")
 	item = antigravityReplayItemContextHashForTest(item, payload, 1)
-	if gjson.GetBytes(item, "targetHash").Exists() {
+	if ojson.GetBytes(item, "targetHash").Exists() {
 		t.Fatal("this test must exercise the no-targetHash path")
 	}
 
@@ -879,11 +914,11 @@ func TestAntigravityReplayLegacyItemWithoutTargetHash(t *testing.T) {
 	if !changed {
 		t.Fatalf("legacy positional item was not applied: %s", got)
 	}
-	if sig := gjson.GetBytes(got, "request.contents.1.parts.2.thoughtSignature").String(); sig != signature {
+	if sig := ojson.GetBytes(got, "request.contents.1.parts.2.thoughtSignature").String(); sig != signature {
 		t.Fatalf("signature must attach to the LAST semantic part, got parts.2=%q body=%s", sig, got)
 	}
 	for _, path := range []string{"request.contents.1.parts.0.thoughtSignature", "request.contents.1.parts.1.thoughtSignature"} {
-		if gjson.GetBytes(got, path).Exists() {
+		if ojson.GetBytes(got, path).Exists() {
 			t.Fatalf("signature leaked to %s: %s", path, got)
 		}
 	}
@@ -894,7 +929,9 @@ func TestAntigravityReplayLegacyItemWithoutTargetHash(t *testing.T) {
 	}
 
 	// Context drift must reject the positional guess entirely.
-	drifted, errSet := sjson.SetBytes(payload, "request.contents.0.parts.0.text", "different question")
+	mutationDoc19 := ojson.NewDoc(payload)
+	errMutation19 := mutationDoc19.Set("request.contents.0.parts.0.text", "different question")
+	drifted, errSet := mutationDoc19.Bytes(), errMutation19
 	if errSet != nil {
 		t.Fatal(errSet)
 	}
@@ -917,7 +954,9 @@ func BenchmarkApplyAntigravityReasoningReplayItems(b *testing.B) {
 	payload := base
 	for turn := range turns {
 		var err error
-		payload, err = sjson.DeleteBytes(payload, fmt.Sprintf("request.contents.%d.parts.0.thoughtSignature", 1+turn*2))
+		mutationDoc20 := ojson.NewDoc(payload)
+		errMutation20 := mutationDoc20.Delete(fmt.Sprintf("request.contents.%d.parts.0.thoughtSignature", 1+turn*2))
+		payload, err = mutationDoc20.Bytes(), errMutation20
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -973,7 +1012,9 @@ func BenchmarkApplyAntigravityReasoningReplayItemsLargeSegmentedFallback(b *test
 	payload := syntheticAntigravityReplayBenchmarkPayloadWithoutSignatures(inlineBytes, turns)
 	lastCallPath := fmt.Sprintf("request.contents.%d.parts.0.functionCall.id", 1+(turns-1)*2)
 	var errSet error
-	payload, errSet = sjson.SetBytes(payload, lastCallPath, "lookup-legacy-client-id")
+	mutationDoc21 := ojson.NewDoc(payload)
+	errMutation21 := mutationDoc21.Set(lastCallPath, "lookup-legacy-client-id")
+	payload, errSet = mutationDoc21.Bytes(), errMutation21
 	if errSet != nil {
 		b.Fatalf("set legacy call ID: %v", errSet)
 	}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade823AntigravityThoughtUsageAgreesAcrossTerminalPaths(t *testing.T) {
@@ -38,7 +38,7 @@ func TestUpgrade823AntigravityThoughtUsageAgreesAcrossTerminalPaths(t *testing.T
 					out = chunks[0]
 					terminal := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte("[DONE]"), &state)
 					if mode == "pending_usage_done" {
-						if gjson.GetBytes(out, "usage").Exists() || gjson.GetBytes(out, "choices.0.finish_reason").String() != "" || len(terminal) != 1 {
+						if ojson.GetBytes(out, "usage").Exists() || ojson.GetBytes(out, "choices.0.finish_reason").String() != "" || len(terminal) != 1 {
 							t.Fatalf("pending usage finalized early or lost terminal: initial=%s terminal=%q", out, terminal)
 						}
 						out = terminal[0]
@@ -55,11 +55,11 @@ func TestUpgrade823AntigravityThoughtUsageAgreesAcrossTerminalPaths(t *testing.T
 					"usage.completion_tokens_details.reasoning_tokens": tokens.thoughts,
 					"usage.total_tokens":                               17 + tokens.candidates + tokens.thoughts,
 				} {
-					if got := gjson.GetBytes(out, path).Int(); got != want {
+					if got := ojson.GetBytes(out, path).Int(); got != want {
 						t.Errorf("%s = %d, want %d: %s", path, got, want, out)
 					}
 				}
-				if got := gjson.GetBytes(out, "choices.0.finish_reason").String(); got != "stop" {
+				if got := ojson.GetBytes(out, "choices.0.finish_reason").String(); got != "stop" {
 					t.Fatalf("finish_reason = %q: %s", got, out)
 				}
 			})

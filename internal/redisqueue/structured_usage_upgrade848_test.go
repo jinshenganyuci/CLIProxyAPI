@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade848StructuredFailureUsageQueueSnapshot(t *testing.T) {
@@ -43,11 +43,11 @@ func TestUpgrade848StructuredFailureUsageQueueSnapshot(t *testing.T) {
 			"cache_details.by_ttl.5m": "0", "tool_usage_details.web_search_calls": "0", "tool_usage_details.extra.custom": "2", "iterations.0.cache_creation.by_ttl.1h": "0", "cost_details.cost": "0", "cost_details.is_byok": "false",
 			"failed": "true", "stream": "true", "fail.status_code": "502",
 		} {
-			if got := gjson.GetBytes(raw, path); !got.Exists() || got.Raw != want {
+			if got := ojson.GetBytes(raw, path); !got.Exists() || got.Raw != want {
 				t.Errorf("%s = %s, want %s", path, got.Raw, want)
 			}
 		}
-		if gjson.GetBytes(raw, "tokens.audio_input_tokens").Exists() || gjson.GetBytes(raw, "fail.code").String() != coreusage.FailureStreamTruncatedCode || gjson.GetBytes(raw, "auth_index").String() != "chosen-credential" || gjson.GetBytes(raw, "access_provider").String() != "plugin" {
+		if ojson.GetBytes(raw, "tokens.audio_input_tokens").Exists() || ojson.GetBytes(raw, "fail.code").String() != coreusage.FailureStreamTruncatedCode || ojson.GetBytes(raw, "auth_index").String() != "chosen-credential" || ojson.GetBytes(raw, "access_provider").String() != "plugin" {
 			t.Fatalf("optional usage/failure/identity changed: %s", raw)
 		}
 	})

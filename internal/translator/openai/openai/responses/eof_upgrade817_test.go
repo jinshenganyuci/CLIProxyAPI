@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade817ResponsesEOFPreservesShellProvenanceAndLateUsage(t *testing.T) {
@@ -23,18 +23,18 @@ func TestUpgrade817ResponsesEOFPreservesShellProvenanceAndLateUsage(t *testing.T
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			toolName := gjson.GetBytes(translated, "tools.0.function.name").String()
+			toolName := ojson.GetBytes(translated, "tools.0.function.name").String()
 			if toolName == "__cpa_local_shell" || toolName == "__cpa_local_shell_1" {
 				t.Fatal("synthetic shell collided with user declaration")
 			}
 			var state any
-			var events []gjson.Result
+			var events []ojson.Result
 			push := func(frame string) {
 				t.Helper()
 				for _, output := range ConvertOpenAIChatCompletionsResponseToOpenAIResponses(t.Context(), "test", request, translated, []byte("data: "+frame), &state) {
 					for _, line := range bytes.Split(output, []byte("\n")) {
 						if bytes.HasPrefix(line, []byte("data: ")) {
-							events = append(events, gjson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))))
+							events = append(events, ojson.ParseBytes(bytes.TrimPrefix(line, []byte("data: "))))
 						}
 					}
 				}

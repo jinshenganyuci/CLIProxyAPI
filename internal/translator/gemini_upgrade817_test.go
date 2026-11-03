@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	claude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/gemini"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"
-	"github.com/tidwall/gjson"
 )
 
 func TestUpgrade817GeminiDocumentSchemaAndToolHistoryRemainSeparated(t *testing.T) {
@@ -20,18 +20,18 @@ func TestUpgrade817GeminiDocumentSchemaAndToolHistoryRemainSeparated(t *testing.
 		if !bytes.Equal(raw, before) {
 			t.Fatal("translator changed the input document")
 		}
-		if gjson.GetBytes(out, "contents.0.parts.0.inline_data.mime_type").String() != "application/pdf" || gjson.GetBytes(out, "contents.0.parts.0.inline_data.data").String() != "JVBERi0xLjQK" {
+		if ojson.GetBytes(out, "contents.0.parts.0.inline_data.mime_type").String() != "application/pdf" || ojson.GetBytes(out, "contents.0.parts.0.inline_data.data").String() != "JVBERi0xLjQK" {
 			t.Fatalf("document bytes or MIME changed: %s", out)
 		}
-		arguments := gjson.GetBytes(out, "contents.1.parts.0.functionCall.args")
+		arguments := ojson.GetBytes(out, "contents.1.parts.0.functionCall.args")
 		if arguments.Get("properties.keep").Raw != "false" || arguments.Get("required.0").String() != "literal" || arguments.Get("items.count").Raw != "9007199254740993" || arguments.Get("type").Exists() {
 			t.Fatalf("schema cleanup mutated history arguments: %s", out)
 		}
-		schema := gjson.GetBytes(out, "tools.0.functionDeclarations.0.parametersJsonSchema")
+		schema := ojson.GetBytes(out, "tools.0.functionDeclarations.0.parametersJsonSchema")
 		if schema.Get("type").String() != "object" || schema.Get("properties.endpoint.type").String() != "object" || schema.Get("properties.endpoint.required.0").String() != "traces" || schema.Get("properties.items.type").String() != "string" {
 			t.Fatalf("nested schema object inference or keyword-named property changed: %s", out)
 		}
-		if gjson.GetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames.0").String() != "read" {
+		if ojson.GetBytes(out, "toolConfig.functionCallingConfig.allowedFunctionNames.0").String() != "read" {
 			t.Fatalf("declared tool selection lost its binding: %s", out)
 		}
 	}
@@ -52,7 +52,7 @@ func TestUpgrade817GeminiSystemInstructionCamelCasePresenceWins(t *testing.T) {
 			if errConvert != nil {
 				t.Fatalf("request translation failed: %v", errConvert)
 			}
-			messages := gjson.GetBytes(out, "messages").Array()
+			messages := ojson.GetBytes(out, "messages").Array()
 			wantCount := 1
 			if test.want != "" {
 				wantCount++

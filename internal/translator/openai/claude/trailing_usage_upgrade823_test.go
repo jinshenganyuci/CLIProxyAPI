@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestUpgrade823ClaudeTerminalWaitsForAuthoritativeUsage(t *testing.T) {
@@ -21,14 +21,14 @@ func TestUpgrade823ClaudeTerminalWaitsForAuthoritativeUsage(t *testing.T) {
 		for _, ending := range []string{"done", "trailing_empty_choices", "trailing_absent_choices"} {
 			t.Run(content.name+"/"+ending, func(t *testing.T) {
 				var state any
-				var events []gjson.Result
-				feed := func(payload string) []gjson.Result {
+				var events []ojson.Result
+				feed := func(payload string) []ojson.Result {
 					t.Helper()
-					var current []gjson.Result
+					var current []ojson.Result
 					for _, chunk := range ConvertOpenAIResponseToClaude(context.Background(), "m", []byte(streamReq), nil, []byte("data: "+payload), &state) {
 						for _, line := range strings.Split(string(chunk), "\n") {
 							if strings.HasPrefix(line, "data: ") {
-								current = append(current, gjson.Parse(strings.TrimPrefix(line, "data: ")))
+								current = append(current, ojson.Parse(strings.TrimPrefix(line, "data: ")))
 							}
 						}
 					}

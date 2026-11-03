@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -18,7 +19,6 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
@@ -131,7 +131,7 @@ func TestDevinUpgrade738BufferedTextTerminationAndCapacity(t *testing.T) {
 						if !strings.HasPrefix(line, "data: ") {
 							continue
 						}
-						event := gjson.Parse(strings.TrimPrefix(line, "data: "))
+						event := ojson.Parse(strings.TrimPrefix(line, "data: "))
 						kind := event.Get("event_type").String()
 						if kind == "" {
 							kind = event.Get("type").String()

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 func TestVideoUpgrade7315PreservesObjectBytesAndUnknownFields(t *testing.T) {
@@ -16,7 +16,7 @@ func TestVideoUpgrade7315PreservesObjectBytesAndUnknownFields(t *testing.T) {
 		if errConvert != nil {
 			t.Fatalf("request translation failed: %v", errConvert)
 		}
-		part := gjson.GetBytes(out, "messages.0.content.0.video_url")
+		part := ojson.GetBytes(out, "messages.0.content.0.video_url")
 		if part.Raw != video {
 			t.Fatalf("video object was reserialized: got %s, want %s", part.Raw, video)
 		}

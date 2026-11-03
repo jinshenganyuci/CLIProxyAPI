@@ -10,13 +10,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/httptransport"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // Duplicate key/base entries are intentional: the selected credential's proxy
@@ -50,7 +50,7 @@ func TestV837VertexModelSettingsKeepCredentialProxyAndFinalPayload(t *testing.T)
 								t.Errorf("active lease = %d/%d", active, limit)
 							}
 							body, errRead := io.ReadAll(r.Body)
-							if errRead != nil || gjson.GetBytes(body, "operator_marker").String() != "final837" {
+							if errRead != nil || ojson.GetBytes(body, "operator_marker").String() != "final837" {
 								t.Errorf("payload rule missing: %s, err=%v", body, errRead)
 							}
 							wantPath := "/v1/projects/p/locations/original/publishers/google/models/" + model + ":generateContent"

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
-	"github.com/tidwall/gjson"
 )
 
 type qualityUpgrade804Executor struct{ websocketDirectCaptureExecutor }
@@ -79,12 +79,12 @@ func TestUpgrade804XAIQualityReachesExecutorAcrossImageEndpoints(t *testing.T) {
 				if len(payloads) != 1 {
 					t.Fatalf("executor calls=%d, want 1", len(payloads))
 				}
-				got := gjson.GetBytes(payloads[0], "quality")
+				got := ojson.GetBytes(payloads[0], "quality")
 				want := strings.TrimSpace(quality)
 				if got.String() != want || got.Exists() != (want != "") {
 					t.Fatalf("quality=%s, want %q; request=%s", got.Raw, want, payloads[0])
 				}
-				if endpoint != "generation-json" && !gjson.GetBytes(payloads[0], "image.url").Exists() {
+				if endpoint != "generation-json" && !ojson.GetBytes(payloads[0], "image.url").Exists() {
 					t.Fatalf("edit image disappeared: %s", payloads[0])
 				}
 			})

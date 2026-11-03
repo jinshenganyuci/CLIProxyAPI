@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	claude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"
 	interactions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/interactions/responses"
 	chat "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/openai/openai/responses"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 // These hooks model an extension that would otherwise replace a failed output.
@@ -109,7 +109,7 @@ func TestUpgrade810ApplyPatchNativeNonStreamPluginBoundary(t *testing.T) {
 			var freshState any
 			patch := "  *** Begin Patch\n*** Add File: 雪.txt\n+🙂 <>&\n*** End Patch\n "
 			out := r.TranslateNonStream(context.Background(), provider.format, sdktranslator.FormatOpenAIResponse, "test", original, nil, provider.body(`{"input":`+upgrade810Quote(patch)+`}`), &freshState)
-			items := gjson.GetBytes(out, "output").Array()
+			items := ojson.GetBytes(out, "output").Array()
 			if len(items) != 2 || items[0].Get("type").String() != "custom_tool_call" || items[0].Get("name").String() != "apply_patch" || items[0].Get("namespace").String() != "functions" || items[0].Get("input").String() != patch {
 				t.Fatalf("patch identity, order or bytes changed: %s", out)
 			}
@@ -121,7 +121,7 @@ func TestUpgrade810ApplyPatchNativeNonStreamPluginBoundary(t *testing.T) {
 			if ordinaryID == "" || ordinaryID == items[0].Get("call_id").String() || (provider.format != sdktranslator.FormatGemini && ordinaryID != "ordinary") {
 				t.Fatalf("ordinary call lost its native identity contract: %s", out)
 			}
-			arguments := gjson.Parse(items[1].Get("arguments").String())
+			arguments := ojson.Parse(items[1].Get("arguments").String())
 			if arguments.Get("n").Raw != "9223372036854775807" || arguments.Get("flag").Raw != "false" || arguments.Get("empty").Raw != "null" || hooks.afterCalls != 1 || !bytes.Equal(original, before) {
 				t.Fatalf("ordinary tool values, plugin invocation or request buffer changed: %s", out)
 			}

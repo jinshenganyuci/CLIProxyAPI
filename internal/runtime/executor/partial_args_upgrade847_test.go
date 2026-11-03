@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestV847VertexPartialArgsTerminalUsageAndLease(t *testing.T) {
@@ -78,12 +78,12 @@ func TestV847VertexPartialArgsTerminalUsageAndLease(t *testing.T) {
 						data := bytes.TrimSpace(bytes.TrimPrefix(bytes.TrimSpace(line), []byte("data:")))
 						switch format {
 						case translator.FormatOpenAI:
-							arguments.WriteString(gjson.GetBytes(data, "choices.0.delta.tool_calls.0.function.arguments").String())
+							arguments.WriteString(ojson.GetBytes(data, "choices.0.delta.tool_calls.0.function.arguments").String())
 						case translator.FormatClaude:
-							arguments.WriteString(gjson.GetBytes(data, "delta.partial_json").String())
+							arguments.WriteString(ojson.GetBytes(data, "delta.partial_json").String())
 						case translator.FormatOpenAIResponse:
-							if gjson.GetBytes(data, "type").String() == "response.function_call_arguments.delta" {
-								arguments.WriteString(gjson.GetBytes(data, "delta").String())
+							if ojson.GetBytes(data, "type").String() == "response.function_call_arguments.delta" {
+								arguments.WriteString(ojson.GetBytes(data, "delta").String())
 							}
 						}
 					}
@@ -100,7 +100,7 @@ func TestV847VertexPartialArgsTerminalUsageAndLease(t *testing.T) {
 				if mode != "cancel" && (streamErr == nil) != complete {
 					t.Errorf("incomplete argument stream error=%v complete=%t output=%s", streamErr, complete, output.Bytes())
 				}
-				if complete && gjson.GetBytes(arguments.Bytes(), "city").String() != "New York" {
+				if complete && ojson.GetBytes(arguments.Bytes(), "city").String() != "New York" {
 					t.Errorf("completed arguments missing: %s", output.Bytes())
 				}
 				records := antigravityUsageRecordsAfterDelivery815(t, capture)

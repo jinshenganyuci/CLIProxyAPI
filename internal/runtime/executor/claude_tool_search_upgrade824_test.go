@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	responsesclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
@@ -17,8 +18,6 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestClaudeToolSearchManagerProxyReloadAndUsageUpgrade824(t *testing.T) {
@@ -44,7 +43,7 @@ func TestClaudeToolSearchManagerProxyReloadAndUsageUpgrade824(t *testing.T) {
 					if r.Header.Get("Authorization") != "Bearer "+selectedID {
 						t.Error("selected credential identity changed")
 					}
-					if gjson.GetBytes(body, "max_tokens").Int() != 27 {
+					if ojson.GetBytes(body, "max_tokens").Int() != 27 {
 						t.Error("final payload override did not survive fallback")
 					}
 					if wantNative {
@@ -58,7 +57,7 @@ func TestClaudeToolSearchManagerProxyReloadAndUsageUpgrade824(t *testing.T) {
 					// Flip the live global setting after request translation. The reply
 					// must still use the capability pinned for this execution.
 					responsesclaude.SetClientToolSearchEnabled(!startEnabled)
-					if gjson.GetBytes(body, "stream").Bool() {
+					if ojson.GetBytes(body, "stream").Bool() {
 						w.Header().Set("Content-Type", "text/event-stream")
 						_, _ = io.WriteString(w, "data: "+`{"type":"message_start","message":{"id":"msg_same","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"usage":{"input_tokens":11,"output_tokens":0}}}`+"\n\n"+
 							"data: "+`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_search","name":"tool_search","input":{}}}`+"\n\n"+
@@ -122,8 +121,10 @@ func TestClaudeToolSearchManagerProxyReloadAndUsageUpgrade824(t *testing.T) {
 				capture := &providerV810UsageCapture{authID: selectedID, records: make(chan usage.Record, 8)}
 				usage.RegisterNamedPlugin(t.Name(), capture)
 				t.Cleanup(func() { usage.RegisterNamedPlugin(t.Name(), antigravityUsageNoop{}) })
-				payload, _ := sjson.Set(nativeToolSearchResponsesPayload, "stream", stream)
-				payload, _ = sjson.Set(payload, "model", model)
+				payloadDoc := ojson.NewDocString(nativeToolSearchResponsesPayload)
+				_ = payloadDoc.Set("stream", stream)
+				_ = payloadDoc.Set("model", model)
+				payload := payloadDoc.String()
 				req := cliproxyexecutor.Request{Model: model, Payload: []byte(payload)}
 				opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse, ResponseFormat: sdktranslator.FormatOpenAIResponse, Stream: stream, OriginalRequest: req.Payload, Metadata: map[string]any{cliproxyexecutor.PinnedAuthMetadataKey: selectedID, cliproxyexecutor.CallerScopeMetadataKey: t.Name()}}
 				ctx := usage.WithAccessProvider(context.Background(), "synthetic-access-guard")
@@ -158,12 +159,12 @@ func TestClaudeToolSearchManagerProxyReloadAndUsageUpgrade824(t *testing.T) {
 					if stream {
 						for _, line := range strings.Split(string(output), "\n") {
 							data := strings.TrimPrefix(line, "data: ")
-							if gjson.Get(data, "type").String() == "response.output_item.done" {
-								gotType = gjson.Get(data, "item.type").String()
+							if ojson.Get(data, "type").String() == "response.output_item.done" {
+								gotType = ojson.Get(data, "item.type").String()
 							}
 						}
 					} else {
-						gotType = gjson.GetBytes(output, "output.0.type").String()
+						gotType = ojson.GetBytes(output, "output.0.type").String()
 					}
 					if gotType != wantItem {
 						t.Fatalf("reload changed pinned response translation: got %q want %q", gotType, wantItem)
