@@ -102,7 +102,16 @@ func TestV856AntigravityFilterRetainsUsageAndCompletedTail(t *testing.T) {
 						t.Errorf("filter error = %v, want 400", errExecute)
 					}
 				}
-				records := providerV810UsageRecords(t, capture)
+				// Stream completion precedes deferred usage settlement. Wait for
+				// publication before enqueuing the FIFO barrier, which only orders
+				// records that have already reached the usage manager.
+				var firstRecord usage.Record
+				select {
+				case firstRecord = <-capture.records:
+				case <-time.After(5 * time.Second):
+					t.Fatal("filter outcome did not settle usage")
+				}
+				records := append([]usage.Record{firstRecord}, providerV810UsageRecords(t, capture)...)
 				if len(records) != 1 || records[0].Failed == completed || records[0].Detail.InputTokens != 100 || records[0].Detail.ReasoningTokens != 10 || records[0].Detail.TotalTokens != 110 {
 					t.Errorf("filter accounting = %+v, want one outcome with consumed 100/10/110 tokens", records)
 				}
