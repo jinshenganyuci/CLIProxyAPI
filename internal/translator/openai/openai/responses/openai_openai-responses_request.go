@@ -75,16 +75,16 @@ func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 
 	// Convert instructions to system message
 	if instructions := root.Get("instructions"); instructions.Exists() {
-		systemMessage := []byte(`{"role":"system","content":""}`)
-		systemMessage, _ = ojson.SetBytes(systemMessage, "content", instructions.String())
-		appendMessage(systemMessage)
+		systemMessageDoc := ojson.NewDocString(`{"role":"system","content":""}`)
+		_ = systemMessageDoc.Set("content", instructions.String())
+		appendMessage(systemMessageDoc.Bytes())
 	}
 
 	duplicateOutputIDs := make(map[string]struct{})
 
 	// Convert input array to messages
 	if input := root.Get("input"); input.Exists() && input.IsArray() {
-		rawInputArray := toolIndex.shellHistory(input.Array())
+		rawInputArray := toolIndex.toolSearchHistory(toolIndex.shellHistory(input.Array()))
 		explicitOutputCounts := make(map[string]int)
 		missingIDOutputsCount := 0
 		for _, item := range rawInputArray {
@@ -237,9 +237,9 @@ func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 			if isUsableResponsesReasoning(reasoningContent) {
 				latestReasoningContent = reasoningContent
 			}
-			message := []byte(`{"role":"assistant","content":"","reasoning_content":""}`)
-			message, _ = ojson.SetBytes(message, "reasoning_content", reasoningContent)
-			appendRegularMessage(message)
+			messageDoc := ojson.NewDocString(`{"role":"assistant","content":"","reasoning_content":""}`)
+			_ = messageDoc.Set("reasoning_content", reasoningContent)
+			appendRegularMessage(messageDoc.Bytes())
 		}
 
 		for _, item := range inputItems {
@@ -280,9 +280,9 @@ func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 						switch contentType {
 						case "input_text", "output_text":
 							text := contentItem.Get("text").String()
-							contentPart := []byte(`{"type":"text","text":""}`)
-							contentPart, _ = ojson.SetBytes(contentPart, "text", text)
-							contentItems = append(contentItems, contentPart)
+							contentPartDoc := ojson.NewDocString(`{"type":"text","text":""}`)
+							_ = contentPartDoc.Set("text", text)
+							contentItems = append(contentItems, contentPartDoc.Bytes())
 							if text != "" {
 								turnSendable++
 							}
@@ -431,8 +431,9 @@ func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 					functionName = toolIndex.canonicalName(functionName)
 				}
 				_ = toolCallDoc.Set("function.name", functionName)
-				wrappedArgs, _ := ojson.SetBytes([]byte(`{"input":""}`), "input", item.Get("input").String())
-				_ = toolCallDoc.Set("function.arguments", string(wrappedArgs))
+				wrappedArgsDoc := ojson.NewDocString(`{"input":""}`)
+				_ = wrappedArgsDoc.Set("input", item.Get("input").String())
+				_ = toolCallDoc.Set("function.arguments", wrappedArgsDoc.String())
 				pendingToolCalls = append(pendingToolCalls, util.ParseGJSONBytesNoCopy(toolCallDoc.Bytes()).Value())
 				if callID := translatorcommon.ExtractResponsesCallID(item); callID != "" {
 					pendingToolCallIDs = append(pendingToolCallIDs, callID)
@@ -486,9 +487,10 @@ func convertOpenAIResponsesRequestToOpenAIChatCompletions(modelName string, inpu
 	// Codex Desktop (Responses Lite) delivers tool definitions through an
 	// "additional_tools" input item instead of the top-level "tools" field,
 	// so merge both sources.
-	var chatCompletionsTools []interface{}
+	var chatCompletionsTools []any
 	for _, chatTool := range toolIndex.chatTools() {
-		chatCompletionsTools = append(chatCompletionsTools, util.ParseGJSONBytesNoCopy(chatTool).Value())
+		// Retain exact schema numbers and the existing stable object ordering.
+		chatCompletionsTools = append(chatCompletionsTools, translatorcommon.RetainedJSONValue(util.ParseGJSONBytesNoCopy(chatTool)))
 	}
 	if len(chatCompletionsTools) > 0 {
 		_ = outDoc.Set("tools", chatCompletionsTools)
@@ -567,8 +569,16 @@ func convertResponsesToolChoiceWithIndex(toolChoice ojson.Result, toolIndex *res
 	choiceType := toolChoice.Get("type").String()
 	if choiceType == "shell" {
 		if name := toolIndex.shellName(); name != "" {
-			converted, _ := ojson.SetBytes([]byte(`{"type":"function","function":{}}`), "function.name", name)
-			return converted
+			choiceDoc := ojson.NewDocString(`{"type":"function","function":{}}`)
+			_ = choiceDoc.Set("function.name", name)
+			return choiceDoc.Bytes()
+		}
+	}
+	if choiceType == util.ResponsesToolSearchType {
+		if name := toolIndex.toolSearchName(); name != "" {
+			choiceDoc := ojson.NewDocString(`{"type":"function","function":{}}`)
+			_ = choiceDoc.Set("function.name", name)
+			return choiceDoc.Bytes()
 		}
 	}
 	if choiceType != "function" && choiceType != "custom" {
@@ -599,18 +609,18 @@ func convertResponsesToolChoiceWithIndex(toolChoice ojson.Result, toolIndex *res
 		name = toolIndex.canonicalName(name)
 	}
 
-	converted := []byte(`{"type":"function","function":{"name":""}}`)
-	converted, _ = ojson.SetBytes(converted, "function.name", name)
-	return converted
+	convertedDoc := ojson.NewDocString(`{"type":"function","function":{"name":""}}`)
+	_ = convertedDoc.Set("function.name", name)
+	return convertedDoc.Bytes()
 }
 
 func convertResponsesTextFormatToChatResponseFormat(textFormat ojson.Result) []byte {
 	formatType := textFormat.Get("type").String()
 	switch formatType {
 	case "text", "json_object":
-		responseFormat := []byte(`{"type":""}`)
-		responseFormat, _ = ojson.SetBytes(responseFormat, "type", formatType)
-		return responseFormat
+		responseFormatDoc := ojson.NewDocString(`{"type":""}`)
+		_ = responseFormatDoc.Set("type", formatType)
+		return responseFormatDoc.Bytes()
 	case "json_schema":
 		responseFormatDoc := ojson.NewDocString(`{"type":"json_schema","json_schema":{}}`)
 		for _, field := range []string{"name", "description", "strict"} {
@@ -685,9 +695,9 @@ func chatToolOutputContentPart(item ojson.Result) []byte {
 	itemType := item.Get("type").String()
 	switch itemType {
 	case "text", "input_text", "output_text":
-		part := []byte(`{"type":"text","text":""}`)
-		part, _ = ojson.SetBytes(part, "text", item.Get("text").String())
-		return part
+		partDoc := ojson.NewDocString(`{"type":"text","text":""}`)
+		_ = partDoc.Set("text", item.Get("text").String())
+		return partDoc.Bytes()
 	case "image_url", "input_image":
 		imageURL, detail, ok := chatToolOutputImageFields(item)
 		if !ok {
@@ -784,9 +794,9 @@ func chatToolOutputFallbackPart(item ojson.Result) []byte {
 	if item.Type == ojson.String || text == "" {
 		text = item.String()
 	}
-	part := []byte(`{"type":"text","text":""}`)
-	part, _ = ojson.SetBytes(part, "text", text)
-	return part
+	partDoc := ojson.NewDocString(`{"type":"text","text":""}`)
+	_ = partDoc.Set("text", text)
+	return partDoc.Bytes()
 }
 
 func collectOpenAIResponsesReasoningContent(item ojson.Result) string {

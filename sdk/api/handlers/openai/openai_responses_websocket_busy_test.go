@@ -249,25 +249,28 @@ func TestForwardResponsesWebsocketClosedDataPreservesBufferedCredentialBusy(t *t
 	}
 }
 
-func TestResponsesWebsocketExposesOnlyTypedCredentialBusy429(t *testing.T) {
+func TestResponsesWebsocketExposesTerminal429WithoutTreatingQuotaAsLocalAdmission(t *testing.T) {
 	busy := &coreauth.Error{Code: "credential_concurrency_exceeded", Message: "credential busy", HTTPStatus: http.StatusTooManyRequests}
 	for _, test := range []struct {
-		name string
-		err  error
-		want bool
+		name      string
+		err       error
+		wantLocal bool
 	}{
-		{name: "local admission", err: busy, want: true},
-		{name: "wrapped local admission", err: fmt.Errorf("execute: %w", busy), want: true},
+		{name: "local admission", err: busy, wantLocal: true},
+		{name: "wrapped local admission", err: fmt.Errorf("execute: %w", busy), wantLocal: true},
 		{name: "upstream quota", err: errors.New(`{"error":{"code":"usage_limit_reached","message":"quota exhausted"}}`)},
 		{name: "upstream lookalike", err: errors.New(`{"error":{"code":"credential_concurrency_exceeded","message":"upstream busy"}}`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			message := &interfaces.ErrorMessage{StatusCode: http.StatusTooManyRequests, Error: test.err}
-			if got := shouldExposeResponsesUpstreamError(message); got != test.want {
-				t.Fatalf("error exposure = %t, want %t for %v", got, test.want, test.err)
+			if !shouldExposeResponsesUpstreamError(message) {
+				t.Fatalf("terminal 429 must be exposed for %v", test.err)
 			}
-			if got := shouldReplayResponsesWebsocketPinnedAuthFailure(message); got == test.want {
-				t.Fatalf("pinned auth replay = %t, want %t for %v", got, !test.want, test.err)
+			if got := coreauth.IsCredentialConcurrencyError(test.err); got != test.wantLocal {
+				t.Fatalf("local admission classification = %t, want %t for %v", got, test.wantLocal, test.err)
+			}
+			if got := shouldReplayResponsesWebsocketPinnedAuthFailure(message); got == test.wantLocal {
+				t.Fatalf("pinned auth replay = %t, want %t for %v", got, !test.wantLocal, test.err)
 			}
 		})
 	}

@@ -128,14 +128,14 @@ func credentialConcurrencySelectionError(err error, filteredBusy bool) error {
 	return err
 }
 
-func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context, selector Selector, candidates []*Auth, provider, model string, now time.Time, schedulerAcross bool) ([]*Auth, []*Auth, bool, error) {
+func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context, selector Selector, candidates []*Auth, provider, model string, now time.Time, schedulerAcross bool, clientHeaders ...http.Header) ([]*Auth, []*Auth, bool, error) {
 	if ctx == nil || ctx.Value(credentialConcurrencyAdmissionKey{}) != true {
-		available, selectorAuths, errAvailable := m.availableAuthsForSelector(selector, candidates, provider, model, now, schedulerAcross)
+		available, selectorAuths, errAvailable := m.availableAuthsForSelector(ctx, selector, candidates, provider, model, now, schedulerAcross, clientHeaders...)
 		return available, selectorAuths, false, errAvailable
 	}
 	// Check capacity before choosing the highest priority tier so a full tier cannot
 	// hide an otherwise eligible lower-priority credential from the plugin/native selector.
-	available, errAvailable := m.availableAuthsForRouteModelAcrossPriorities(candidates, provider, model, now)
+	available, errAvailable := m.availableAuthsForRouteModelForRequest(ctx, candidates, provider, model, now, true, clientHeaders...)
 	if errAvailable != nil {
 		return nil, nil, false, errAvailable
 	}

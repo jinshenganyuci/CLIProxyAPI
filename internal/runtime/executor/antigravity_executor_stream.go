@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MoeForge/moego/ojson"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -261,70 +262,26 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 			streamUsage.Publish(ctx, reporter)
 			reporter.EnsurePublished(ctx)
 		}()
+		var pendingFilterPayload []byte
+		var pendingFilterMsg string
 		helps.InitializeApplyPatchStream(ctx, to, responseFormat, req.Model, helps.ApplyPatchOriginalRequest(req, opts), translated, &param)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
-			if replayAccumulator != nil {
-				replayAccumulator.ObserveSSELine(line)
+		var sawFinishReason bool
+		processPayload := func(p []byte) bool {
+			// Filter usage metadata for all models after block classification
+			// so only the terminal chunk retains client-visible usage statistics.
+			p = helps.JSONPayload(helps.FilterSSEUsageMetadata(append([]byte("data: "), p...)))
+			if len(p) == 0 {
+				return true
 			}
+			reporter.ObserveResponseModel(p)
 
-			// Capture accounting before the client-facing filter renames usage.
-			streamUsage.ObserveAntigravityStream(line)
-
-			// Filter usage metadata for all models
-			// Only retain usage statistics in the terminal chunk
-			line = helps.FilterSSEUsageMetadata(line)
-
-			payload := helps.JSONPayload(line)
-			if len(pendingJSON) > 0 {
-				trimmedLine := bytes.TrimSpace(line)
-				if bytes.HasPrefix(trimmedLine, []byte("data:")) {
-					trimmedLine = bytes.TrimSpace(trimmedLine[len("data:"):])
-				}
-				if len(trimmedLine) > 0 {
-					pendingJSON = append(pendingJSON, '\n')
-					pendingJSON = append(pendingJSON, trimmedLine...)
-				}
-				if !ojson.ValidBytes(pendingJSON) {
-					continue
-				}
-				payload = pendingJSON
-				pendingJSON = nil
-			} else if payload != nil && !ojson.ValidBytes(payload) {
-				pendingJSON = append([]byte(nil), payload...)
-				continue
-			}
-			if payload == nil {
-				continue
-			}
-			// Multi-line JSON has no parseable usage until its full payload is assembled.
-			streamUsage.Observe(helps.ParseAntigravityStreamUsage(payload))
-			if errorResult := ojson.GetBytes(payload, "error"); errorResult.Exists() {
-				statusCode := int(errorResult.Get("code").Int())
-				if statusCode < http.StatusBadRequest || statusCode > 599 {
-					statusCode = http.StatusBadGateway
-				}
-				streamErr = newAntigravityStatusErr(statusCode, payload)
-				stopDeliverySupport()
-				helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
-				select {
-				case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
-				case <-ctx.Done():
-				}
-				return
-			}
-			reporter.ObserveResponseModel(payload)
-
-			payload = e.resolveWebSearchGroundingURLs(ctx, auth, from, originalPayload, translated, payload)
-			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, helps.ApplyPatchOriginalRequest(req, opts), translated, bytes.Clone(payload), &param, claudeInputTokens)
+			p = e.resolveWebSearchGroundingURLs(ctx, auth, from, originalPayload, translated, p)
+			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, helps.ApplyPatchOriginalRequest(req, opts), translated, bytes.Clone(p), &param, claudeInputTokens)
 			helps.RecordApplyPatchStreamFailure(ctx, param, reporter, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage)
 			var isTerminalChunk bool
-			if finishReason := ojson.GetBytesNoCopy(payload, "candidates.0.finishReason"); finishReason.Exists() && strings.TrimSpace(finishReason.String()) != "" {
+			if finishReason := ojson.GetBytesNoCopy(p, "candidates.0.finishReason"); finishReason.Exists() && strings.TrimSpace(finishReason.String()) != "" {
 				isTerminalChunk = true
-			} else if finishReason := ojson.GetBytesNoCopy(payload, "response.candidates.0.finishReason"); finishReason.Exists() && strings.TrimSpace(finishReason.String()) != "" {
-				isTerminalChunk = true
-			} else if replayAccumulator != nil && replayAccumulator.terminal {
+			} else if finishReason := ojson.GetBytesNoCopy(p, "response.candidates.0.finishReason"); finishReason.Exists() && strings.TrimSpace(finishReason.String()) != "" {
 				isTerminalChunk = true
 			}
 			if !isTerminalChunk {
@@ -355,8 +312,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 				}
 			}
 			if replayAccumulator != nil && replayAccumulator.terminal && !replayCommitted && responseFormat == sdktranslator.FormatOpenAIResponse {
-				// Wait for the translated completion, not the first finishReason:
-				// split usage/signature frames may still extend the replay ledger.
+				// Commit only after translated completion; split usage/signature frames may extend the ledger.
 				for _, chunk := range chunks {
 					for _, line := range bytes.Split(chunk, []byte("\n")) {
 						if ojson.GetBytesNoCopy(helps.JSONPayload(line), "type").String() == "response.completed" {
@@ -369,13 +325,94 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunks[i]}:
 				case <-ctx.Done():
-					return
+					return false
 				}
 			}
 			if isTerminalChunk {
 				terminalDelivered = true
 			}
-			if helps.StopApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage) {
+			return !helps.StopApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage)
+		}
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
+			if replayAccumulator != nil {
+				replayAccumulator.ObserveSSELine(line)
+			}
+
+			// Capture accounting before the client-facing filter renames usage.
+			streamUsage.ObserveAntigravityStream(line)
+
+			payload := helps.JSONPayload(line)
+			if len(pendingJSON) > 0 {
+				trimmedLine := bytes.TrimSpace(line)
+				if bytes.HasPrefix(trimmedLine, []byte("data:")) {
+					trimmedLine = bytes.TrimSpace(trimmedLine[len("data:"):])
+				}
+				if len(trimmedLine) > 0 {
+					pendingJSON = append(pendingJSON, '\n')
+					pendingJSON = append(pendingJSON, trimmedLine...)
+				}
+				if !ojson.ValidBytes(pendingJSON) {
+					continue
+				}
+				payload = pendingJSON
+				pendingJSON = nil
+			} else if payload != nil && !ojson.ValidBytes(payload) {
+				pendingJSON = append([]byte(nil), payload...)
+				continue
+			}
+			if payload == nil {
+				continue
+			}
+			if geminiStreamHasFinishSignal(payload) {
+				sawFinishReason = true
+			}
+			// Multi-line JSON has no parseable usage until its full payload is assembled.
+			streamUsage.Observe(helps.ParseAntigravityStreamUsage(payload))
+			if errorResult := ojson.GetBytes(payload, "error"); errorResult.Exists() {
+				statusCode := int(errorResult.Get("code").Int())
+				if statusCode < http.StatusBadRequest || statusCode > 599 {
+					statusCode = http.StatusBadGateway
+				}
+				streamErr = newAntigravityStatusErr(statusCode, payload)
+				stopDeliverySupport()
+				helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+				case <-ctx.Done():
+				}
+				return
+			}
+			if len(pendingFilterPayload) > 0 {
+				flushed := pendingFilterPayload
+				pendingFilterPayload = nil
+				pendingFilterMsg = ""
+				if !processPayload(flushed) {
+					return
+				}
+			}
+			if filterMsg, blocked := clienterror.GeminiFilterBlockMessage(payload); blocked {
+				pendingFilterPayload = bytes.Clone(payload)
+				pendingFilterMsg = filterMsg
+				continue
+			}
+			if !processPayload(payload) {
+				return
+			}
+		}
+		if pendingFilterMsg != "" && scanner.Err() == nil && !sawFinishReason {
+			streamErr = statusErr{code: http.StatusBadRequest, msg: pendingFilterMsg}
+			stopDeliverySupport()
+			helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+			select {
+			case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+			case <-ctx.Done():
+			}
+			return
+		}
+		if len(pendingFilterPayload) > 0 {
+			if !processPayload(pendingFilterPayload) {
 				return
 			}
 		}

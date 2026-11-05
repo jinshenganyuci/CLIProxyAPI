@@ -9,10 +9,11 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
 func TestV837LateUnauthorizedCannotRejectReplacementRegistration(t *testing.T) {
-	for _, mode := range []string{"execute", "count", "stream-bootstrap", "codex-client/execute", "codex-client/count", "codex-client/stream-bootstrap"} {
+	for _, mode := range []string{"execute", "count", "stream-bootstrap", "codex-client/execute", "codex-client/count", "codex-client/stream-bootstrap", "image/execute", "image/count", "image/stream-bootstrap"} {
 		t.Run(mode, func(t *testing.T) {
 			m := NewManager(nil, &FillFirstSelector{}, nil)
 			m.SetRetryConfig(0, 0, 0)
@@ -58,7 +59,10 @@ func TestV837LateUnauthorizedCannotRejectReplacementRegistration(t *testing.T) {
 			if strings.HasPrefix(mode, "codex-client/") {
 				opts.Headers = http.Header{"User-Agent": {"codex_cli_rs/0.154.0"}}
 			}
-			switch strings.TrimPrefix(mode, "codex-client/") {
+			if strings.HasPrefix(mode, "image/") {
+				opts.SourceFormat = sdktranslator.FromString("openai-image")
+			}
+			switch strings.TrimPrefix(strings.TrimPrefix(mode, "codex-client/"), "image/") {
 			case "execute":
 				_, err = m.Execute(t.Context(), []string{"codex"}, req, opts)
 			case "count":

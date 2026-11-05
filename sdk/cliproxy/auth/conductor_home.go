@@ -439,19 +439,30 @@ func setHomeUserAPIKeyOnGinContext(ctx context.Context, apiKey string) {
 }
 
 func homeDispatchHeaders(ctx context.Context, headers http.Header) http.Header {
-	apiKey, ok := homeQueryCredentialFromContext(ctx)
-	if !ok {
-		return headers
+	var out http.Header
+	ensureCloned := func() {
+		if out != nil {
+			return
+		}
+		out = headers.Clone()
+		if out == nil {
+			out = http.Header{}
+		}
 	}
-	out := headers.Clone()
-	if out == nil {
-		out = http.Header{}
+	if IsCodexClientRequest(ctx, headers) && !IsCodexClientUserAgent(headerValueFromHTTPHeader(headers, "User-Agent")) {
+		ensureCloned()
+		out.Set("User-Agent", "codex_cli_rs")
 	}
-	if out.Get("Authorization") != "" || out.Get("X-Goog-Api-Key") != "" || out.Get("X-Api-Key") != "" {
+	if apiKey, ok := homeQueryCredentialFromContext(ctx); ok {
+		ensureCloned()
+		if out.Get("Authorization") == "" && out.Get("X-Goog-Api-Key") == "" && out.Get("X-Api-Key") == "" {
+			out.Set("X-Goog-Api-Key", apiKey)
+		}
+	}
+	if out != nil {
 		return out
 	}
-	out.Set("X-Goog-Api-Key", apiKey)
-	return out
+	return headers
 }
 
 func homeQueryCredentialFromContext(ctx context.Context) (string, bool) {
@@ -936,6 +947,39 @@ func (m *Manager) homeRuntimeAuthByID(sessionID string, authID string) (*Auth, P
 	return auth.Clone(), executor, logicalProvider, true
 }
 
+func (m *Manager) hasAlternativeHomeTargetForModel(ctx context.Context, model string, opts cliproxyexecutor.Options, excludedAuthID string) bool {
+	if m == nil || !m.HomeEnabled() {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeOpts := opts
+	probeOpts.Metadata = cloneRequestMetadata(opts.Metadata)
+	delete(probeOpts.Metadata, cliproxyexecutor.PinnedAuthMetadataKey)
+	delete(probeOpts.Metadata, cliproxyexecutor.ExecutionSessionMetadataKey)
+	delete(probeOpts.Metadata, cliproxyexecutor.SelectedAuthCallbackMetadataKey)
+	delete(probeOpts.Metadata, cliproxyexecutor.FinalizedResponseFormatCallbackMetadataKey)
+	probeOpts = withHomeRetryRound(probeOpts, 0)
+	probeOpts = withHomeAuthCount(probeOpts, 2)
+	if excludedAuthID != "" {
+		probeOpts = withHomeExcludedAuthIDs(probeOpts, map[string]struct{}{excludedAuthID: {}})
+	}
+	selection, errSelection := m.pickHomeDispatchSelection(ctx, model, probeOpts)
+	if errSelection != nil || selection == nil {
+		return false
+	}
+	selectionAuth := selection.CloneAuth()
+	if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "replay_target_probe"); errEnd != nil {
+		return false
+	}
+	if selectionAuth == nil || !authSelectionEligibilityForRequest(ctx, opts).allows(selectionAuth) {
+		return false
+	}
+	candidateID := strings.TrimSpace(selectionAuth.ID)
+	return candidateID != "" && candidateID != excludedAuthID
+}
+
 func (m *Manager) pickNextViaHome(ctx context.Context, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
 	if m == nil {
 		return nil, nil, "", &Error{Code: "auth_not_found", Message: "no auth available"}
@@ -960,6 +1004,50 @@ func (m *Manager) pickNextViaHome(ctx context.Context, model string, opts clipro
 }
 
 func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, opts cliproxyexecutor.Options) (*HomeDispatchSelection, error) {
+	ctx = WithCodexClientRequest(ctx, isOpenAIImageExecutionOptions(opts) || IsCodexClientRequest(ctx, opts.Headers))
+	for attempt := 0; ; attempt++ {
+		selection, errSelection := m.pickHomeDispatchSelectionOnce(ctx, model, opts)
+		if errSelection != nil || selection == nil {
+			return selection, errSelection
+		}
+		auth := selection.CloneAuth()
+		if !missingCodexOuterCredentialForRequest(ctx, auth, opts.Headers) {
+			return selection, nil
+		}
+		if errEnd := m.endHomeSelectionBeforeRedispatch(ctx, selection, "missing_native_credential"); errEnd != nil {
+			return nil, errEnd
+		}
+		if attempt > 0 || pinnedAuthIDFromMetadata(opts.Metadata) != "" || !m.homeSupportsExcludedAuths(ctx) {
+			return nil, &Error{Code: "invalid_auth", Message: "Home returned a credential without native Codex credentials", HTTPStatus: http.StatusBadGateway}
+		}
+		excluded := make(map[string]struct{})
+		for _, id := range homeExcludedAuthIDsFromMetadata(opts.Metadata) {
+			excluded[id] = struct{}{}
+		}
+		excluded[auth.ID] = struct{}{}
+		opts = withHomeExcludedAuthIDs(opts, excluded)
+	}
+}
+
+func (m *Manager) homeSupportsExcludedAuths(ctx context.Context) bool {
+	bundle := m.HomeDispatchBundle()
+	if bundle == nil || bundle.client == nil {
+		return false
+	}
+	if _, ok := bundle.client.(homeDispatchSessionHierarchyDispatcher); ok {
+		return true
+	}
+	if credentialPolicyFromContext(ctx) == "" {
+		_, retryConstraints := bundle.client.(homeDispatchRetryRoundConstraintsDispatcher)
+		_, constraints := bundle.client.(homeDispatchConstraintsDispatcher)
+		return retryConstraints || constraints
+	}
+	_, retryConstraints := bundle.client.(homeCredentialPolicyRetryRoundConstraintsDispatcher)
+	_, constraints := bundle.client.(homeCredentialPolicyConstraintsDispatcher)
+	return retryConstraints || constraints
+}
+
+func (m *Manager) pickHomeDispatchSelectionOnce(ctx context.Context, model string, opts cliproxyexecutor.Options) (*HomeDispatchSelection, error) {
 	if m == nil {
 		return nil, &Error{Code: "auth_not_found", Message: "no auth available"}
 	}
@@ -990,8 +1078,10 @@ func (m *Manager) pickHomeDispatchSelection(ctx context.Context, model string, o
 	}
 	if sessionID := homeExecutionSessionIDFromMetadata(opts.Metadata); sessionID != "" {
 		if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) && pinnedAuthID != "" {
-			if _, ok := m.GetExecutionSessionAuthByID(sessionID, pinnedAuthID); ok {
-				return nil, &cliproxyexecutor.UpstreamWebsocketTurnError{FullContextRequired: true}
+			if _, excluded := excludedAuthIDs[pinnedAuthID]; !excluded {
+				if _, ok := m.GetExecutionSessionAuthByID(sessionID, pinnedAuthID); ok {
+					return nil, &cliproxyexecutor.UpstreamWebsocketTurnError{FullContextRequired: true}
+				}
 			}
 		}
 		if pinnedAuthID != "" {
