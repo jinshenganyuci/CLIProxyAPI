@@ -3,11 +3,11 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.27.2`
-- commit: `f154fa9380825c4fe94bc577a9abaa7e505f8875`
-- patch: `management-center-v1.27.2-credential-identity.patch`
+- tag: `v1.27.3`
+- commit: `953fb2444350c6c36052dda46cac0abce6b23ea6`
+- patch: `management-center-v1.27.3-credential-identity.patch`
 
-This release integrates all 39 official commits after `v1.26.7` through `v1.27.2`,
+This release integrates all 46 official commits after `v1.26.7` through `v1.27.3`,
 while preserving earlier native functionality and the fork controls described below.
 
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
@@ -318,7 +318,7 @@ explicit `openapi: false` can be edited through source YAML. Existing visual and
 provider saves preserve these fields, credential proxy and concurrency settings;
 this UI does not add dedicated Vertex controls for them.
 
-The v1.27.2 native routing board, login redesign, auto-login guards, storage v2
+The retained v1.27.2 native routing board, login redesign, auto-login guards, storage v2
 migration, quota plan tiers, timeline corrections, Claude cooldown reset and HTTP
 reset request IDs are included. Turkish now includes the fork's identity, credential
 proxy, concurrency and client controls alongside all six existing locales.
@@ -336,16 +336,28 @@ The v8.0.49+ per-group/per-key `connection-pool` settings and
 `client.claude.show-codex-commentary` can be edited in source YAML. Ordinary visual,
 provider and routing saves preserve empty pool opt-in blocks, explicit false/zero
 values, inheritance, selected proxy and local concurrency settings. This UI release
-does not add dedicated visual controls for these backend settings or the plugin
-multiple-login-portal API.
+does not add dedicated visual controls for these backend settings.
+
+The v1.27.3 native update includes the AIcodemirror multi-protocol provider,
+Grok client version 1.0.70, and consistent quota-limit labels. Plugins may expose
+multiple OAuth login entries, each retaining its own provider identifier, title,
+icon, and attempt state. Entry metadata is decoded once from backend HTML escaping
+and remains untrusted text rendered by React. Legacy single-entry plugin metadata
+still works. Quota fallback can match any declared OAuth identifier; the server's
+explicit quota plugin ID remains authoritative, with the fork's selected-auth-index
+and connection-switch guards preserved.
+
+The retained routing identity guard distinguishes keys, proxies, base URLs, prefixes,
+and authentication indexes. Otherwise-identical duplicate credentials distinguished
+only by model configuration retain the existing positional-write limitation.
 
 Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout f154fa9380825c4fe94bc577a9abaa7e505f8875
-git -C management-center apply ../webui/management-center-v1.27.2-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.27.2 \
+git -C management-center checkout 953fb2444350c6c36052dda46cac0abce6b23ea6
+git -C management-center apply ../webui/management-center-v1.27.3-credential-identity.patch
+docker run --rm --cpus 2 --memory 2g -e VERSION=v1.27.3 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.4.3 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -355,7 +367,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-1f6ea93d20be03b438629573ab0044d4489f16e3b0c9bab1e791627e5ef43411
+9c63a36350d6f3ad427b3f409e53876064342083adbdaf11b3973338dffd1cab
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

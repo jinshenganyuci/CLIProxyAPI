@@ -74,17 +74,10 @@ func codexIsImagesEndpointPath(path string) bool {
 }
 
 func (e *CodexExecutor) resolveGPTImage2BaseModel() string {
-	if e == nil || e.cfg == nil {
+	if e == nil {
 		return codexOpenAIImagesMainModel
 	}
-	model := strings.TrimSpace(e.cfg.GPTImage2BaseModel)
-	if model == "" {
-		return codexOpenAIImagesMainModel
-	}
-	if strings.HasPrefix(strings.ToLower(model), "gpt-") {
-		return model
-	}
-	return codexOpenAIImagesMainModel
+	return resolveCodexGPTImage2BaseModel(e.cfg)
 }
 
 func (e *CodexExecutor) executeOpenAIImage(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
@@ -163,12 +156,19 @@ func (e *CodexExecutor) executeOpenAIImage(ctx context.Context, auth *cliproxyau
 
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
+	var failureUsage helps.StreamUsageBuffer
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if !bytes.HasPrefix(line, dataTag) {
 			continue
 		}
 		eventData := bytes.TrimSpace(line[len(dataTag):])
 		reporter.ObserveResponseModel(eventData)
+		failureUsage.Observe(helps.ParseCodexUsageWithOutputItems(eventData, outputItemsByIndex, outputItemsFallback))
+		if errEvent, _, ok := codexTerminalFailureErrWithCooling(eventData, e.modelLevelCooling()); ok {
+			err = exposeCodexIdentityStatusError(errEvent, identityState)
+			failureUsage.PublishFailure(ctx, reporter, err)
+			return resp, err
+		}
 		switch ojson.GetBytesNoCopy(eventData, "type").String() {
 		case "response.output_item.done":
 			collectCodexOutputItemDone(eventData, outputItemsByIndex, &outputItemsFallback)
@@ -297,6 +297,7 @@ func (e *CodexExecutor) executeOpenAIImageStream(ctx context.Context, auth *clip
 		scanner.Buffer(nil, 52_428_800) // 50MB
 		outputItemsByIndex := make(map[int64][]byte)
 		var outputItemsFallback [][]byte
+		var failureUsage helps.StreamUsageBuffer
 		for scanner.Scan() {
 			line := applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
@@ -305,6 +306,14 @@ func (e *CodexExecutor) executeOpenAIImageStream(ctx context.Context, auth *clip
 			}
 			eventData := bytes.TrimSpace(line[len(dataTag):])
 			reporter.ObserveResponseModel(eventData)
+			failureUsage.Observe(helps.ParseCodexUsageWithOutputItems(eventData, outputItemsByIndex, outputItemsFallback))
+			if errEvent, _, ok := codexTerminalFailureErrWithCooling(eventData, e.modelLevelCooling()); ok {
+				helps.RecordAPIResponseError(ctx, e.cfg, errEvent)
+				exposedErr := exposeCodexIdentityStatusError(errEvent, identityState)
+				failureUsage.PublishFailure(ctx, reporter, exposedErr)
+				sendError(exposedErr)
+				return
+			}
 			switch ojson.GetBytesNoCopy(eventData, "type").String() {
 			case "response.output_item.done":
 				collectCodexOutputItemDone(eventData, outputItemsByIndex, &outputItemsFallback)

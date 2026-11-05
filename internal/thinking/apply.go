@@ -769,6 +769,12 @@ func ExtractTranslatedReasoningEffort(body []byte, provider string) string {
 	return reasoningEffortFromConfig(config)
 }
 
+// ExtractCodexReasoningEffortDoc reads the effective effort without serializing
+// the document while request normalization is still in progress.
+func ExtractCodexReasoningEffortDoc(doc *ojson.Doc) string {
+	return reasoningEffortFromConfig(extractCodexUsageConfigDoc(doc, doc != nil))
+}
+
 func extractThinkingConfigForUsage(body []byte, provider string) ThinkingConfig {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "codex", "xai", "openai-response":

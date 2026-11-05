@@ -870,6 +870,7 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 				wakeWriter()
 				if !firstResponse {
 					reporter = helps.NewExecutorUsageReporter(ctx, e, req.Model, auth)
+					reporter.SetUpstreamModel(current.upstreamModel)
 					reporter.SetTranslatedReasoningEffort(current.clientBody, current.to.String())
 					reporter.StartResponseTTFT()
 				}
@@ -974,6 +975,7 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 						pendingLeases = pendingLeases[1:]
 					}
 					eventReporter = helps.NewExecutorUsageReporter(ctx, e, req.Model, auth)
+					eventReporter.SetUpstreamModel(eventPrepared.upstreamModel)
 					eventReporter.SetTranslatedReasoningEffort(eventPrepared.clientBody, eventPrepared.to.String())
 				} else if !ambiguous {
 					rejectedID := failedID
