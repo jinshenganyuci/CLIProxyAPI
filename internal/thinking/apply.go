@@ -774,10 +774,16 @@ func extractThinkingConfigForUsage(body []byte, provider string) ThinkingConfig 
 	case "codex", "xai", "openai-response":
 		return extractCodexUsageConfig(body)
 	case "claude":
-		if ojson.GetBytesNoCopy(body, "thinking.type").String() == "between_tools" {
+		switch strings.ToLower(strings.TrimSpace(ojson.GetBytesNoCopy(body, "thinking.type").String())) {
+		case "disabled", "between_tools":
 			return ThinkingConfig{Mode: ModeNone, Budget: 0}
 		}
-		return extractThinkingConfig(body, provider)
+		config := extractThinkingConfig(body, provider)
+		// The last effort directive, not the cached top-level placeholder, is the turn's effort.
+		if directive := extractClaudeEffortDirectiveConfig(body); hasThinkingConfig(directive) {
+			return directive
+		}
+		return config
 	default:
 		return extractThinkingConfig(body, provider)
 	}

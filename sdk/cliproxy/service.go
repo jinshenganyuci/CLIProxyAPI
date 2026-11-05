@@ -80,6 +80,11 @@ type Service struct {
 	// discoveryManager manages local network mDNS / DNS-SD service advertising.
 	discoveryManager *discoveryAdvertiserManager
 
+	// kvStoreMu serializes local KV lifecycle updates with shutdown.
+	kvStoreMu      sync.Mutex
+	kvStoreManaged bool
+	kvStoreClosed  bool
+
 	// serverErr channel for server startup/shutdown errors.
 	serverErr chan error
 

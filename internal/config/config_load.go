@@ -295,6 +295,8 @@ func loadConfigOptional(configFile string, optional bool, source *[]byte) (*Conf
 		cfg.Pprof.Addr = DefaultPprofAddr
 	}
 
+	cfg.KVStore.Path = strings.TrimSpace(cfg.KVStore.Path)
+
 	if cfg.LogsMaxTotalSizeMB < 0 {
 		cfg.LogsMaxTotalSizeMB = 0
 	}

@@ -1,8 +1,22 @@
 # Codex OAuth 凭据独立身份方案
 
-当前修订为 `v8.0.53-codex-identity.1`，基于官方 `v8.0.53`（`01b24f1f95dc9b309765212c52b25b25e005ff01`）。从已发布 `v8.0.51.1` 合入 32 个上游提交（25 个非 merge、7 个 merge），涉及 764 个文件；其中两个 README 赞助文案提交没有单列在原生 Release changelog。固定镜像标签为 `codex-identity-v8.0.53.1`；摘要、最终源码提交和本轮验收以 Release 附件为准。
+当前修订为 `v8.0.55-codex-identity.1`，基于官方 `v8.0.55`（`e6e5708e677adb2463d45accdd24bc9fd028ddd8`）。从已发布 `v8.0.53.1` 合入 15 个上游提交（13 个非 merge、2 个 merge），涉及 59 个文件。固定镜像标签为 `codex-identity-v8.0.55.1`；摘要、最终源码提交和本轮验收以 Release 附件为准。
 
-## v8.0.53 更新
+## v8.0.55 更新
+
+- **本地持久化 KV**：普通模式默认启用 bbolt，默认文件位于 `<auth-dir>/kv.db`。`server.kv-store.disabled: true` 关闭本地 KV，`server.kv-store.path` 可指定独立数据库路径；空路径随 auth-dir 解析。保留既有身份、代理、并发及连接池配置；修复显式数据库路径清空保存后仍残留旧值的问题。数据库文件使用独占文件锁，多实例应使用独立路径。补充服务生命周期保护，未托管的服务关闭不会误关全局 KV，已关闭服务不会被迟到热加载重新打开。
+- **Home 优先级**：启用 Home 时使用 Home KV 并关闭本地 KV，Home 不可用时不会静默读写本地数据库。已核对官方 Home 的 SET NX/CAS 和无 TTL 语义，本轮不要求新增 Home 协议命令。
+- **Claude 会话日期**：本地 KV 或 Home KV 活跃时，会话日期 pin 永久保存并可跨重启沿用；同一会话可跨凭据延续。`session-date-pin-days` 仅在禁用本地 KV 且无 Home 时控制内存保留。旧 Home 不支持 CAS 时仍保留兼容回退，但不把内存回退当作跨实例持久化保证。
+- **远端压缩 v2**：OpenAI-compatible 路由支持 Codex 远端 compaction v2、压缩胶囊回放与显式 compact；保留二开的身份恢复、严格出口、并发 lease、用量与最终 payload 配置规则，无效压缩胶囊返回错误；空摘要或截断导致的失败在发布用量前完成判定，保留已消耗 token 并且只记账一次。
+- **Codex 输入标识**：清理输入 item ID 中的无效字符，限制长度并处理碰撞；保留工具调用关联 call_id 与凭据 namespace 的既有处理边界。
+- **Claude / Devin effort**：解析会话中最新用户消息里的 effort 指令，用于实际 Devin 模型变体及用量标注；显式关闭、between_tools 和模型后缀继续遵循各自优先级。
+- **用量与插件热重载**：增加 cached image/audio 与 Gemini interactions 的模态 token 提取；插件 quiesce 失败时中止热重载，协调 in-flight usage 的排队、回滚与重放。C ABI 仍为 1，RPC schema 仍为 10；原版 Access Guard fork.22 与最新 fork.23 单独验证，不替换用户真实插件。
+- **Antigravity 与依赖**：模型发现提取至 SDK auth，保留显式代理、取消、目录复制及未知目录 nil 语义；fallback 版本更新至 2.29.0。moego 官方替换版本升至 0.1.2，二开精确数字、特殊路径、未知字段与 no-op 回归继续保留。
+- **管理页**：官方独立网页仍为 `v1.27.2`，保留原补丁与 HTML，重新验证源码重建、KV 字段透传与真实镜像浏览器。相同凭据身份仅模型配置不同的重复行重排边界仍保留。
+
+本轮验收使用独立临时 auth-dir 和数据库；业务部署不随源码或镜像发布切换。原有工作区、凭据及其他任务容器保持原状。默认模型目录与显式旧模型兼容场景分别验证。
+
+## v8.0.53 历史记录
 
 - **JSON 与 Base64 库迁移**：随上游切换至 MoeForge/moego，并采用官方 `router-for-me/moego v0.1.1` 替换版本。二开额外代码同步迁移；请求构建保留单一 `ojson.Doc` 修改链，身份映射、媒体、commentary 和 payload 配置在各自边界衔接，避免中途编码造成数字精度、转义或未知字段损失。已有 no-op 复用、参数原始 JSON 和响应快照语义保持。
 - **最大输出预算**：Codex 各协议转换保留 `max_output_tokens`，适用时从 `max_completion_tokens` 或 `max_tokens` 回填；显式零值、SIWC、HTTP、流式和 WebSocket 路径一致。用户 payload override/filter 仍是最终业务语义，续传或重试不能再次应用非幂等规则。
