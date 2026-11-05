@@ -646,6 +646,23 @@ func newTestServerWithConfig(t *testing.T, cfg *proxyconfig.Config, opts ...Serv
 	return NewServer(cfg, authManager, accessManager, configPath, opts...)
 }
 
+func newWebsocketTestHTTPServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	var handlers sync.WaitGroup
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.Add(1)
+		defer handlers.Done()
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() {
+		// Stop new HTTP handlers before waiting for hijacked websocket handlers,
+		// which net/http does not track through their deferred log finalization.
+		server.Close()
+		handlers.Wait()
+	})
+	return server
+}
+
 func TestNewServerAppliesTrustedProxyConfiguration(t *testing.T) {
 	server := newTestServerWithConfig(t, &proxyconfig.Config{
 		TrustedProxies: []string{"192.0.2.0/24"},
@@ -3927,8 +3944,7 @@ func TestServerResponsesWebsocketReauthorizesEachTurn(t *testing.T) {
 		registry.GetGlobalRegistry().UnregisterClient(authEntry.ID)
 	})
 
-	httpServer := httptest.NewServer(server.engine)
-	defer httpServer.Close()
+	httpServer := newWebsocketTestHTTPServer(t, server.engine)
 
 	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/responses"
 	headers := http.Header{"Authorization": []string{"Bearer key-1"}}

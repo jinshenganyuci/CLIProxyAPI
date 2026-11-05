@@ -49,8 +49,7 @@ func TestResponseCompressionServerHotReload(t *testing.T) {
 func TestWebsocketCompressionServerHotReload(t *testing.T) {
 	cfg := &config.Config{}
 	server := newTestServerWithConfig(t, cfg)
-	httpServer := httptest.NewServer(server.engine)
-	defer httpServer.Close()
+	httpServer := newWebsocketTestHTTPServer(t, server.engine)
 	dialer := websocket.Dialer{EnableCompression: true}
 	for _, enabled := range []bool{true, false, true} {
 		cfg.Codex.WebsocketCompression = &enabled
