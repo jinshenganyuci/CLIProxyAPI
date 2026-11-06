@@ -125,6 +125,16 @@ func (e *claudeFastDirectResponseError) IsRequestScoped() bool {
 	return true
 }
 
+// IsRequestStop preserves the Fast passthrough contract independently of whether
+// verified upstream quota evidence cools one model or the entire credential.
+func (e *claudeFastDirectResponseError) IsRequestStop() bool {
+	return e != nil
+}
+
+func (e *claudeFastDirectResponseError) IsModelScoped() bool {
+	return e != nil && e.modelScoped
+}
+
 func (e *claudeFastDirectResponseError) IsCredentialScoped() bool {
 	if e == nil {
 		return false

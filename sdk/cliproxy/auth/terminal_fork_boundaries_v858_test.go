@@ -329,3 +329,28 @@ func TestV858HomeCountTerminal401DoesNotPublishCredentialRejection(t *testing.T)
 		})
 	}
 }
+
+type v858ModelScopedTerminalError struct{ error }
+
+func (e v858ModelScopedTerminalError) Unwrap() error       { return e.error }
+func (v858ModelScopedTerminalError) IsModelScoped() bool   { return true }
+func (v858ModelScopedTerminalError) IsRequestScoped() bool { return false }
+func (v858ModelScopedTerminalError) IsRequestStop() bool   { return true }
+
+func TestV858ExplicitModelScopedTerminalKeepsQuotaAndStopsReplay(t *testing.T) {
+	terminal := &cliproxyexecutor.RequestTerminatedError{HTTPStatus: 429, Body: []byte("synthetic verified model quota")}
+	failure := v858ModelScopedTerminalError{error: terminal}
+	if isRequestScopedError(failure) || isCredentialScopedError(failure) || !isRequestStopError(failure) {
+		t.Fatal("model quota must remain distinct from request failure, credential quota and replay policy")
+	}
+	result := resultErrorFromError(failure)
+	if result.HTTPStatus != 429 || result.Code == requestScopedErrorCode || shouldSkipCredentialCooldown(result) {
+		t.Fatal("explicit model quota was erased by terminal response inference")
+	}
+	for _, status := range []int{400, 401, 429} {
+		opaque := fmt.Errorf("opaque wrapped response: %w", &cliproxyexecutor.RequestTerminatedError{HTTPStatus: status})
+		if !isRequestScopedError(opaque) || !shouldSkipCredentialCooldown(resultErrorFromError(opaque)) {
+			t.Fatalf("opaque terminal %d lost availability-neutral fallback", status)
+		}
+	}
+}

@@ -1948,9 +1948,10 @@ func isRequestScopedError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// A preserved terminal response belongs to this request unless the executor
-	// explicitly classifies the rejection as safe to retry on another credential.
-	if isRequestTerminatedError(err) && !isCredentialScopedError(err) {
+	// Opaque terminal responses are request-scoped. Explicit executor quota
+	// evidence may instead target a credential or one model; replay permission
+	// remains a separate decision enforced by IsRequestStop.
+	if isRequestTerminatedError(err) && !isCredentialScopedError(err) && !isModelScopedError(err) {
 		return true
 	}
 	requestErr, ok := errors.AsType[cliproxyexecutor.RequestScopedError](err)
@@ -2536,6 +2537,17 @@ func isTransientRateLimitError(err error) bool {
 
 func isTransientRateLimitResultError(err *Error) bool {
 	return err != nil && err.Code == transientRateLimitErrorCode
+}
+
+func isModelScopedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	type modelScopedProvider interface {
+		IsModelScoped() bool
+	}
+	var scoped modelScopedProvider
+	return errors.As(err, &scoped) && scoped != nil && scoped.IsModelScoped()
 }
 
 func isCredentialScopedError(err error) bool {
