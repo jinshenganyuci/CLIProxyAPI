@@ -377,11 +377,13 @@ func applyRequestAfterAuthInterceptor(ctx context.Context, executor ProviderExec
 		opts.Metadata[cliproxyexecutor.RequestPathMetadataKey] = path
 	}
 	if resp.Terminate {
-		return req, opts, &cliproxyexecutor.RequestTerminatedError{
+		// A plugin interception is final even when credential error rules permit
+		// failover for a preserved response returned by an upstream executor.
+		return req, opts, wrapRequestStopError(&cliproxyexecutor.RequestTerminatedError{
 			HTTPStatus: resp.StatusCode,
 			Header:     cloneRequestHeaders(resp.ResponseHeaders),
 			Body:       bytes.Clone(resp.ResponseBody),
-		}
+		})
 	}
 	if len(resp.ClearHeaders) > 0 || len(resp.Body) > 0 {
 		evalPayload := opts.OriginalRequest
@@ -727,7 +729,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 					errExec = annotateTrustedRetryAfterByHint(errExec)
 					syncPreferredUpstreamError(&upstreamErr, errExec)
 				}
-				if isRequestTerminatedError(errExec) || isRequestStopError(errExec) {
+				if isRequestStopError(errExec) {
 					return cliproxyexecutor.Response{}, errExec
 				}
 				if okAction {
@@ -1352,6 +1354,26 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if hasUpstreamExecutionAttempt(errStream) {
 				upstreamErr = errStream
 			}
+			if errCtx := execCtx.Err(); errCtx != nil && ctx != nil && ctx.Err() != nil {
+				if selection != nil {
+					releaseAttempt()
+					selection.End("request_canceled")
+				}
+				return nil, errCtx
+			}
+			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
+			if isRequestStopError(errStream) || IsCredentialConcurrencyError(errStream) || isRequestScopedStop(action, okAction) || (!okAction && (isRequestInvalidError(errStream) || cliproxyexecutor.IsUpstreamWebsocketTurnError(errStream))) {
+				// Only redispatch needs a release acknowledgement. Preserve the final
+				// response even when Home cannot acknowledge the released admission.
+				if selection != nil {
+					releaseAttempt()
+					selection.End("request_stopped")
+				}
+				if isRequestScopedStop(action, okAction) {
+					return nil, wrapRequestStopError(errStream)
+				}
+				return nil, errStream
+			}
 			if selection != nil {
 				excludeAuth := shouldExcludeHomeAuthAfterStreamError(execCtx, auth, errStream)
 				if homeSameAuthRetries[auth.ID] > 0 {
@@ -1372,14 +1394,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 			if errCtx := execCtx.Err(); errCtx != nil && ctx != nil && ctx.Err() != nil {
 				return nil, errCtx
 			}
-			if isRequestTerminatedError(errStream) || isRequestStopError(errStream) || IsCredentialConcurrencyError(errStream) {
-				return nil, errStream
-			}
-			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
 			if okAction {
-				if isRequestScopedStop(action, okAction) {
-					return nil, wrapRequestStopError(errStream)
-				}
 				lastErr = errStream
 				if homeMode {
 					roundTiming.Observe(lastErr)
@@ -1388,9 +1403,6 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 					homeAuthCount++
 				}
 				continue
-			}
-			if isRequestInvalidError(errStream) || cliproxyexecutor.IsUpstreamWebsocketTurnError(errStream) {
-				return nil, errStream
 			}
 			lastErr = errStream
 			if homeMode {

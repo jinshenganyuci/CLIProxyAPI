@@ -258,7 +258,7 @@ func (m *Manager) executeHomeOnce(ctx context.Context, providers []string, req c
 			errExecute = markUpstreamExecutionAttemptFromContext(execCtx, errExecute)
 			durationHomeExec := time.Since(startHomeExec)
 			if countTokens {
-				if _, fingerprint := getEffectiveAuth(); isUnauthorizedError(errExecute) {
+				if _, fingerprint := getEffectiveAuth(); isUnauthorizedError(errExecute) && !isRequestScopedError(errExecute) {
 					m.reportHomeUnauthorized(execCtx, preparedAuth, selection.Provider, resultModel, fingerprint, extractErrorBody(errExecute))
 				}
 			}
@@ -294,7 +294,7 @@ func (m *Manager) executeHomeOnce(ctx context.Context, providers []string, req c
 			m.reportHomeResult(execCtx, result, preparedAuth)
 			roundTiming.Observe(errExecute)
 			lastErr = errExecute
-			if isRequestTerminatedError(errExecute) || isRequestStopError(errExecute) {
+			if isRequestStopError(errExecute) {
 				releaseAttempt()
 				selection.End("request_terminated")
 				return cliproxyexecutor.Response{}, errExecute

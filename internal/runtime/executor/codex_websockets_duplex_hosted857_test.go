@@ -20,7 +20,7 @@ import (
 	logtest "github.com/sirupsen/logrus/hooks/test"
 )
 
-func TestV857CodexDuplexHostedImageExpectedModel(t *testing.T) {
+func TestV858CodexDuplexExplicitHostedImageModelExpected(t *testing.T) {
 	for _, servedModel := range []string{"gpt-5.4-mini", "unexpected-codex-model"} {
 		t.Run(servedModel, func(t *testing.T) {
 			originalHooks := cloneLogHooks(log.StandardLogger().Hooks)
@@ -74,6 +74,11 @@ func TestV857CodexDuplexHostedImageExpectedModel(t *testing.T) {
 			input := make(chan core.WebsocketInput, 1)
 			ctx = core.WithWebsocketInput(core.WithDownstreamWebsocket(ctx), input)
 			cfg := &config.Config{AuthDir: t.TempDir(), Codex: config.CodexConfig{ResponseSteering: true}}
+			// Hosted image turns now require an explicit supported-model override.
+			cfg.Payload.Override = []config.PayloadRule{{
+				Models: []config.PayloadModelRule{{Name: "gpt-6-astra", Match: []map[string]any{{"tool_choice.type": "image_generation"}}}},
+				Params: map[string]any{"model": "gpt-5.4-mini"},
+			}}
 			exec := NewCodexWebsocketsExecutor(cfg)
 			exec.store = &codexWebsocketSessionStore{sessions: make(map[string]*codexWebsocketSession)}
 			auth := &cliproxyauth.Auth{ID: t.Name(), Provider: "codex", ProxyURL: "direct", Attributes: map[string]string{"base_url": server.URL, "websockets": "true", "plan_type": "pro"}, Metadata: map[string]any{"access_token": "synthetic-857", "account_id": "synthetic-account"}}
