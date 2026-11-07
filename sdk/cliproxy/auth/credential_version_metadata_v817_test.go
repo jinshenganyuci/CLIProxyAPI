@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"
 )
 
@@ -108,7 +109,7 @@ func (e *snapshotRefreshV817Executor) Refresh(_ context.Context, auth *Auth) (*A
 
 func TestStaleRefreshOutcomeCannotMutateAcceptedCredentialV817(t *testing.T) {
 	for _, replace := range []string{"native-update", "reregister", "reregister-same-token", "atomic-metadata", "identity-transaction"} {
-		for _, outcome := range []string{"success", "cancel", "unauthorized", "invalid-grant", "transient"} {
+		for _, outcome := range []string{"success", "cancel", "unauthorized", "invalid-grant", "transient", "unknown", "unknown-cancel"} {
 			t.Run(replace+"/"+outcome, func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					manager, store, initial := newMetadataControlsFixture(t, nil)
@@ -122,6 +123,10 @@ func TestStaleRefreshOutcomeCannotMutateAcceptedCredentialV817(t *testing.T) {
 						executor.err = errors.New("synthetic invalid_grant")
 					case "transient":
 						executor.err = errors.New("synthetic upstream unavailable")
+					case "unknown":
+						executor.err = &codex.RefreshOutcomeUnknownError{Stage: "transport"}
+					case "unknown-cancel":
+						executor.err = &codex.RefreshOutcomeUnknownError{Stage: "transport", Cause: context.Canceled}
 					}
 					manager.RegisterExecutor(executor)
 					var once sync.Once

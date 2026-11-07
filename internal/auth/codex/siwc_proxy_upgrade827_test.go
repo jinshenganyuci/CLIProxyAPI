@@ -2,9 +2,11 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ func TestUpgrade827SIWCRefreshKeepsProxyAndDeviceIsolation(t *testing.T) {
 		{"different_device", "direct", "direct", "device-a", "device-b"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			journal := &memoryRefreshJournal{}
 			started := make(chan struct{}, 2)
 			release := make(chan struct{})
 			var once sync.Once
@@ -33,6 +36,7 @@ func TestUpgrade827SIWCRefreshKeepsProxyAndDeviceIsolation(t *testing.T) {
 			results := make(chan result, 2)
 			for i, proxy := range []string{tc.proxyA, tc.proxyB} {
 				auth := NewCodexAuthWithProxyURL(nil, proxy)
+				auth.SetRefreshJournal(journal)
 				access, device := []string{"access-a", "access-b"}[i], []string{tc.deviceA, tc.deviceB}[i]
 				auth.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					started <- struct{}{}
@@ -42,7 +46,9 @@ func TestUpgrade827SIWCRefreshKeepsProxyAndDeviceIsolation(t *testing.T) {
 				workers.Add(1)
 				go func() {
 					defer workers.Done()
-					data, err := auth.RefreshSIWCTokens(t.Context(), t.Name(), "same-client", device)
+					// Distinct grants may refresh independently; the journal forbids
+					// submitting one grant twice, regardless of its route or device.
+					data, err := auth.RefreshSIWCTokens(t.Context(), t.Name()+"/"+access, "same-client", device)
 					results <- result{data, err, access, device}
 				}()
 			}
@@ -68,7 +74,10 @@ func TestUpgrade827SIWCRefreshKeepsProxyAndDeviceIsolation(t *testing.T) {
 
 func TestUpgrade827SIWCInvalidProxyFailsClosed(t *testing.T) {
 	auth := NewCodexAuthWithProxyURL(nil, "invalid://synthetic-proxy")
-	if _, err := auth.RefreshSIWCTokens(context.Background(), "synthetic-refresh", "synthetic-client", "synthetic-device"); err == nil || !strings.Contains(err.Error(), "proxy") {
+	auth.SetRefreshJournal(&memoryRefreshJournal{})
+	_, err := auth.RefreshSIWCTokens(context.Background(), t.Name(), "synthetic-client", "synthetic-device")
+	var outcome *RefreshOutcomeUnknownError
+	if !errors.As(err, &outcome) || outcome.Stage != "transport" || outcome.Cause == nil || !strings.Contains(outcome.Cause.Error(), "proxy") {
 		t.Fatalf("invalid proxy did not fail closed: %v", err)
 	}
 }
@@ -87,10 +96,10 @@ func TestUpgrade827SIWCSelectedProxyAndExplicitDirectUseOnlyTheirRoute(t *testin
 	previous := siwcTokenEndpointURL
 	siwcTokenEndpointURL = origin.URL
 	defer func() { siwcTokenEndpointURL = previous }()
-	cfg := &config.Config{}
+	cfg := &config.Config{AuthDir: t.TempDir()}
 	cfg.ProxyURL = canary.URL
 	for i, route := range []string{proxy.URL, "direct"} {
-		data, err := NewCodexAuthWithProxyURL(cfg, route).RefreshSIWCTokens(t.Context(), t.Name(), "synthetic-client", "synthetic-device")
+		data, err := NewCodexAuthWithProxyURL(cfg, route).RefreshSIWCTokens(t.Context(), t.Name()+"/"+strconv.Itoa(i), "synthetic-client", "synthetic-device")
 		if err != nil || data.AccessToken != "synthetic-access" {
 			t.Fatalf("route %d: %v", i, err)
 		}

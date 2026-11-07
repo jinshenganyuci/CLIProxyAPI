@@ -1,8 +1,20 @@
 # Codex OAuth 凭据独立身份方案
 
-当前修订为 `v8.0.58-codex-identity.1`，基于官方 `v8.0.58`（`e5e6ad1e1b91fc20ab9964e6fb22c0c269b9d882`），从已发布 `v8.0.57-codex-identity.1` 合入。固定镜像标签为 `codex-identity-v8.0.58.1`；摘要、最终源码提交和本轮验收以 Release 附件为准。
+当前修订为 `v8.0.59-codex-identity.1`，基于官方 `v8.0.59`（`c5251b57b3fa5dcbc689f514f4aa166daacb4481`），从已发布 `v8.0.58-codex-identity.1`（`6695284976dc0a31a7789211b339458a7789c019`）合入。固定镜像标签为 `codex-identity-v8.0.59.1`；摘要、最终源码提交和本轮验收以 Release 附件为准。
 
-## v8.0.58 更新
+## v8.0.59 更新
+
+- **刷新 grant 防重放**：Codex 与本地 SIWC 刷新在发请求前记录持久化 claim。网络错误、响应丢失或无法确认成功结果时返回 `refresh_outcome_unknown`，不因定时刷新、强制刷新、重启或重新导入相同 token 再次提交该 grant。仍有效且未被拒绝的 access token 可继续使用；已完成的有效 receipt 可恢复旋转结果，未完成或过期的结果需要协调原刷新结果或重新登录取得新 grant。
+- **刷新与二开隔离**：保留凭据的严格代理、identity namespace、文件更新协调、token 分区 CAS、注册代次与凭据版本检查。不确定结果即使包装了取消错误，也不会进入普通取消的重试分支。不同出口仍不合并进行中的刷新；同一 `client_id` 与 refresh token 的 claim 不按出口拆分，因此第二出口不能重放 pending grant。成功 receipt 可由另一出口的后续调用恢复，但不会再发网络刷新，也不覆盖目标凭据的 namespace、代理和插件控制字段。
+- **OAuth 登录入口提示**：合入显式 `oauth_provider` / `portal` 提示的解析、登录、刷新与文件重载保留逻辑；v8 凭据列表可返回实际 OAuth 登录入口。插件未返回新提示时保留已有提示，同时保留二开的身份、代理、并发和其他元数据；旧 v0 列表形状保持不变。
+- **工具与缓存兼容**：Claude ToolSearch 延迟工具在发现位置作为 `additional_tools` 加入，避免提前改变顶层工具和历史缓存前缀；重复引用去重并保持原有工具短名。Chat Completions 往返接受嵌套 custom 工具声明，保留二开 apply_patch 判定、工具名称恢复、媒体内容和精确 JSON 参数。这里描述请求组织方式，不承诺真实供应商的缓存命中率。
+- **其他上游修复**：保留会话中途 Responses system 条目的位置；修正 Gemini / Antigravity 同一块中多个 reasoning/text part 的转换；Codex 小输出预算规范扩展到各来源协议。Claude 新登录调整 OAuth state 与授权 scope，既有刷新 scope 不变。最终 payload 配置、身份映射和已发布图片路由边界继续保留。
+
+本轮验证计划包括格式与服务构建、Go 全量及刷新/凭据/工具专项、受控上游与最终镜像检查，并核对管理页和插件兼容。仅使用合成凭据与受控服务，不以已有测试源码或历史结果代替本轮执行；测试结果、跳过项、镜像摘要和发布状态以 Release 附件为准。发布源码或镜像不会自动切换业务部署。
+
+刷新 journal 含凭据 receipt，备份、迁移和回退需与凭据一同保留。文件后端位于 auth 目录的 `.codex-refresh/`；其他后端及恢复限制见 [Codex refresh recovery](codex-refresh-recovery.md)。CLIProxyAPIHome 的外层 token 刷新由 Home 自身负责，本次 CPA 合并不等于 Home 已加入同一协议。
+
+## v8.0.58 历史记录
 
 - **聊天内图片工具**：Responses-Lite 模型不再被隐式替换为图片基础模型；原生 Codex OAuth 请求强制使用不支持的 hosted `image_generation` 时，本地返回请求级 400，不发送上游、不轮换或冷却凭据。最终 payload 的显式模型覆盖和工具过滤仍按用户配置生效。普通自动工具请求保留原模型；此项不代表聊天已恢复自动调用 `image-2`，输出 SVG 也不能视为图片模型成功。
 - **独立图片接口**：`/v1/images/generations` 和 `/v1/images/edits` 保持原生图片路由、每凭据身份与代理。受控上游可验证图片数据返回和协议转换，不证明真实账号有特定图片模型权限。本轮不发起真实供应商绘图。
@@ -2411,7 +2423,10 @@ Codex Live 的直连/sideband 路径都执行该策略。
 其他供应商及 API Key 凭据的管理请求行为保持不变。
 
 首次 Token 交换和刷新会校验实际选择的代理，错误地址不会被当作默认网络配置。
-并发刷新仅在 Token 和出口设置都相同时合并请求；不同出口不会共用一次刷新结果。
+进行中的刷新仅在 Token 和出口设置都相同时合并请求；不同出口不加入同一个进行中的刷新。
+从 `v8.0.59` 起，同一 `client_id` 与 refresh token 还受共享 journal claim 约束：
+pending 或不确定结果不能从另一出口重发；已完成且有效的 receipt 可被后续调用恢复，
+包括改用另一出口的调用，但恢复本身不会发送网络请求或改变该凭据的出口与 namespace。
 WebSocket 连接复用也检查出口设置，修改凭据代理后不能继续复用旧出口的连接。
 必须保留上游会话的续接请求会明确要求重放，避免静默切换或复用错误出口。
 

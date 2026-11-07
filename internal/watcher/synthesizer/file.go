@@ -130,6 +130,15 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 			if len(auths) == 0 {
 				return nil, nil
 			}
+			filePortalHint := ""
+			for _, key := range []string{"oauth_provider", "portal"} {
+				if raw, ok := metadata[key].(string); ok {
+					if hint := strings.ToLower(strings.TrimSpace(raw)); hint != "" {
+						filePortalHint = hint
+						break
+					}
+				}
+			}
 			perAccountModelAliases := extractOAuthModelAliasesFromMetadata(metadata)
 			disabled, _ := metadata["disabled"].(bool)
 			for index, auth := range auths {
@@ -137,6 +146,7 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 					continue
 				}
 				coreauth.NormalizeCredentialMetadata(auth.Metadata)
+				syncStorageMetadata := false
 				if provider == "codex" {
 					for _, key := range []string{
 						codex.CredentialIdentityVersionMetadataKey,
@@ -147,7 +157,29 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 								auth.Metadata = make(map[string]any)
 							}
 							auth.Metadata[key] = value
+							syncStorageMetadata = true
 						}
+					}
+				}
+				if filePortalHint != "" {
+					hasPortalHint := false
+					for _, key := range []string{"oauth_provider", "portal"} {
+						raw, _ := auth.Metadata[key].(string)
+						if strings.TrimSpace(auth.Attributes[key]) != "" || strings.TrimSpace(raw) != "" {
+							hasPortalHint = true
+							break
+						}
+					}
+					if !hasPortalHint {
+						if auth.Metadata == nil {
+							auth.Metadata = make(map[string]any)
+						}
+						if auth.Attributes == nil {
+							auth.Attributes = make(map[string]string)
+						}
+						auth.Metadata["oauth_provider"] = filePortalHint
+						auth.Attributes["oauth_provider"] = filePortalHint
+						syncStorageMetadata = true
 					}
 				}
 				if len(auths) > 1 {
@@ -183,15 +215,18 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) ([
 				}
 				coreauth.ApplyAuthPriorityMetadata(auth, metadata)
 				if _, inherited := auth.Attributes[coreauth.AttributeFilePriority]; inherited {
-					if setter, ok := auth.Storage.(interface{ SetMetadata(map[string]any) }); ok {
-						setter.SetMetadata(auth.Metadata)
-					}
+					syncStorageMetadata = true
 				}
 				coreauth.SetOAuthModelAliasesAttribute(auth, perAccountModelAliases)
 				applyVertexOpenAPISettingsAttribute(auth, metadata)
 				ApplyAuthExcludedModelsMeta(auth, perAccountExcluded, "oauth")
 				coreauth.ApplyCustomHeadersFromMetadata(auth)
 				applyFingerprintProfileAttribute(auth, metadata)
+				if syncStorageMetadata {
+					if setter, ok := auth.Storage.(interface{ SetMetadata(map[string]any) }); ok {
+						setter.SetMetadata(auth.Metadata)
+					}
+				}
 				auth.BindFileSnapshot(fullPath, data)
 			}
 			return auths, nil
