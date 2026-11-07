@@ -326,7 +326,7 @@ func (s *Server) syncTrafficKeys(ctx context.Context, collector *traffic.Collect
 	identities := make([]traffic.Identity, 0, len(cfg.APIKeys))
 	for _, key := range cfg.APIKeys {
 		if key = strings.TrimSpace(key); key != "" {
-			identities = append(identities, traffic.Identity{Provider: sdkaccess.DefaultAccessProviderName, Key: key, Mask: maskTrafficKey(key)})
+			identities = append(identities, traffic.Identity{Provider: sdkaccess.DefaultAccessProviderName, Key: key, Name: cfg.APIKeyNote(key), Mask: maskTrafficKey(key)})
 		}
 	}
 	collector.SyncNativeKeys(identities)

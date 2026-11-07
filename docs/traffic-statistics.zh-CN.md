@@ -40,3 +40,5 @@ observability:
 - `GET /v8/management/observability/traffic/keys`：返回密钥目录及累计/今日/本月摘要。支持 `offset`、`limit`（1–200，默认 50）、`group=native|plugin`、`search`、`include_deleted`（接口默认 true；仪表盘固定传 false）。
 
 所有字节值为整数，协议分项用于说明业务量组成。状态包括关闭、正常、网络采集异常或仅内存等；客户端应结合状态和时间显示已有历史，不把请求失败当作真实零值。统计数据仅供观察，不用于流量配额或请求阻断。
+
+原生客户端 Key 的服务端备注（`access.api-key-notes`）会同步显示为流量目录名称；修改备注不会改变流量 ID 或累计。详见 [客户端 API Key 备注](api-key-notes.zh-CN.md)。

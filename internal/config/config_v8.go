@@ -77,6 +77,7 @@ func buildV8Paths() []configPath {
 		{"github-token", "server.github-token"},
 		{"tls", "server.tls"}, {"commercial-mode", "server.commercial-mode"}, {"discovery", "server.discovery"}, {"kv-store", "server.kv-store"},
 		{"remote-management", "management"}, {"api-keys", "access.api-keys"},
+		{"api-key-notes", "access.api-key-notes"},
 		{"credential-concurrency", "credentials.concurrency"}, {"credential-in-flight", "credentials.in-flight"},
 		{"force-model-prefix", "routing.force-model-prefix"},
 		{"request-retry", "routing.retry.request-retry"}, {"max-retry-credentials", "routing.retry.max-retry-credentials"},
@@ -275,6 +276,9 @@ func (cfg *Config) SyncServerResponseCompression() {
 func (cfg *Config) UnmarshalYAML(node *yaml.Node) error {
 	root, err := flattenV8(node)
 	if err != nil {
+		return err
+	}
+	if err = validateAPIKeyNotesNode(root); err != nil {
 		return err
 	}
 	decoded := legacyConfig(*cfg)
@@ -929,6 +933,9 @@ func ValidateV8Config(data []byte) error {
 	root := doc.Content[0]
 	flat, err := flattenV8(root)
 	if err != nil {
+		return err
+	}
+	if err = validateAPIKeyNotesNode(flat); err != nil {
 		return err
 	}
 	root = expandConfigAliases(root)

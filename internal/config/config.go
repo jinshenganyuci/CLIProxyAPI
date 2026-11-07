@@ -19,6 +19,9 @@ type Config struct {
 	Models ModelCatalogs `yaml:"models" json:"models"`
 
 	SDKConfig `yaml:",inline"`
+	// APIKeyNotes stores client-key display notes by SHA-256 of the trimmed key.
+	APIKeyNotes map[string]string `yaml:"api-key-notes,omitempty" json:"api-key-notes,omitempty"`
+
 	// Host is the network host/interface on which the API server will bind.
 	// Default is empty ("") to bind all interfaces (IPv4 + IPv6). Use "127.0.0.1" or "localhost" for local-only access.
 	Host string `yaml:"host" json:"-"`
