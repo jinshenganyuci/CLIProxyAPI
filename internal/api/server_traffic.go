@@ -47,23 +47,44 @@ func (s *Server) startTraffic() {
 	}
 	state := s.traffic
 	state.mu.Lock()
-	defer state.mu.Unlock()
 	if state.started || state.stopping {
+		state.mu.Unlock()
 		return
 	}
 	cfg := s.getConfig()
 	if cfg == nil {
+		state.mu.Unlock()
 		return
 	}
-	state.path = filepath.Join(cfg.AuthDir, "traffic.db")
+	// Embedded SDK callers may not configure an auth directory. Do not create
+	// a shared database in the process working directory in that case.
+	if strings.TrimSpace(cfg.AuthDir) != "" {
+		state.path = filepath.Join(cfg.AuthDir, "traffic.db")
+	}
+	state.started = true
+	ctx, cancel := context.WithCancel(context.Background())
+	state.cancel, state.done = cancel, make(chan struct{})
+	state.mu.Unlock()
+	// Opening a locked database may wait. It must never hold the admission lock
+	// needed to close listeners, including shutdown racing server startup.
 	collector, err := traffic.Open(traffic.Options{Enabled: cfg.Traffic.IsEnabled(), Path: state.path, Interface: cfg.Traffic.Interface})
 	if err != nil {
 		log.WithError(err).Warn("traffic statistics persistence unavailable; API service remains available")
 	}
+	state.mu.Lock()
+	if state.stopping {
+		state.mu.Unlock()
+		if collector != nil {
+			_ = collector.Close(ctx)
+		}
+		close(state.done)
+		return
+	}
+	if current := s.getConfig(); collector != nil && current != nil {
+		collector.Configure(current.Traffic.IsEnabled(), current.Traffic.Interface)
+	}
 	state.collector.Store(collector)
-	state.started = true
-	ctx, cancel := context.WithCancel(context.Background())
-	state.cancel, state.done = cancel, make(chan struct{})
+	state.mu.Unlock()
 	go func() {
 		defer close(state.done)
 		s.syncTrafficKeys(ctx, collector)
@@ -84,7 +105,12 @@ func (s *Server) reconfigureTraffic(cfg *config.Config) {
 	if s.traffic == nil || cfg == nil {
 		return
 	}
-	if collector := s.traffic.collector.Load(); collector != nil {
+	s.traffic.mu.Lock()
+	defer s.traffic.mu.Unlock()
+	// A reload may have completed while database initialization was waiting.
+	// Read the committed snapshot under the same lock as collector publication.
+	cfg = s.getConfig()
+	if collector := s.traffic.collector.Load(); collector != nil && cfg != nil {
 		collector.Configure(cfg.Traffic.IsEnabled(), cfg.Traffic.Interface)
 	}
 }
@@ -119,7 +145,12 @@ func (s *Server) stopTraffic(ctx context.Context) error {
 	state := s.traffic
 	state.mu.Lock()
 	directoryDone := state.done
+	collector := state.collector.Load()
 	state.mu.Unlock()
+	// An unfinished startup will observe stopping and dispose its own collector.
+	if collector == nil {
+		return nil
+	}
 	if directoryDone != nil {
 		select {
 		case <-directoryDone:
@@ -132,10 +163,7 @@ func (s *Server) stopTraffic(ctx context.Context) error {
 	case <-finished:
 	case <-ctx.Done():
 	}
-	if collector := state.collector.Load(); collector != nil {
-		return collector.Close(ctx)
-	}
-	return nil
+	return collector.Close(ctx)
 }
 
 func trafficBusinessPath(path string) bool {

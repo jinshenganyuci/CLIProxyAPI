@@ -344,12 +344,24 @@ func (s *Server) Start() error {
 		log.Debugf("Starting API server on %s", addr)
 	}
 
-	s.startTraffic()
 	httpListener := newMuxListener(listener.Addr(), 1024)
+	if s.traffic != nil {
+		s.traffic.mu.Lock()
+		if s.traffic.stopping {
+			s.traffic.mu.Unlock()
+			_ = listener.Close()
+			_ = httpListener.Close()
+			return nil
+		}
+	}
 	s.listenerMu.Lock()
 	s.muxBaseListener = listener
 	s.muxHTTPListener = httpListener
 	s.listenerMu.Unlock()
+	if s.traffic != nil {
+		s.traffic.mu.Unlock()
+	}
+	s.startTraffic()
 
 	httpErrCh := make(chan error, 1)
 	acceptErrCh := make(chan error, 1)

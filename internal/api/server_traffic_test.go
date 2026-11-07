@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -17,6 +18,66 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
 )
+
+func TestTrafficStartupDatabaseWaitDoesNotBlockShutdown(t *testing.T) {
+	dir := t.TempDir()
+	locked, err := traffic.Open(traffic.Options{Path: filepath.Join(dir, "traffic.db"), DisableBackground: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = locked.Close(context.Background()) })
+	server := &Server{cfg: &config.Config{AuthDir: dir}, traffic: newServerTrafficState(),
+		server: &http.Server{Addr: "127.0.0.1:0", Handler: http.NotFoundHandler()}}
+	started := make(chan error, 1)
+	go func() { started <- server.Start() }()
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(2 * time.Second)
+	for {
+		server.traffic.mu.Lock()
+		initializing := server.traffic.started
+		server.traffic.mu.Unlock()
+		if initializing {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			t.Fatal("traffic startup did not begin")
+		}
+	}
+	stopped := make(chan error, 1)
+	go func() { stopped <- server.Stop(context.Background()) }()
+	select {
+	case err = <-stopped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("shutdown waited for the unrelated database lock")
+	}
+	if err = locked.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err = <-started:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup did not terminate after shutdown")
+	}
+	if server.traffic.collector.Load() != nil {
+		t.Fatal("late startup published a collector after shutdown")
+	}
+	// A late initializer must release its database before returning from Start.
+	reopened, err := traffic.Open(traffic.Options{Path: filepath.Join(dir, "traffic.db"), DisableBackground: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reopened.Close(context.Background())
+}
 
 func newTrafficAPITestCollector(t *testing.T) *traffic.Collector {
 	t.Helper()

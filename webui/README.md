@@ -391,7 +391,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-97fbd8ad9589d7870c376f9e4179fe10e6ffff84995cf5e0ddeaff1e8d7f8206
+b67c9c200a960afbeb1f3ec3868d1143406ab69298f9328bff572fd38dd1f527
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
