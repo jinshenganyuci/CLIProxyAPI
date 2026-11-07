@@ -391,7 +391,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-e80b74b7348d3eb685472ecf1abc33a67afb52a98eec53e0dd11b96eddff3c84
+b3002ba962ade8db67792dd5c993ee860a33730874fbe58417a20a2f593259ac
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
@@ -401,6 +401,12 @@ The traffic dashboard explains both client and upstream directions from CPA’s 
 The key directory hides deleted keys while retaining zero-usage and disabled keys.
 Deleting a selected key returns to all-key totals, which retain historical deleted-key usage.
 Container and client-payload measurements overlap and must not be added together.
+
+The v8.0.59.5 dashboard adds combined receive-plus-send container traffic for
+all-time, today, this month, and daily/monthly exact-value rows. It sums raw bytes
+before formatting and keeps unknown values distinct from zero. Directional values
+remain visible. Client payload cards and key rows keep their existing presentation;
+collection, polling, persistence, and API contracts are unchanged.
 
 Client API key notes now persist in server configuration and appear before masked keys.
 Note edits use the existing configuration draft, preview and ETag save flow.
