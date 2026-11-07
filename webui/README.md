@@ -391,8 +391,13 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b67c9c200a960afbeb1f3ec3868d1143406ab69298f9328bff572fd38dd1f527
+aaf669f1695463b6b86a25a1a2075f8d7f9da747bdd2f8b1b473ffd717066793
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
 auto-updater cannot overwrite the matching bundled UI at runtime.
+
+The traffic dashboard explains both client and upstream directions from CPA’s point of view.
+The key directory hides deleted keys while retaining zero-usage and disabled keys.
+Deleting a selected key returns to all-key totals, which retain historical deleted-key usage.
+Container and client-payload measurements overlap and must not be added together.

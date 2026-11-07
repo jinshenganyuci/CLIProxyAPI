@@ -75,6 +75,7 @@ type SummaryResponse struct {
 	FlushIntervalSeconds  int        `json:"flush_interval_seconds"`
 	StartedAt             time.Time  `json:"started_at"`
 	KeyID                 string     `json:"key_id,omitempty"`
+	KeyDeleted            bool       `json:"key_deleted"`
 	Granularity           string     `json:"granularity"`
 	UpdatedAt             time.Time  `json:"updated_at"`
 	LastPersistedAt       *time.Time `json:"last_persisted_at,omitempty"`

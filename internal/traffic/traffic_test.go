@@ -109,6 +109,72 @@ func TestDirectoryScopesAndBoundIdentityDoNotOverrideMetadata(t *testing.T) {
 	}
 }
 
+func TestDeletedKeySummaryAndVisibleDirectoryPreserveTotals(t *testing.T) {
+	c := testCollector(t, nil, "", nil)
+	c.SyncNativeKeys([]Identity{
+		{Key: "zero-secret", Name: "Zero traffic"},
+		{Key: "disabled-secret", Name: "Disabled", Disabled: true},
+	})
+	const provider = "plugin:access-guard:directory"
+	identity := Identity{Provider: provider, Key: "removed-secret", Name: "Removed"}
+	c.SyncPluginKeys(provider, []Identity{identity})
+	id := c.Keys(KeyQuery{Group: "plugin"}).Keys[0].ID
+	m := c.NewMeter()
+	m.Bind(identity)
+	m.AddRx(HTTP, 41)
+	m.AddTx(HTTP, 17)
+	m.Finish()
+	before := c.Summary()
+	if before.KeyDeleted || c.Summary(Query{KeyID: id}).KeyDeleted {
+		t.Fatal("existing or unfiltered summary marked deleted")
+	}
+
+	c.SyncPluginKeys(provider, nil)
+	selected := c.Summary(Query{KeyID: id})
+	if !selected.KeyDeleted || selected.KeyID != id || selected.State == "key_not_found" {
+		t.Fatalf("deleted selection metadata missing: %+v", selected)
+	}
+	if selected.Business.Total.RxBytes != 41 || selected.Business.Total.TxBytes != 17 {
+		t.Fatalf("deleted key history changed: %+v", selected.Business.Total)
+	}
+	all := c.Summary()
+	if all.KeyDeleted || all.Business.Total.Bytes != before.Business.Total.Bytes ||
+		all.Business.Today.Bytes != before.Business.Today.Bytes || all.Business.Month.Bytes != before.Business.Month.Bytes {
+		t.Fatal("hiding a deleted key changed the global summary")
+	}
+
+	seen := make(map[string]bool)
+	disabled := 0
+	for offset := 0; offset < 2; offset++ {
+		page := c.Keys(KeyQuery{IncludeDeleted: false, Offset: offset, Limit: 1})
+		if page.Total != 2 || len(page.Keys) != 1 {
+			t.Fatalf("visible directory pagination includes removed key: %+v", page)
+		}
+		row := page.Keys[0]
+		if row.Deleted || row.ID == id || seen[row.ID] || row.Traffic.Total.TotalBytes != 0 {
+			t.Fatalf("visible zero-traffic key missing or duplicated: %+v", row)
+		}
+		seen[row.ID] = true
+		if !row.Enabled {
+			disabled++
+		}
+		if c.Summary(Query{KeyID: row.ID}).KeyDeleted {
+			t.Fatal("visible key marked deleted")
+		}
+	}
+	if disabled != 1 || c.Keys(KeyQuery{IncludeDeleted: true}).Total != 3 {
+		t.Fatal("disabled key or retained deleted history missing")
+	}
+	if missing := c.Summary(Query{KeyID: "missing"}); missing.State != "key_not_found" || missing.KeyDeleted {
+		t.Fatal("missing key confused with retained deleted key")
+	}
+
+	c.SyncPluginKeys(provider, []Identity{identity})
+	if restored := c.Summary(Query{KeyID: id}); restored.KeyDeleted || restored.Business.Total.RxBytes != 41 {
+		t.Fatal("restoring a directory key did not clear deletion metadata or retain traffic")
+	}
+}
+
 func TestConcurrentBindAndCounters(t *testing.T) {
 	c := testCollector(t, nil, "", nil)
 	m := c.NewMeter()

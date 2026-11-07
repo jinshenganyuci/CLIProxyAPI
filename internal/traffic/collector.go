@@ -296,6 +296,9 @@ func (c *Collector) Summary(queries ...Query) SummaryResponse {
 	c.mu.RLock()
 	response := SummaryResponse{Enabled: c.enabled.Load(), State: "ready", StorageError: c.storageError, NetworkError: c.networkError, Interface: c.iface, Timezone: Timezone, RetentionMonths: 2, SampleIntervalSeconds: 5, FlushIntervalSeconds: 15, StartedAt: c.startedAt, UpdatedAt: now.UTC(), LastPersistedAt: copyTime(c.lastPersisted), LastSampledAt: copyTime(c.lastSampled), KeyID: query.KeyID, Granularity: query.Granularity}
 	key := c.keys[query.KeyID]
+	if key != nil {
+		response.KeyDeleted = key.deleted
+	}
 	c.mu.RUnlock()
 	if c.store == nil {
 		response.State = "memory_only"

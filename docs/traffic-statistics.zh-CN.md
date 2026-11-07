@@ -7,7 +7,9 @@
 | 容器网络流量 | 配置网卡的 Linux 收发计数，包括客户端、上游、重试与后台通信 | 其他网卡；首次采集之前的历史 |
 | API 密钥业务数据量 | 客户端 HTTP 正文（包括压缩后的响应）、SSE、Responses/Realtime WebSocket 消息、已有 WebRTC Opus RTP 媒体负载及 DataChannel 消息 | HTTP 头、TLS/TCP/IP 开销、上游请求与重试、内部 ICE TCP 转接、provider WebSocket、管理请求 |
 
-这两组数字不要求相等，不能视为运营商账单。媒体绕过 CPA 直连供应商时无法按密钥观察；统计不会改变现有路由。RTP 不把协议头算作媒体负载。请求失败、取消和部分读写保留已经经过 CPA 的业务字节；无法获得可信认证身份的请求进入“未归属”。
+容器入站包括用户 → CPA 和 ChatGPT 等上游 → CPA；容器出站包括 CPA → ChatGPT 等上游和 CPA → 用户。密钥业务量的接收／发送仅对应用户 → CPA 的请求内容和 CPA → 用户的回答内容。
+
+这两组数字范围重叠，不能相加，也不要求相等，不能视为运营商账单。媒体绕过 CPA 直连供应商时无法按密钥观察；统计不会改变现有路由。RTP 不把协议头算作媒体负载。请求失败、取消和部分读写保留已经经过 CPA 的业务字节；无法获得可信认证身份的请求进入“未归属”。
 
 ## 配置与保存
 
@@ -28,13 +30,13 @@ observability:
 
 ## 密钥目录
 
-原生密钥依据成功验证的实际密钥生成稳定 HMAC ID，数据库和接口不返回完整密钥。Access Guard 使用认证结果的 `key_id`，从插件现有目录读取名称及启停状态；轮换实际 secret 不改变逻辑累计。临时 Realtime 凭据沿用发行密钥身份。目录包括零流量密钥，普通管理请求不会增加业务数据量。
+原生密钥依据成功验证的实际密钥生成稳定 HMAC ID，数据库和接口不返回完整密钥。Access Guard 使用认证结果的 `key_id`，从插件现有目录读取名称及启停状态；轮换实际 secret 不改变逻辑累计。临时 Realtime 凭据沿用发行密钥身份。仪表盘目录仅展示现存密钥，包括零流量及已禁用密钥；删除后在目录同步和页面刷新时隐藏，当前选中的已删除密钥自动回到全部密钥。全部密钥汇总仍包含已删除密钥的历史流量，删除不会扣减累计。后台历史保留规则不变。普通管理请求不会增加业务数据量。
 
 ## 管理接口
 
 接口沿用现有管理鉴权，不新增公开入口：
 
-- `GET /v8/management/observability/traffic`：返回全局网络、业务及未归属的累计/今日/本月和日月序列；可用 `key_id` 筛选业务量，网络总量始终保持全局。`granularity=day|month` 指定显示粒度。
-- `GET /v8/management/observability/traffic/keys`：返回密钥目录及累计/今日/本月摘要。支持 `offset`、`limit`（1–200，默认 50）、`group=native|plugin`、`search`、`include_deleted`（默认 true）。
+- `GET /v8/management/observability/traffic`：返回全局网络、业务及未归属的累计/今日/本月和日月序列；可用 `key_id` 筛选业务量，网络总量始终保持全局。`granularity=day|month` 指定显示粒度。`key_deleted` 表示所选密钥已被删除；历史仍在时可返回统计，明细清理后返回 404。
+- `GET /v8/management/observability/traffic/keys`：返回密钥目录及累计/今日/本月摘要。支持 `offset`、`limit`（1–200，默认 50）、`group=native|plugin`、`search`、`include_deleted`（接口默认 true；仪表盘固定传 false）。
 
 所有字节值为整数，协议分项用于说明业务量组成。状态包括关闭、正常、网络采集异常或仅内存等；客户端应结合状态和时间显示已有历史，不把请求失败当作真实零值。统计数据仅供观察，不用于流量配额或请求阻断。
