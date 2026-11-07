@@ -16,6 +16,7 @@ import (
 	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
@@ -197,11 +198,15 @@ func (s *responsesLocalInterrupt) framesChan() <-chan responsesInterruptFrame {
 func readResponsesWebsocketInput(ctx context.Context, cancel context.CancelCauseFunc, conn *websocket.Conn, interrupt func([]byte) error, local *responsesLocalInterrupt, writer *responsesWebsocketWriter, timeline websocketTimelineAppender, epoch *atomic.Uint64) (<-chan cliproxyexecutor.WebsocketInput, <-chan struct{}) {
 	input := make(chan cliproxyexecutor.WebsocketInput, wsPendingRequestLimit)
 	done := make(chan struct{})
+	meter := traffic.FromContext(ctx)
 	go func() {
 		defer close(done)
 		defer close(input)
 		for {
 			kind, payload, errRead := conn.ReadMessage()
+			if kind == websocket.TextMessage || kind == websocket.BinaryMessage {
+				meter.AddRx(traffic.WebSocket, len(payload))
+			}
 			if errRead != nil {
 				cancel(errRead)
 				return

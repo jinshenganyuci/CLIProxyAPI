@@ -303,7 +303,7 @@ func writeResponsesWebsocketPayload(writer *responsesWebsocketWriter, wsTimeline
 	if writer.closing.Load() {
 		return websocket.ErrCloseSent
 	}
-	return writer.conn.WriteMessage(websocket.TextMessage, payload)
+	return writer.writePayloadLocked(payload)
 }
 
 func appendWebsocketTimelineDisconnect(timeline websocketTimelineAppender, err error, timestamp time.Time) {

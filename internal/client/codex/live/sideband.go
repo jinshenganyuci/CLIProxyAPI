@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
@@ -44,6 +45,7 @@ var (
 
 type liveSession struct {
 	callID                string
+	meter                 *traffic.Meter
 	authID                string
 	model                 string
 	sessionID             string
@@ -526,7 +528,7 @@ func (h *Handler) HandleSideband(c *gin.Context) {
 	}
 	consumeSession = true
 
-	if errRelay := relayWebsockets(downstream, upstream); errRelay != nil && !isNormalWebsocketClose(errRelay) {
+	if errRelay := relayWebsockets(downstream, upstream, session.meter); errRelay != nil && !isNormalWebsocketClose(errRelay) {
 		helps.RecordAPIWebsocketError(ctx, runtimeConfig, "relay", errRelay)
 		log.WithError(errRelay).Debug("codex live sideband relay closed")
 	}
@@ -649,10 +651,10 @@ func websocketCloseFunc(name string, conn *websocket.Conn) func() error {
 	}
 }
 
-func relayWebsockets(downstream, upstream *websocket.Conn) error {
+func relayWebsockets(downstream, upstream *websocket.Conn, meter *traffic.Meter) error {
 	results := make(chan error, 2)
-	go func() { results <- copyWebsocket(upstream, downstream) }()
-	go func() { results <- copyWebsocket(downstream, upstream) }()
+	go func() { results <- copyWebsocket(upstream, downstream, meter, true) }()
+	go func() { results <- copyWebsocket(downstream, upstream, meter, false) }()
 
 	firstErr := <-results
 	closeCode, closeReason := websocketCloseDetails(firstErr)
@@ -665,7 +667,9 @@ func relayWebsockets(downstream, upstream *websocket.Conn) error {
 	return firstErr
 }
 
-func copyWebsocket(destination, source *websocket.Conn) error {
+func copyWebsocket(destination, source *websocket.Conn, meter *traffic.Meter, clientSource bool) error {
+	countedReader := clientTrafficReader{meter: meter}
+	countedWriter := clientTrafficWriter{meter: meter}
 	for {
 		messageType, reader, errReader := source.NextReader()
 		if errReader != nil {
@@ -675,7 +679,18 @@ func copyWebsocket(destination, source *websocket.Conn) error {
 		if errWriter != nil {
 			return errWriter
 		}
-		_, errCopy := io.Copy(writer, reader)
+		var payloadReader io.Reader = reader
+		var payloadWriter io.Writer = writer
+		if meter != nil {
+			if clientSource {
+				countedReader.Reader = reader
+				payloadReader = &countedReader
+			} else {
+				countedWriter.Writer = writer
+				payloadWriter = &countedWriter
+			}
+		}
+		_, errCopy := io.Copy(payloadWriter, payloadReader)
 		errClose := writer.Close()
 		if errCopy != nil {
 			return errCopy

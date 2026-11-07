@@ -1272,6 +1272,13 @@ observability:
     # Record proxy request/response logs. Management requests are excluded.
     request-log: false
 
+  # Independent byte accounting; persisted locally under <auth-dir>/traffic.db.
+  # Stores current/previous calendar-month history in Asia/Shanghai plus lifetime totals.
+  # Samples the container interface every 5 seconds and checkpoints every 15 seconds.
+  traffic:
+    enabled: true
+    interface: "eth0"
+
   usage:
     # When false, disable in-memory usage statistics aggregation
     usage-statistics-enabled: false

@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executionregistry"
 )
@@ -189,6 +190,7 @@ func TestHandleDirectWebsocketAppliesClientSecretSession(t *testing.T) {
 
 func TestHandleDirectWebsocketRelaysStandardRealtimeFrames(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	collector, meter := newLiveTrafficTestMeter(t)
 
 	upstreamRequest := make(chan *http.Request, 1)
 	upstreamMessage := make(chan string, 1)
@@ -227,7 +229,10 @@ func TestHandleDirectWebsocketRelaysStandardRealtimeFrames(t *testing.T) {
 	handler.sidebandAPIBaseURL = "ws" + strings.TrimPrefix(upstreamServer.URL, "http") + "/v1"
 
 	router := gin.New()
-	router.GET("/v1/realtime", handler.HandleRealtimeWebsocket)
+	router.GET("/v1/realtime", func(c *gin.Context) {
+		c.Request = c.Request.WithContext(traffic.WithMeter(c.Request.Context(), meter))
+		handler.HandleRealtimeWebsocket(c)
+	})
 	downstreamServer := httptest.NewServer(router)
 	defer downstreamServer.Close()
 
@@ -258,6 +263,7 @@ func TestHandleDirectWebsocketRelaysStandardRealtimeFrames(t *testing.T) {
 	if string(echoed) != "echo:"+event {
 		t.Fatalf("echoed event = %s", echoed)
 	}
+	requireLiveTraffic(t, collector, traffic.WebSocket, uint64(len(event)), uint64(len(created)+len(echoed)))
 
 	select {
 	case request := <-upstreamRequest:

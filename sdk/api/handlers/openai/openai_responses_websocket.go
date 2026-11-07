@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -125,12 +126,23 @@ func websocketClosePayloadForUpstreamError(err error) (bool, []byte) {
 
 type responsesWebsocketWriter struct {
 	conn    *websocket.Conn
+	meter   *traffic.Meter
 	writeMu sync.Mutex
 	closing atomic.Bool
 }
 
 func newResponsesWebsocketWriter(conn *websocket.Conn) *responsesWebsocketWriter {
 	return &responsesWebsocketWriter{conn: conn}
+}
+
+// writePayloadLocked counts only messages accepted by the downstream socket.
+// The caller owns writeMu, including terminal messages after closing is set.
+func (w *responsesWebsocketWriter) writePayloadLocked(payload []byte) error {
+	errWrite := w.conn.WriteMessage(websocket.TextMessage, payload)
+	if errWrite == nil {
+		w.meter.AddTx(traffic.WebSocket, len(payload))
+	}
+	return errWrite
 }
 
 // closeForUpstreamError sends a best-effort close frame without waiting behind
@@ -194,7 +206,7 @@ func (w *responsesWebsocketWriter) closeWithPayload(payload []byte) (bool, error
 	}
 	defer w.writeMu.Unlock()
 
-	errWrite := w.conn.WriteMessage(websocket.TextMessage, payload)
+	errWrite := w.writePayloadLocked(payload)
 	errClose := w.conn.Close()
 	if errWrite != nil {
 		return false, errWrite
@@ -373,6 +385,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		return
 	}
 	writer := newResponsesWebsocketWriter(conn)
+	writer.meter = traffic.FromContext(c.Request.Context())
 	passthroughSessionID := uuid.NewString()
 	// After the upgrade, error-only HTTP logs cannot consume deferred bodies.
 	// Apply the policy before routing so plugin callbacks inherit it as well.

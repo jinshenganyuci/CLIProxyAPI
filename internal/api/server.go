@@ -107,6 +107,7 @@ type Server struct {
 
 	exampleAPIKeySafeModeEnabled bool
 	exampleAPIKeySafeModeActive  atomic.Bool
+	traffic                      *serverTrafficState
 }
 
 // NewServer creates and initializes a new API server instance.
@@ -167,11 +168,13 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		wsRoutes:                     make(map[string]struct{}),
 		pluginHost:                   optionState.pluginHost,
 		exampleAPIKeySafeModeEnabled: optionState.exampleAPIKeySafeMode,
+		traffic:                      newServerTrafficState(),
 	}
 
 	// Add middleware
 	engine.Use(logging.GinLogrusLogger())
 	engine.Use(logging.CPATraceIDMiddleware())
+	engine.Use(s.trafficMiddleware())
 	engine.Use(s.maxRequestBodyBytesMiddleware())
 
 	// Add request logging middleware before recovery and extra middleware so that
@@ -341,6 +344,7 @@ func (s *Server) Start() error {
 		log.Debugf("Starting API server on %s", addr)
 	}
 
+	s.startTraffic()
 	httpListener := newMuxListener(listener.Addr(), 1024)
 	s.listenerMu.Lock()
 	s.muxBaseListener = listener
@@ -420,6 +424,7 @@ func (s *Server) Start() error {
 //   - error: An error if the server fails to stop
 func (s *Server) Stop(ctx context.Context) error {
 	log.Debug("Stopping API server...")
+	s.stopTrafficAdmission()
 
 	if s.keepAliveEnabled {
 		select {
@@ -454,6 +459,9 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	if s.codexLiveHandler != nil {
 		s.codexLiveHandler.Close()
+	}
+	if errTraffic := s.stopTraffic(ctx); errTraffic != nil {
+		log.WithError(errTraffic).Warn("traffic statistics shutdown did not finish cleanly")
 	}
 	if errCloseServer != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %v", errCloseServer)

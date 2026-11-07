@@ -12,6 +12,7 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 )
@@ -141,6 +142,9 @@ func TestMediaForwardingStartedLogRedactsProxyCredentials(t *testing.T) {
 }
 
 func TestPionMediaRelayBridgesAudioAndDataChannel(t *testing.T) {
+	collector, meter := newLiveTrafficTestMeter(t)
+	bootstrapCtx, cancelBootstrap := context.WithCancel(traffic.WithMeter(context.Background(), meter))
+	defer cancelBootstrap()
 	logger := log.StandardLogger()
 	previousHooks := logger.ReplaceHooks(make(log.LevelHooks))
 	previousLevel := logger.GetLevel()
@@ -195,7 +199,7 @@ func TestPionMediaRelayBridgesAudioAndDataChannel(t *testing.T) {
 	if errRelay != nil {
 		t.Fatalf("create media relay: %v", errRelay)
 	}
-	session, relayOffer, errSession := relay.NewSession(context.Background(), clientOffer, mediaSessionRoute{
+	session, relayOffer, errSession := relay.NewSession(bootstrapCtx, clientOffer, mediaSessionRoute{
 		credential: "Voice credential",
 		authIndex:  "auth-index",
 	})
@@ -264,6 +268,9 @@ func TestPionMediaRelayBridgesAudioAndDataChannel(t *testing.T) {
 	if errRemote := client.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: downstreamAnswer}); errRemote != nil {
 		t.Fatalf("set client answer: %v", errRemote)
 	}
+	// Media accounting outlives the HTTP bootstrap request and its finalization.
+	cancelBootstrap()
+	meter.Finish()
 
 	upstreamData := receiveDataChannel(t, upstreamDataChannels)
 	waitDataChannelOpen(t, clientData)
@@ -288,9 +295,12 @@ func TestPionMediaRelayBridgesAudioAndDataChannel(t *testing.T) {
 	}
 
 	clientPayload := []byte{0xf8, 0xff, 0xfe}
-	sendTestRTP(t, clientAudio, clientPayload, upstreamAudioMessages)
+	sendSingleTrafficTestRTP(t, clientAudio, clientPayload, upstreamAudioMessages)
 	upstreamPayload := []byte{0xf8, 0xfe, 0xfd}
-	sendTestRTP(t, upstreamAudio, upstreamPayload, clientAudioMessages)
+	sendSingleTrafficTestRTP(t, upstreamAudio, upstreamPayload, clientAudioMessages)
+	requireLiveTraffic(t, collector, traffic.DataChannel, uint64(len("from-client")+3), uint64(len("from-upstream")))
+	requireLiveTraffic(t, collector, traffic.RTP, uint64(len(clientPayload)), uint64(len(upstreamPayload)))
+	requireLiveTraffic(t, collector, traffic.TCP, 0, 0)
 	if errClose := session.Close(); errClose != nil {
 		t.Fatalf("close media relay session for logging: %v", errClose)
 	}

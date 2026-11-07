@@ -21,6 +21,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
@@ -440,6 +441,7 @@ func (h *Handler) Handle(c *gin.Context) {
 			clientMeta := logging.GetClientRequestMetadata(ctx)
 			session := liveSession{
 				authID:             selected.ID,
+				meter:              traffic.FromContext(c.Request.Context()),
 				model:              model,
 				media:              mediaSession,
 				sessionID:          clientMeta.SessionID,

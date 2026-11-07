@@ -534,6 +534,7 @@ func accessAuthMiddleware(manager *sdkaccess.Manager, realtimeError bool) gin.Ha
 		result, err := manager.Authenticate(c.Request.Context(), c.Request)
 		if err == nil {
 			if result != nil {
+				bindTrafficIdentity(c.Request.Context(), result.Provider, result.Principal, result.Metadata)
 				c.Set("userApiKey", result.Principal)
 				c.Set("accessProvider", result.Provider)
 				if len(result.Metadata) > 0 {
@@ -605,6 +606,7 @@ func realtimeAuthMiddleware(manager *sdkaccess.Manager, handler *codexlive.Handl
 		if provider == "" {
 			provider = "realtime-client-secret"
 		}
+		bindTrafficIdentity(c.Request.Context(), provider, principal, nil)
 		c.Set("userApiKey", principal)
 		c.Set("accessProvider", provider)
 		reqCtx := coreusage.WithAPIKey(c.Request.Context(), principal)

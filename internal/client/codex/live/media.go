@@ -14,6 +14,7 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
@@ -69,6 +70,7 @@ type pionMediaSession struct {
 	downstream *webrtc.PeerConnection
 	upstream   *webrtc.PeerConnection
 	bridge     *dataChannelBridge
+	meter      *traffic.Meter
 
 	done           chan struct{}
 	closeOnce      sync.Once
@@ -107,10 +109,12 @@ type dataChannelPipe struct {
 	destination *webrtc.DataChannel
 	mu          sync.RWMutex
 	onError     func(error)
+	meter       *traffic.Meter
 }
 
 type dataChannelBridge struct {
 	done         <-chan struct{}
+	meter        *traffic.Meter
 	downToUp     *dataChannelPipe
 	upToDown     *dataChannelPipe
 	closeOnce    sync.Once
@@ -304,6 +308,7 @@ func (r *pionMediaRelay) NewSession(ctx context.Context, clientOffer string, rou
 	session := &pionMediaSession{
 		downstream:     downstream,
 		upstream:       upstream,
+		meter:          traffic.FromContext(ctx),
 		done:           make(chan struct{}),
 		mediaSessionID: uuid.NewString(),
 		releaseSlot:    releaseSlot,
@@ -314,7 +319,7 @@ func (r *pionMediaRelay) NewSession(ctx context.Context, clientOffer string, rou
 	}
 	session.bridge = newDataChannelBridge(session.done, func(err error) {
 		session.fail("data_channel_failed", err)
-	})
+	}, session.meter)
 	session.installStateHandlers()
 	log.WithFields(session.logFields("session")).Info("codex live WebRTC media session created")
 
@@ -354,13 +359,13 @@ func (r *pionMediaRelay) NewSession(ctx context.Context, clientOffer string, rou
 		if !strings.EqualFold(track.Codec().MimeType, webrtc.MimeTypeOpus) {
 			return
 		}
-		go relayRTP("downstream-to-upstream", track, toOpenAI, session.done)
+		go relayRTP("downstream-to-upstream", track, toOpenAI, session.done, session.meter, true)
 	})
 	upstream.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		if !strings.EqualFold(track.Codec().MimeType, webrtc.MimeTypeOpus) {
 			return
 		}
-		go relayRTP("upstream-to-downstream", track, toDesktop, session.done)
+		go relayRTP("upstream-to-downstream", track, toDesktop, session.done, session.meter, false)
 	})
 	downstream.OnDataChannel(func(channel *webrtc.DataChannel) {
 		if channel.Label() != realtimeDataChannelLabel {
@@ -667,7 +672,7 @@ func (s *pionMediaSession) fail(reason string, err error) {
 	})
 }
 
-func relayRTP(name string, source *webrtc.TrackRemote, destination *webrtc.TrackLocalStaticRTP, done <-chan struct{}) {
+func relayRTP(name string, source *webrtc.TrackRemote, destination *webrtc.TrackLocalStaticRTP, done <-chan struct{}, meter *traffic.Meter, clientSource bool) {
 	for {
 		packet, _, errRead := source.ReadRTP()
 		if errRead != nil {
@@ -676,12 +681,18 @@ func relayRTP(name string, source *webrtc.TrackRemote, destination *webrtc.Track
 			}
 			return
 		}
+		if clientSource {
+			meter.AddRx(traffic.RTP, len(packet.Payload))
+		}
 		normalizeRTPPacket(packet)
 		if errWrite := destination.WriteRTP(packet); errWrite != nil {
 			if !isClosedMediaError(errWrite, done) {
 				log.WithError(errWrite).Debugf("codex live media: %s RTP write stopped", name)
 			}
 			return
+		}
+		if !clientSource {
+			meter.AddTx(traffic.RTP, len(packet.Payload))
 		}
 	}
 }
@@ -715,14 +726,14 @@ func isClosedMediaError(err error, done <-chan struct{}) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed)
 }
 
-func newDataChannelBridge(done <-chan struct{}, onError func(error)) *dataChannelBridge {
-	bridge := &dataChannelBridge{done: done}
-	bridge.downToUp = newDataChannelPipe("downstream-to-upstream", done, onError)
-	bridge.upToDown = newDataChannelPipe("upstream-to-downstream", done, onError)
+func newDataChannelBridge(done <-chan struct{}, onError func(error), meter *traffic.Meter) *dataChannelBridge {
+	bridge := &dataChannelBridge{done: done, meter: meter}
+	bridge.downToUp = newDataChannelPipe("downstream-to-upstream", done, onError, nil)
+	bridge.upToDown = newDataChannelPipe("upstream-to-downstream", done, onError, meter)
 	return bridge
 }
 
-func newDataChannelPipe(name string, done <-chan struct{}, onError func(error)) *dataChannelPipe {
+func newDataChannelPipe(name string, done <-chan struct{}, onError func(error), meter *traffic.Meter) *dataChannelPipe {
 	pipe := &dataChannelPipe{
 		name:     name,
 		done:     done,
@@ -730,6 +741,7 @@ func newDataChannelPipe(name string, done <-chan struct{}, onError func(error)) 
 		ready:    make(chan struct{}),
 		writable: make(chan struct{}, 1),
 		onError:  onError,
+		meter:    meter,
 	}
 	go pipe.run()
 	return pipe
@@ -747,7 +759,7 @@ func (b *dataChannelBridge) attachDownstream(channel *webrtc.DataChannel) {
 	b.downstream = channel
 	b.downstreamMu.Unlock()
 	b.upToDown.setDestination(channel)
-	b.bindSource(channel, b.downToUp)
+	b.bindSource(channel, b.downToUp, b.meter)
 }
 
 func (b *dataChannelBridge) attachUpstream(channel *webrtc.DataChannel) {
@@ -762,11 +774,12 @@ func (b *dataChannelBridge) attachUpstream(channel *webrtc.DataChannel) {
 	b.upstream = channel
 	b.upstreamMu.Unlock()
 	b.downToUp.setDestination(channel)
-	b.bindSource(channel, b.upToDown)
+	b.bindSource(channel, b.upToDown, nil)
 }
 
-func (b *dataChannelBridge) bindSource(channel *webrtc.DataChannel, destination *dataChannelPipe) {
+func (b *dataChannelBridge) bindSource(channel *webrtc.DataChannel, destination *dataChannelPipe, meter *traffic.Meter) {
 	channel.OnMessage(func(message webrtc.DataChannelMessage) {
+		meter.AddRx(traffic.DataChannel, len(message.Data))
 		if len(message.Data) > mediaDataMessageMaxSize {
 			destination.reportError(fmt.Errorf("%s DataChannel message exceeds %d bytes", destination.name, mediaDataMessageMaxSize))
 			return
@@ -863,6 +876,7 @@ func (p *dataChannelPipe) run() {
 				p.reportError(fmt.Errorf("send %s DataChannel message: %w", p.name, errSend))
 				return
 			}
+			p.meter.AddTx(traffic.DataChannel, len(message.data))
 		case <-p.done:
 			return
 		}

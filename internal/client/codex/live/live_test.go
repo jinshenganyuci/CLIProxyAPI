@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/traffic"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executionregistry"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
@@ -894,6 +895,8 @@ func TestHomeLiveSessionExpiryReleasesSelection(t *testing.T) {
 
 func TestHandleSidebandPinsAuthAndRelaysBidirectionally(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	collector, meter := newLiveTrafficTestMeter(t)
+	meter.Finish()
 
 	upstreamHeaders := make(chan http.Header, 1)
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -930,7 +933,7 @@ func TestHandleSidebandPinsAuthAndRelaysBidirectionally(t *testing.T) {
 
 	handler := NewHandler(manager, nil)
 	handler.sidebandAPIBaseURL = "ws" + strings.TrimPrefix(upstreamServer.URL, "http") + "/v1"
-	handler.sessions.put("call-sideband", liveSession{authID: "pinned-oauth", model: defaultLiveModel})
+	handler.sessions.put("call-sideband", liveSession{authID: "pinned-oauth", model: defaultLiveModel, meter: meter})
 	router := gin.New()
 	router.GET("/v1/live/:call_id", handler.HandleSideband)
 	downstreamServer := httptest.NewServer(router)
@@ -962,6 +965,9 @@ func TestHandleSidebandPinsAuthAndRelaysBidirectionally(t *testing.T) {
 	if got := string(payload); got != "echo:ping" {
 		t.Fatalf("sideband payload = %q, want echo:ping", got)
 	}
+	// The joining request deliberately has no meter: it must reuse the issuer's
+	// retained session identity after the bootstrap request has finished.
+	requireLiveTraffic(t, collector, traffic.WebSocket, uint64(len("ping")), uint64(len("echo:ping")))
 
 	select {
 	case captured := <-upstreamHeaders:

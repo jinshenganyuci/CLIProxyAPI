@@ -41,6 +41,8 @@ func (s *Server) registerManagementV8Routes() {
 	v8.GET("/observability/logs/requests/:id", s.mgmt.GetRequestLogByID)
 	v8.GET("/observability/usage/api-keys", s.mgmt.GetAPIKeyUsage)
 	v8.GET("/observability/usage/queue", s.mgmt.GetUsageQueue)
+	v8.GET("/observability/traffic", s.getTraffic)
+	v8.GET("/observability/traffic/keys", s.getTrafficKeys)
 
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
 	v8.GET("/credentials/concurrency", s.mgmt.GetAuthFilesConcurrency)

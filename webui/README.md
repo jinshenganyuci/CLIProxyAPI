@@ -10,6 +10,30 @@ The image serves `static/management.html` at `/management.html`. It is built fro
 This release integrates all 46 official commits after `v1.26.7` through `v1.27.3`,
 while preserving earlier native functionality and the fork controls described below.
 
+The v8.0.59.2 fork adds dashboard byte statistics through the authenticated v8
+`/observability/traffic` and `/observability/traffic/keys` endpoints. Container
+interface receive/send bytes remain global; client payload bytes can be filtered
+by a verified client-key identity. Neither measure is token usage or billing.
+All-time, today and current-month cards accompany daily/monthly charts and exact
+value tables. Detailed history covers the current and previous month in the
+server's Asia/Shanghai timezone; cumulative totals remain independent of that window.
+
+The paginated key directory includes zero-traffic and disabled keys, with source
+and name/mask filtering and an option to include deleted keys. Native keys use
+their verified credential identity; Access Guard keys use their stable plugin key
+ID, including across rotation. Selecting a key only filters client payload data;
+container network and unattributed traffic stay global. The page never consumes
+the usage queue or reads plaintext keys for statistics.
+
+Polling runs every five seconds only while the dashboard and document are visible.
+Connection changes cancel pending reads and discard stale results. Disabled
+collection retains history, memory-only operation keeps its counters with an
+explicit warning, and unavailable data is distinct from zero. Collection, sample,
+update and persistence timestamps are shown; the fifteen-second write interval
+and possible loss of unpersisted data after an abrupt stop are explained in all
+seven languages. This addition uses focused traffic tests, TypeScript/build
+checks and desktop/mobile browser checks; it does not rerun the historical UI matrix.
+
 The patch adds independent Codex, Devin, Meta, Kimi Code (kimi.com), and Kimi.ai
 login-dialog proxy selectors. Proxy-capable tiles open the dialog before starting a
 login so its egress can be selected first. Proxy credentials are sent in the
@@ -359,7 +383,7 @@ git -C management-center checkout 953fb2444350c6c36052dda46cac0abce6b23ea6
 git -C management-center apply ../webui/management-center-v1.27.3-credential-identity.patch
 docker run --rm --cpus 2 --memory 2g -e VERSION=v1.27.3 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.4.3 \
-  sh -c 'bun install --frozen-lockfile && bun run verify'
+  sh -c 'bun install --frozen-lockfile && bun run type-check && bun test tests/trafficDashboard.test.ts && bun run build'
 install -m 0644 management-center/dist/index.html static/management.html
 sha256sum static/management.html
 ```
@@ -367,7 +391,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-9c63a36350d6f3ad427b3f409e53876064342083adbdaf11b3973338dffd1cab
+97fbd8ad9589d7870c376f9e4179fe10e6ffff84995cf5e0ddeaff1e8d7f8206
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel
