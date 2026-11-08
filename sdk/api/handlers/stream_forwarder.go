@@ -167,74 +167,85 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 	if opts.KeepAliveInterval != nil {
 		keepAliveInterval = *opts.KeepAliveInterval
 	}
-	keepAliveC, stopKeepAlive := NewStreamingKeepAliveTicker(keepAliveInterval)
+	keepAliveC, stopKeepAlive, resetKeepAlive := NewStreamingKeepAliveTickerWithReset(keepAliveInterval)
 	defer stopKeepAlive()
 
 	var terminalErr *interfaces.ErrorMessage
+	handleChunk := func(chunk []byte, ok bool) bool {
+		if !ok {
+			// Both channels can be ready after cancellation. Do not turn a
+			// canceled delivery into a synthetic truncation or completion.
+			if errContext := c.Request.Context().Err(); errContext != nil {
+				cancel(errContext)
+				return true
+			}
+			// Prefer surfacing a terminal error if one is pending.
+			if terminalErr == nil {
+				if errMsg, ok := PendingStreamError(errs); ok {
+					terminalErr = errMsg
+					if opts.NormalizeTerminalError != nil {
+						terminalErr = opts.NormalizeTerminalError(terminalErr)
+					}
+				}
+			}
+			if terminalErr == nil && opts.CloseError != nil {
+				terminalErr = opts.CloseError()
+			}
+			if terminalErr != nil {
+				if opts.WriteTerminalError != nil {
+					opts.WriteTerminalError(terminalErr)
+				}
+				if !flush() {
+					return true
+				}
+				cancel(terminalErr.Error)
+				return true
+			}
+			if opts.WriteDone != nil {
+				opts.WriteDone()
+			}
+			if !flush() {
+				return true
+			}
+			cancel(nil)
+			return true
+		}
+		beforeSize := c.Writer.Size()
+		writeChunk(chunk)
+		if c.Writer.Size() > beforeSize {
+			resetKeepAlive()
+		}
+		if !flush() {
+			return true
+		}
+		if opts.ChunkError != nil {
+			chunkErr := opts.ChunkError()
+			if chunkErr != nil {
+				if opts.NormalizeTerminalError != nil {
+					chunkErr = opts.NormalizeTerminalError(chunkErr)
+				}
+				if chunkErr != nil {
+					cancel(chunkErr.Error)
+				} else {
+					cancel(nil)
+				}
+				return true
+			}
+		}
+		if opts.ChunkDone != nil && opts.ChunkDone() {
+			cancel(nil)
+			return true
+		}
+		return false
+	}
+
 	for {
 		select {
 		case <-c.Request.Context().Done():
 			cancel(c.Request.Context().Err())
 			return
 		case chunk, ok := <-data:
-			if !ok {
-				// Both channels can be ready after cancellation. Do not turn a
-				// canceled delivery into a synthetic truncation or completion.
-				if errContext := c.Request.Context().Err(); errContext != nil {
-					cancel(errContext)
-					return
-				}
-				// Prefer surfacing a terminal error if one is pending.
-				if terminalErr == nil {
-					if errMsg, ok := PendingStreamError(errs); ok {
-						terminalErr = errMsg
-						if opts.NormalizeTerminalError != nil {
-							terminalErr = opts.NormalizeTerminalError(terminalErr)
-						}
-					}
-				}
-				if terminalErr == nil && opts.CloseError != nil {
-					terminalErr = opts.CloseError()
-				}
-				if terminalErr != nil {
-					if opts.WriteTerminalError != nil {
-						opts.WriteTerminalError(terminalErr)
-					}
-					if !flush() {
-						return
-					}
-					cancel(terminalErr.Error)
-					return
-				}
-				if opts.WriteDone != nil {
-					opts.WriteDone()
-				}
-				if !flush() {
-					return
-				}
-				cancel(nil)
-				return
-			}
-			writeChunk(chunk)
-			if !flush() {
-				return
-			}
-			if opts.ChunkError != nil {
-				chunkErr := opts.ChunkError()
-				if chunkErr != nil {
-					if opts.NormalizeTerminalError != nil {
-						chunkErr = opts.NormalizeTerminalError(chunkErr)
-					}
-					if chunkErr != nil {
-						cancel(chunkErr.Error)
-					} else {
-						cancel(nil)
-					}
-					return
-				}
-			}
-			if opts.ChunkDone != nil && opts.ChunkDone() {
-				cancel(nil)
+			if handleChunk(chunk, ok) {
 				return
 			}
 		case errMsg, ok := <-errs:
