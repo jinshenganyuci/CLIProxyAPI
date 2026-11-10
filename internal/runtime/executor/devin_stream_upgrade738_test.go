@@ -211,7 +211,9 @@ func TestDevinUpgrade738BufferedTextTerminationAndCapacity(t *testing.T) {
 					if record.ResponseModel != "swe-2-high" {
 						t.Errorf("response model=%q", record.ResponseModel)
 					}
-					if ending == "eos" && (record.Detail.InputTokens != 13 || record.Detail.OutputTokens != 5 || record.Detail.CacheCreationTokens != 7) {
+					// Prompt input includes uncached (10), cache-read (3), and cache-write (7) tokens.
+					if ending == "eos" && (record.Detail.InputTokens != 20 || record.Detail.OutputTokens != 5 ||
+						record.Detail.CacheReadTokens != 3 || record.Detail.CacheCreationTokens != 7 || record.Detail.TotalTokens != 25) {
 						t.Errorf("usage=%+v", record.Detail)
 					}
 				case <-time.After(time.Second):

@@ -15,6 +15,8 @@ import (
 )
 
 func TestV830ClaudePooledTLSConnectionOutlivesOriginalCaller(t *testing.T) {
+	ResetProxyTransports()
+	t.Cleanup(ResetProxyTransports)
 	certificate := newResumptionTestCertificate(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(certificate.Leaf)
@@ -41,7 +43,13 @@ func TestV830ClaudePooledTLSConnectionOutlivesOriginalCaller(t *testing.T) {
 		dials.Add(1)
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	})
-	transport := newClaudeCodeRoundTripperForDialerAndRoots(dialer, roots)
+	// Claude connections are short-lived by default; exercise explicit pool reuse.
+	transport, pooled := pooledTransport(proxyPoolKindClaudeCode, "direct", testConfig(), poolOptInAuth(t.Name()), func() (*http.Transport, error) {
+		return newClaudeCodeRoundTripperForDialerAndRoots(dialer, roots), nil
+	})
+	if !pooled || transport == nil {
+		t.Fatal("expected pooled Claude Code transport for opted-in credential")
+	}
 	t.Cleanup(transport.CloseIdleConnections)
 	client := &http.Client{Transport: &tlsHandshakeTimeoutRoundTripper{
 		base: &fallbackRoundTripper{anthropic: transport}, timeout: time.Second,
