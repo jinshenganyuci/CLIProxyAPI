@@ -12,19 +12,35 @@ import (
 )
 
 func TestSessionAffinityNeverPreservesLocalConcurrencyAndCancelRelease(t *testing.T) {
-	for _, mode := range []string{"single-selection", "mixed-execution"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode       string
+		weighted, pinned bool
+	}{
+		{name: "single-selection", mode: "single-selection"},
+		{name: "mixed-execution", mode: "mixed-execution"},
+		{name: "weighted-pinned-single-selection", mode: "single-selection", weighted: true, pinned: true},
+		{name: "weighted-mixed-execution", mode: "mixed-execution", weighted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			manager, executor, auths, models := newCredentialConcurrencyManager(t, 2, 1)
 			manager.SetRetryConfig(3, 0, 0)
+			var fallback Selector = &FillFirstSelector{}
+			if tc.weighted {
+				fallback = &WeightedRoundRobinSelector{}
+			}
 			affinity := NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{
-				Fallback: &FillFirstSelector{}, TTL: time.Hour, RebindOn: SessionAffinityRebindOnNever,
+				Fallback: fallback, TTL: time.Hour, RebindOn: SessionAffinityRebindOnNever,
 			})
 			defer affinity.Stop()
 			manager.SetSelector(affinity)
 			options := func(block bool) cliproxyexecutor.Options {
+				metadata := map[string]any{"block": block}
+				if tc.pinned {
+					metadata[cliproxyexecutor.PinnedAuthMetadataKey] = auths[0].ID
+				}
 				return cliproxyexecutor.Options{
 					Headers:  http.Header{"Session-Id": []string{"never-capacity-session"}},
-					Metadata: map[string]any{"block": block},
+					Metadata: metadata,
 				}
 			}
 			selected, _, errBind := manager.pickNext(context.Background(), "test", models[0], options(false), nil)
@@ -65,7 +81,7 @@ func TestSessionAffinityNeverPreservesLocalConcurrencyAndCancelRelease(t *testin
 			requireCredentialConcurrencySnapshot(t, manager, auths[1].ID, 0, 1)
 
 			attempt := func() (string, error) {
-				if mode == "single-selection" {
+				if tc.mode == "single-selection" {
 					credential, release, errSelect := manager.selectAuthWithConcurrency(context.Background(), "test", models[0], options(false))
 					if release != nil {
 						defer release()

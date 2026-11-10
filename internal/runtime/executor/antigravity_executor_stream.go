@@ -311,15 +311,8 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 					}
 				}
 			}
-			if replayAccumulator != nil && replayAccumulator.terminal && !replayCommitted && responseFormat == sdktranslator.FormatOpenAIResponse {
-				// Commit only after translated completion; split usage/signature frames may extend the ledger.
-				for _, chunk := range chunks {
-					for _, line := range bytes.Split(chunk, []byte("\n")) {
-						if ojson.GetBytesNoCopy(helps.JSONPayload(line), "type").String() == "response.completed" {
-							commitReplay()
-						}
-					}
-				}
+			if replayAccumulator != nil && replayAccumulator.terminal && !replayCommitted && antigravityStreamChunksHaveTerminalCommitEvent(chunks) {
+				commitReplay()
 			}
 			for i := range chunks {
 				select {

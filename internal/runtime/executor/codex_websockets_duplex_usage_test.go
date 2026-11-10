@@ -69,6 +69,7 @@ func TestCodexDuplexUsageTracksResponseIdentityAndCancellation(t *testing.T) {
 			t.Cleanup(func() { usage.RegisterNamedPlugin(alias, codexResponseModelNoopUsagePlugin{}) })
 			input := make(chan core.WebsocketInput, 4)
 			ctx = usage.WithRequestedModelAlias(core.WithWebsocketInput(core.WithDownstreamWebsocket(ctx), input), alias)
+			ctx = usage.WithHomeSelection(ctx, usage.HomeSelection{Model: "home-route"})
 			exec := NewCodexWebsocketsExecutor(&config.Config{Codex: config.CodexConfig{ResponseSteering: true}})
 			exec.store = &codexWebsocketSessionStore{}
 			credential := &auth.Auth{ID: alias, Provider: "codex", ProxyURL: "direct", Attributes: map[string]string{"api_key": "synthetic", "base_url": upstream.URL}}
@@ -104,6 +105,11 @@ func TestCodexDuplexUsageTracksResponseIdentityAndCancellation(t *testing.T) {
 			}
 			if len(records) != want {
 				t.Fatalf("records=%+v, want %d (no duplicate created/terminal charges)", records, want)
+			}
+			for turn, record := range records {
+				if record.HomeSelection == nil || record.HomeSelection.Model != "home-route" || record.HomeSelection.Reused != (turn > 0) {
+					t.Fatalf("turn %d lost its home selection accounting: %+v", turn, record.HomeSelection)
+				}
 			}
 			if records[0].Failed || records[0].Detail.TotalTokens != 10 || records[0].ResponseModel != "model-first" {
 				t.Fatalf("first response accounting changed: %+v", records[0])

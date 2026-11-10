@@ -444,13 +444,15 @@ func TestCredentialConcurrencyBusyNeverRetriesOrActivatesCredits(t *testing.T) {
 }
 
 type credentialConcurrencyRPCError struct {
-	code   string
-	status int
+	code             string
+	status           int
+	credentialScoped bool
 }
 
-func (e credentialConcurrencyRPCError) Error() string     { return "plugin rejected request" }
-func (e credentialConcurrencyRPCError) ErrorCode() string { return e.code }
-func (e credentialConcurrencyRPCError) StatusCode() int   { return e.status }
+func (e credentialConcurrencyRPCError) Error() string            { return "plugin rejected request" }
+func (e credentialConcurrencyRPCError) ErrorCode() string        { return e.code }
+func (e credentialConcurrencyRPCError) StatusCode() int          { return e.status }
+func (e credentialConcurrencyRPCError) IsCredentialScoped() bool { return e.credentialScoped }
 
 func TestCredentialConcurrencyPluginRPCErrorClassification(t *testing.T) {
 	for _, tc := range []struct {
@@ -474,6 +476,14 @@ func TestCredentialConcurrencyPluginRPCErrorClassification(t *testing.T) {
 			}
 		})
 	}
+	t.Run("explicit-credential-scope-overrides-no-candidate-code", func(t *testing.T) {
+		original := fmt.Errorf("scheduler RPC: %w", credentialConcurrencyRPCError{
+			code: "auth_unavailable", status: http.StatusServiceUnavailable, credentialScoped: true,
+		})
+		if got := credentialConcurrencySelectionError(original, true); got != original || IsCredentialConcurrencyError(got) {
+			t.Fatalf("explicit upstream credential scope became local capacity rejection: %v", got)
+		}
+	})
 	m, _, auths, models := newCredentialConcurrencyManager(t, 2, 1)
 	release, err := m.AcquireCredentialConcurrency(context.Background(), auths[0])
 	if err != nil {

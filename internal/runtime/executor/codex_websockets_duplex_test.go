@@ -16,6 +16,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
@@ -96,6 +97,11 @@ func TestCodexDuplexSteeringLifecycle(t *testing.T) {
 			defer cancel()
 			input := make(chan core.WebsocketInput, 8)
 			ctx = core.WithWebsocketInput(core.WithDownstreamWebsocket(ctx), input)
+			ctx = coreusage.WithRequestedModelAlias(ctx, t.Name())
+			ctx = coreusage.WithHomeSelection(ctx, coreusage.HomeSelection{Model: "home-route"})
+			capture := &codexResponseModelUsageCapture{alias: t.Name(), records: make(chan coreusage.Record, 8)}
+			coreusage.RegisterNamedPlugin(t.Name(), capture)
+			t.Cleanup(func() { coreusage.RegisterNamedPlugin(t.Name(), codexResponseModelNoopUsagePlugin{}) })
 			exec := NewCodexWebsocketsExecutor(&config.Config{Codex: config.CodexConfig{ResponseSteering: true}})
 			exec.store = &codexWebsocketSessionStore{sessions: make(map[string]*codexWebsocketSession)}
 			auth := &cliproxyauth.Auth{ID: "A", Provider: "codex", Attributes: map[string]string{"api_key": "test-key", "base_url": server.URL, "websockets": "true"}}
@@ -161,6 +167,17 @@ func TestCodexDuplexSteeringLifecycle(t *testing.T) {
 			}
 			if connections.Load() != 1 {
 				t.Fatalf("connections=%d", connections.Load())
+			}
+			ids := make(map[string]bool)
+			for turn := range 3 {
+				record := capture.await(t)
+				if record.HomeSelection == nil || record.HomeSelection.Reused != (turn > 0) || record.HomeSelection.Model != "home-route" {
+					t.Fatalf("turn %d accounting=%+v", turn, record.HomeSelection)
+				}
+				if ids[record.RequestID] {
+					t.Fatal("duplex responses share an execution ID")
+				}
+				ids[record.RequestID] = true
 			}
 			for _, key := range []string{"accepted", "boundary", "pending", "successor", "failed"} {
 				if !seen[key] {

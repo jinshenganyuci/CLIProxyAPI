@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	log "github.com/sirupsen/logrus"
 )
@@ -43,6 +44,12 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 	initialReporter *helps.UsageReporter, headers http.Header, unlock func(),
 ) *cliproxyexecutor.StreamResult {
 	streamCtx, cancel := context.WithCancel(ctx)
+	// Duplex successors bypass dispatch, including automatic steering responses.
+	followupCtx := ctx
+	if selection := coreusage.HomeSelectionFromContext(ctx); selection != nil {
+		selection.Reused = true
+		followupCtx = coreusage.WithHomeSelection(ctx, *selection)
+	}
 	out := make(chan cliproxyexecutor.StreamChunk)
 	// This first frame was successfully written by ExecuteStream before handoff.
 	log.Infof("codex websockets: request forwarded session=%s auth=%s url=%s event=response.create", sess.sessionID, auth.ID, initial.wsURL)
@@ -869,7 +876,7 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 				metadataMu.Unlock()
 				wakeWriter()
 				if !firstResponse {
-					reporter = helps.NewExecutorUsageReporter(ctx, e, req.Model, auth)
+					reporter = helps.NewExecutorUsageReporter(followupCtx, e, req.Model, auth)
 					reporter.SetUpstreamModel(current.upstreamModel)
 					reporter.SetTranslatedReasoningEffort(current.clientBody, current.to.String())
 					reporter.StartResponseTTFT()
@@ -974,7 +981,7 @@ func (e *CodexWebsocketsExecutor) streamCodexDuplex(
 						pendingLeases[0]()
 						pendingLeases = pendingLeases[1:]
 					}
-					eventReporter = helps.NewExecutorUsageReporter(ctx, e, req.Model, auth)
+					eventReporter = helps.NewExecutorUsageReporter(followupCtx, e, req.Model, auth)
 					eventReporter.SetUpstreamModel(eventPrepared.upstreamModel)
 					eventReporter.SetTranslatedReasoningEffort(eventPrepared.clientBody, eventPrepared.to.String())
 				} else if !ambiguous {

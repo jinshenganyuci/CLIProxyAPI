@@ -102,12 +102,12 @@ func (m *Manager) filterCredentialConcurrencyCandidatesLocked(ctx context.Contex
 }
 
 func credentialConcurrencySelectionError(err error, filteredBusy bool) error {
-	if !filteredBusy {
+	if !filteredBusy || isCredentialScopedError(err) {
 		return err
 	}
 	// The old plugin ABI reports no-match and all-bound-candidates-busy identically.
 	// Only translate no-candidate errors after this request actually removed full candidates;
-	// preserve authorization, quota, transport, and all other plugin errors verbatim.
+	// preserve authorization, explicit credential scope, quota, transport, and all other plugin errors verbatim.
 	status := statusCodeFromError(err)
 	if status != 0 && status != http.StatusServiceUnavailable {
 		return err
@@ -132,6 +132,11 @@ func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context
 	if ctx == nil || ctx.Value(credentialConcurrencyAdmissionKey{}) != true {
 		available, selectorAuths, errAvailable := m.availableAuthsForSelector(ctx, selector, candidates, provider, model, now, schedulerAcross, clientHeaders...)
 		return available, selectorAuths, false, errAvailable
+	}
+	if _, weighted := selector.(*WeightedRoundRobinSelector); weighted {
+		// Match normal weighted selection before priority and capacity filtering:
+		// zero-weight credentials neither hide lower tiers nor explain a local 429.
+		candidates = positiveWeightAuths(candidates)
 	}
 	// Check capacity before choosing the highest priority tier so a full tier cannot
 	// hide an otherwise eligible lower-priority credential from the plugin/native selector.
