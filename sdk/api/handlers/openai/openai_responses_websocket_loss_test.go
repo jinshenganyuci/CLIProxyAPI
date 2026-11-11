@@ -389,7 +389,8 @@ func TestResponsesWebsocketDuplexLossBetweenTurnsReportsOnce(t *testing.T) {
 			f := newLossFixture(t, true, func(index int, c *websocket.Conn, read func() []byte) {
 				read()
 				_ = c.WriteMessage(websocket.TextMessage, []byte(lossCreated))
-				_ = c.WriteMessage(websocket.TextMessage, []byte(lossCompleted))
+				// End the created response before testing ownership of the next create.
+				_ = c.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"r1","output":[]}}`))
 				if index == 1 {
 					read() // the second create, lost before response.created
 					return
@@ -416,7 +417,8 @@ func TestResponsesWebsocketDuplexLossAfterRefusedCreateIsSilent(t *testing.T) {
 	f := newLossFixture(t, true, func(index int, c *websocket.Conn, read func() []byte) {
 		read()
 		_ = c.WriteMessage(websocket.TextMessage, []byte(lossCreated))
-		_ = c.WriteMessage(websocket.TextMessage, []byte(lossCompleted))
+		// End r1 so the refused follow-up is followed by an idle loss.
+		_ = c.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"r1","output":[]}}`))
 		if index == 1 {
 			<-eof
 			return
