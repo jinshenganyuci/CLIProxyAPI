@@ -228,12 +228,20 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	persistLock.lastEpoch = updated.RegistrationEpoch
 	persistLock.lastGeneration = updated.Generation
 	persistLock.lastSaveFailed = false
+	shouldForgetWeighted := updated.Disabled ||
+		updated.Status == StatusDisabled ||
+		(authWeight(latest) > 0 && authWeight(updated) <= 0) ||
+		executorKeyFromAuth(latest) != executorKeyFromAuth(updated)
+	forgetEpoch, forgetGeneration := updated.RegistrationEpoch, updated.Generation
 	m.mu.Unlock()
 	// Release transaction locks before scheduler/hook callbacks can reenter.
 	persistLock.mu.Unlock()
 	persistLocked = false
 	releaseForeground()
 	releaseMutation()
+	if shouldForgetWeighted {
+		m.forgetWeightedAuthUpTo(id, forgetEpoch, forgetGeneration)
+	}
 	if m.scheduler != nil {
 		m.scheduler.upsertAuth(updated.Clone())
 	}

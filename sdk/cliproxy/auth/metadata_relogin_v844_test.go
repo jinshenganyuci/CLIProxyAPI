@@ -20,6 +20,11 @@ func TestV844DurableReloginRecoversRefreshFailureAndPreservesControls(t *testing
 			base.NextRefreshAfter = time.Now().Add(5 * time.Minute)
 			base.LastError = &Error{HTTPStatus: 400, Message: "invalid_grant"}
 			base.StatusMessage = "invalid_grant"
+			if scenario == "invalid-grant" || scenario == "controls-only" {
+				base.forceCooldownUntil = time.Now().Add(time.Hour)
+				base.forceCooldownSeeded = true
+				base.NextRetryAfter = base.forceCooldownUntil
+			}
 			if scenario == "transient-expiry" {
 				base.LastError = &Error{HTTPStatus: 503, Message: "token endpoint unavailable"}
 				base.StatusMessage = "token expired"
@@ -55,6 +60,9 @@ func TestV844DurableReloginRecoversRefreshFailureAndPreservesControls(t *testing
 				if !got.Unavailable || !got.NextRefreshAfter.Equal(base.NextRefreshAfter) || got.RefreshFailures != base.RefreshFailures {
 					t.Fatal("control-only update erased refresh failure")
 				}
+				if !got.forceCooldownUntil.Equal(base.forceCooldownUntil) || !got.NextRetryAfter.Equal(base.NextRetryAfter) {
+					t.Fatal("control-only update erased active forced cooldown")
+				}
 			case "disabled":
 				if !got.Disabled || got.Status != StatusDisabled || got.Unavailable != base.Unavailable || !got.NextRefreshAfter.Equal(base.NextRefreshAfter) || got.RefreshFailures != base.RefreshFailures {
 					t.Fatal("disabled update changed its existing availability or refresh state")
@@ -72,6 +80,9 @@ func TestV844DurableReloginRecoversRefreshFailureAndPreservesControls(t *testing
 					}
 				} else if got.Unavailable || got.Status != StatusActive || got.LastError != nil || !got.NextRetryAfter.IsZero() {
 					t.Error("durably re-logged credential is still unavailable")
+				}
+				if scenario == "invalid-grant" && (!got.forceCooldownUntil.IsZero() || !IsAuthAvailableForModel(got, "", time.Now())) {
+					t.Error("durable re-login retained the recovered auth failure's force deadline")
 				}
 			}
 			if got.RegistrationEpoch != base.RegistrationEpoch || got.ProxyURL != "direct" || got.Metadata["codex_identity_namespace"] != "relogin-preserved-namespace" {

@@ -167,6 +167,15 @@ func TestDuplexLocalBusyStreamErrorDoesNotCoolCredential(t *testing.T) {
 	for _, local := range []bool{true, false} {
 		t.Run(fmt.Sprint(local), func(t *testing.T) {
 			m, _, auths, models := newCredentialConcurrencyManager(t, 1, 1)
+			// Explicit broad upstream rules must not turn local admission into cooldown.
+			auths[0].Metadata["request_scoped_errors"] = []config.RequestScopedErrorRule{{
+				Status: 429, MatchRegexr: []string{".*"}, Action: RequestScopedActionContinueAndCooldown,
+			}}
+			updated, errUpdate := m.Update(t.Context(), auths[0])
+			if errUpdate != nil {
+				t.Fatal(errUpdate)
+			}
+			auths[0] = updated
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			lease, errAcquire := m.acquireCredentialConcurrency(ctx, auths[0])
