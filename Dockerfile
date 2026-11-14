@@ -8,8 +8,8 @@ WORKDIR /app
 # Compile natively on the build host, including the C ABI used by plugins.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential git \
     && case "$(go env GOARCH):${TARGETARCH}" in \
-         amd64:arm64) apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu ;; \
-         arm64:amd64) apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu ;; \
+         amd64:arm64) apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross ;; \
+         arm64:amd64) apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu libc6-dev-amd64-cross ;; \
          amd64:amd64|arm64:arm64) ;; \
          *) echo "Unsupported build/target architecture" >&2; exit 1 ;; \
        esac \

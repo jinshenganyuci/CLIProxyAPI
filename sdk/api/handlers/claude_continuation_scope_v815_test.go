@@ -23,6 +23,7 @@ import (
 
 func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 	const model = "claude-opus-5"
+	threadMessageID := func(authID, caller string) string { return "message-" + authID + "-" + caller }
 	var requests atomic.Int32
 	var mu sync.Mutex
 	aliases := make(map[string]string)
@@ -56,7 +57,8 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 			t.Errorf("OAuth alias fixture was not prepared: caller=%q alias=%q", caller, alias)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"id":"shared-message","type":"message","role":"assistant","model":%q,"content":[{"type":"tool_use","id":"shared-tool","name":%q,"input":{}}],"stop_reason":"tool_use","usage":{"input_tokens":3,"output_tokens":2}}`, model, alias)
+		authID := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer sk-ant-oat-synthetic-")
+		_, _ = fmt.Fprintf(w, `{"id":%q,"type":"message","role":"assistant","model":%q,"content":[{"type":"tool_use","id":"shared-tool","name":%q,"input":{}}],"stop_reason":"tool_use","usage":{"input_tokens":3,"output_tokens":2}}`, threadMessageID(authID, caller), model, alias)
 	}))
 	t.Cleanup(server.Close)
 	manager := coreauth.NewManager(nil, nil, nil)
@@ -79,7 +81,7 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 	base.SetPluginHost(&handlerInterceptorTestHost{completeRequest: func(_ context.Context, completion pluginapi.RequestCompletion) {
 		completions = append(completions, completion)
 	}})
-	call := func(authID, caller, tool string, wantStatus int) {
+	call := func(authID, caller, tool, previousID string, wantStatus int) {
 		t.Helper()
 		ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
 		ginCtx.Set("userApiKey", caller)
@@ -90,7 +92,7 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 			payload["thread"] = map[string]any{"type": "create"}
 			payload["tools"] = []any{map[string]any{"name": tool, "input_schema": map[string]any{"type": "object"}}}
 		} else {
-			payload["thread"] = map[string]any{"type": "continue", "previous_message_id": "shared-message"}
+			payload["thread"] = map[string]any{"type": "continue", "previous_message_id": previousID}
 		}
 		body, errEncode := json.Marshal(payload)
 		if errEncode != nil {
@@ -98,9 +100,13 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 		}
 		before := requests.Load()
 		response, errExecute := base.ExecuteModel(ctx, ModelExecutionRequest{Model: model, EntryProtocol: "claude", ExitProtocol: "claude", AuthID: authID, Body: body, Headers: http.Header{"Authorization": {"Bearer " + caller}}})
-		if wantStatus == http.StatusNotFound {
-			if errExecute == nil || errExecute.StatusCode != http.StatusNotFound || !strings.Contains(errExecute.Error.Error(), "previous_message_id") {
-				t.Fatalf("foreign continuation did not fail locally: %+v", errExecute)
+		if wantStatus != http.StatusOK {
+			wantMessage := "previous_message_id"
+			if wantStatus == http.StatusConflict {
+				wantMessage = "thread_auth_conflict"
+			}
+			if errExecute == nil || errExecute.StatusCode != wantStatus || errExecute.Error == nil || !strings.Contains(errExecute.Error.Error(), wantMessage) {
+				t.Fatalf("foreign continuation did not fail locally with %d/%s: %+v", wantStatus, wantMessage, errExecute)
 			}
 			if requests.Load() != before {
 				t.Fatal("unknown/foreign alias state reached an upstream credential")
@@ -132,14 +138,17 @@ func TestV815ClaudeContinuationAliasesIsolateCredentialAndCaller(t *testing.T) {
 			t.Fatalf("request-scoped missing state damaged credential health: %#v", current)
 		}
 	}
-	call("credential-a", "caller-a", "ReadAlpha", http.StatusOK)
-	call("credential-b", "caller-a", "", http.StatusNotFound)
-	call("credential-a", "caller-b", "", http.StatusNotFound)
-	call("credential-b", "caller-a", "WriteBeta", http.StatusOK)
-	call("credential-a", "caller-b", "SearchGamma", http.StatusOK)
-	call("credential-a", "caller-a", "", http.StatusOK)
-	call("credential-b", "caller-a", "", http.StatusOK)
-	call("credential-a", "caller-b", "", http.StatusOK)
+	// Thread IDs identify distinct upstream messages. Cross-credential ownership
+	// is rejected by the manager before the executor's caller-scoped alias lookup.
+	firstMessageID := threadMessageID("credential-a", "caller-a")
+	call("credential-a", "caller-a", "ReadAlpha", "", http.StatusOK)
+	call("credential-b", "caller-a", "", firstMessageID, http.StatusConflict)
+	call("credential-a", "caller-b", "", firstMessageID, http.StatusNotFound)
+	call("credential-b", "caller-a", "WriteBeta", "", http.StatusOK)
+	call("credential-a", "caller-b", "SearchGamma", "", http.StatusOK)
+	call("credential-a", "caller-a", "", firstMessageID, http.StatusOK)
+	call("credential-b", "caller-a", "", threadMessageID("credential-b", "caller-a"), http.StatusOK)
+	call("credential-a", "caller-b", "", threadMessageID("credential-a", "caller-b"), http.StatusOK)
 	if requests.Load() != 6 || len(completions) != 8 {
 		t.Fatalf("request/lifecycle count = %d/%d, want 6/8", requests.Load(), len(completions))
 	}

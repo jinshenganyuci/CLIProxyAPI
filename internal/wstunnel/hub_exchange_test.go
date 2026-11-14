@@ -117,12 +117,23 @@ func TestHubExchange_DiscoveryEventsAndControlCommands(t *testing.T) {
 	hub := NewHub(Options{})
 	hub.UpdateAllowedAPIKeys([]string{"key-disc"})
 	t.Cleanup(hub.Close)
-	srv := httptest.NewServer(hub)
+	registered := make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hub.ServeHTTP(w, r)
+		// HTTP 101 can reach Dial before commitPeer registers the server.
+		// Wait for both initial registrations before asserting their snapshot.
+		switch r.URL.Query().Get("uuid") {
+		case "srv-a", "srv-b":
+			registered <- struct{}{}
+		}
+	}))
 	t.Cleanup(srv.Close)
 
 	// Connect servers out of lexicographical order to verify deterministic sorting and custom types.
 	srvB := dialRoleWithType(t, srv.URL, "key-disc", RoleServer, "srv-b", "Server B", "linux-builder")
+	waitTunnelSignal(t, registered, "srv-b registration")
 	_ = dialRoleWithType(t, srv.URL, "key-disc", RoleServer, "srv-a", "Server A", "cpa-desktop")
+	waitTunnelSignal(t, registered, "srv-a registration")
 
 	cli := dialRole(t, srv.URL, "key-disc", RoleClient, "cli-1", "Client 1")
 	initial := readTextJSONFrame(t, cli)

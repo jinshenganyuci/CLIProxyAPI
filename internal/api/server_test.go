@@ -3955,6 +3955,27 @@ func testServerResponsesWebsocketReauthorizesEachTurn(t *testing.T, requestLog b
 		registry.GetGlobalRegistry().UnregisterClient(authEntry.ID)
 	})
 
+	t.Cleanup(func() {
+		// Register before the server cleanup: testing runs cleanups in reverse order,
+		// so hijacked handlers and logging finish before this inspection.
+		entries, errReadDir := os.ReadDir(filepath.Join(server.cfg.AuthDir, "logs"))
+		if errReadDir != nil {
+			t.Fatalf("read request logs: %v", errReadDir)
+		}
+		var logCount int
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".tmp") || strings.HasPrefix(entry.Name(), "request-log-parts-") {
+				t.Errorf("request log temporary entry remains after handler completion: %s", entry.Name())
+			}
+			if strings.HasSuffix(entry.Name(), ".log") {
+				logCount++
+			}
+		}
+		if logCount == 0 {
+			t.Error("expected a completed request log for the revoked credential")
+		}
+	})
+
 	httpServer := newWebsocketTestHTTPServer(t, server.engine)
 
 	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/responses"
@@ -4018,23 +4039,4 @@ func testServerResponsesWebsocketReauthorizesEachTurn(t *testing.T, requestLog b
 	if gotCalls := wsExec.calls.Load(); gotCalls != 1 {
 		t.Fatalf("executor calls after revoked turn = %d, want 1", gotCalls)
 	}
-	t.Cleanup(func() {
-		// Deferred connection shutdown and request draining must finish before inspecting logs.
-		entries, errReadDir := os.ReadDir(filepath.Join(server.cfg.AuthDir, "logs"))
-		if errReadDir != nil {
-			t.Fatalf("read request logs: %v", errReadDir)
-		}
-		var logCount int
-		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".tmp") || strings.HasPrefix(entry.Name(), "request-log-parts-") {
-				t.Errorf("request log temporary entry remains after handler completion: %s", entry.Name())
-			}
-			if strings.HasSuffix(entry.Name(), ".log") {
-				logCount++
-			}
-		}
-		if logCount == 0 {
-			t.Error("expected a completed request log for the revoked credential")
-		}
-	})
 }
