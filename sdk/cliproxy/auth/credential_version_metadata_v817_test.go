@@ -233,47 +233,57 @@ func TestMetadataSecretAdoptionPreservesActiveQuotaV817(t *testing.T) {
 }
 
 func TestRefreshFailureWaitsForMetadataSecretPublicationV817(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		store := &metadataStoreV815{memoryAuthTestStore: newMemoryAuthTestStore(), entered: make(chan struct{}), release: make(chan struct{})}
-		manager := NewManager(store, nil, nil)
-		store.manager = manager
-		base, errRegister := manager.Register(t.Context(), &Auth{ID: "pending-secret", Provider: "codex", Status: StatusActive, Metadata: map[string]any{"access_token": "old-token"}})
-		if errRegister != nil {
-			t.Fatal(errRegister)
-		}
-		executor := &snapshotRefreshV817Executor{schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "codex"}, started: make(chan struct{}), release: make(chan struct{}), err: errors.New("synthetic old refresh error")}
-		manager.RegisterExecutor(executor)
-		refreshDone := make(chan error, 1)
-		go func() {
-			_, errRefresh := manager.ForceRefreshAuth(context.Background(), base.ID)
-			refreshDone <- errRefresh
-		}()
-		<-executor.started
-		metadataDone := make(chan error, 1)
-		go func() {
-			_, errEdit := manager.UpdateAndPersistMetadata(context.Background(), base.ID, func(auth *Auth) error {
-				auth.Metadata["access_token"] = "accepted-token"
-				auth.Metadata["pause_metadata"] = true
-				return nil
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "upstream-failure", err: errors.New("synthetic old refresh error")},
+		{name: "siwc-deferral", err: fmt.Errorf("synthetic deferred refresh: %w", codex.ErrSIWCRefreshDeferred)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				store := &metadataStoreV815{memoryAuthTestStore: newMemoryAuthTestStore(), entered: make(chan struct{}), release: make(chan struct{})}
+				manager := NewManager(store, nil, nil)
+				store.manager = manager
+				base, errRegister := manager.Register(t.Context(), &Auth{ID: "pending-secret", Provider: "codex", Status: StatusActive, Metadata: map[string]any{"access_token": "old-token"}})
+				if errRegister != nil {
+					t.Fatal(errRegister)
+				}
+				executor := &snapshotRefreshV817Executor{schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "codex"}, started: make(chan struct{}), release: make(chan struct{}), err: tc.err}
+				manager.RegisterExecutor(executor)
+				refreshDone := make(chan error, 1)
+				go func() {
+					_, errRefresh := manager.ForceRefreshAuth(context.Background(), base.ID)
+					refreshDone <- errRefresh
+				}()
+				<-executor.started
+				metadataDone := make(chan error, 1)
+				go func() {
+					_, errEdit := manager.UpdateAndPersistMetadata(context.Background(), base.ID, func(auth *Auth) error {
+						auth.Metadata["access_token"] = "accepted-token"
+						auth.Metadata["pause_metadata"] = true
+						return nil
+					})
+					metadataDone <- errEdit
+				}()
+				<-store.entered
+				close(executor.release)
+				synctest.Wait()
+				select {
+				case <-refreshDone:
+					t.Error("refresh failure crossed an uncommitted replacement transaction")
+				default:
+				}
+				close(store.release)
+				if errEdit := <-metadataDone; errEdit != nil {
+					t.Fatal(errEdit)
+				}
+				<-refreshDone
+				current, _ := manager.GetByID(base.ID)
+				if current.Metadata["access_token"] != "accepted-token" || current.CredentialVersion != base.CredentialVersion+1 || current.LastError != nil || !current.NextRefreshAfter.IsZero() || current.Unavailable {
+					t.Fatal("old refresh failure polluted new credentials while their store save was in progress")
+				}
 			})
-			metadataDone <- errEdit
-		}()
-		<-store.entered
-		close(executor.release)
-		synctest.Wait()
-		select {
-		case <-refreshDone:
-			t.Error("refresh failure crossed an uncommitted replacement transaction")
-		default:
-		}
-		close(store.release)
-		if errEdit := <-metadataDone; errEdit != nil {
-			t.Fatal(errEdit)
-		}
-		<-refreshDone
-		current, _ := manager.GetByID(base.ID)
-		if current.Metadata["access_token"] != "accepted-token" || current.CredentialVersion != base.CredentialVersion+1 || current.LastError != nil || !current.NextRefreshAfter.IsZero() || current.Unavailable {
-			t.Fatal("old refresh failure polluted new credentials while their store save was in progress")
-		}
-	})
+		})
+	}
 }

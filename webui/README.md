@@ -3,12 +3,16 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.27.3`
-- commit: `953fb2444350c6c36052dda46cac0abce6b23ea6`
-- patch: `management-center-v1.27.3-credential-identity.patch`
+- tag: `v1.28.0`
+- commit: `3d893ec88938c3ceef200a15be6af8cf972564b3`
+- patch: `management-center-v1.28.0-credential-identity.patch`
 
-This release integrates all 46 official commits after `v1.26.7` through `v1.27.3`,
-while preserving earlier native functionality and the fork controls described below.
+This release integrates official `v1.28.0` on top of the previously bundled `v1.27.3`,
+while preserving native functionality and the fork controls described below.
+The upgrade includes credential/quota card layouts, model catalog refresh, guarded
+model-rule drafts, and login proxies. Login proxy controls use one dialog per attempt
+with inherited, custom and direct modes; secrets stay in POST bodies and are cleared
+with the attempt lifecycle. Plugin login entries use the same guarded controls.
 
 The v8.0.59.2 fork adds dashboard byte statistics through the authenticated v8
 `/observability/traffic` and `/observability/traffic/keys` endpoints. Container
@@ -379,11 +383,11 @@ Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 953fb2444350c6c36052dda46cac0abce6b23ea6
-git -C management-center apply ../webui/management-center-v1.27.3-credential-identity.patch
-docker run --rm --cpus 2 --memory 2g -e VERSION=v1.27.3 \
+git -C management-center checkout 3d893ec88938c3ceef200a15be6af8cf972564b3
+git -C management-center apply ../webui/management-center-v1.28.0-credential-identity.patch
+docker run --rm -e VERSION=v1.28.0 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.4.3 \
-  sh -c 'bun install --frozen-lockfile && bun run type-check && bun test tests/trafficDashboard.test.ts && bun run build'
+  sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
 sha256sum static/management.html
 ```
@@ -391,7 +395,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-b3002ba962ade8db67792dd5c993ee860a33730874fbe58417a20a2f593259ac
+bad9fd7ecbc9e6aee681bd6276d159e65823baf98c084858bc70c40d6ea2bc1e
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

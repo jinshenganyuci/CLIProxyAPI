@@ -76,9 +76,9 @@ func TestUpgrade827SIWCInvalidProxyFailsClosed(t *testing.T) {
 	auth := NewCodexAuthWithProxyURL(nil, "invalid://synthetic-proxy")
 	auth.SetRefreshJournal(&memoryRefreshJournal{})
 	_, err := auth.RefreshSIWCTokens(context.Background(), t.Name(), "synthetic-client", "synthetic-device")
-	var outcome *RefreshOutcomeUnknownError
-	if !errors.As(err, &outcome) || outcome.Stage != "transport" || outcome.Cause == nil || !strings.Contains(outcome.Cause.Error(), "proxy") {
-		t.Fatalf("invalid proxy did not fail closed: %v", err)
+	var preSend *RefreshPreSendError
+	if !errors.As(err, &preSend) || preSend.Stage != "proxy-config" || preSend.Cause == nil || !strings.Contains(preSend.Cause.Error(), "proxy") || IsRefreshOutcomeUnknown(err) {
+		t.Fatalf("invalid proxy did not fail closed before send: %v", err)
 	}
 }
 

@@ -36,6 +36,8 @@ docs/*
 !docs/codex-response-steering.md
 !docs/management-api-v8.md
 !docs/api-key-notes.zh-CN.md
+!docs/websocket-tunnel.md
+!docs/websocket-tunnel_CN.md
 AGENTS.md
 CLAUDE.md
 GEMINI.md

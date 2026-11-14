@@ -210,7 +210,12 @@ func (s *Server) trafficMiddleware() gin.HandlerFunc {
 			c.Request.Body = &trafficRequestBody{ReadCloser: c.Request.Body, meter: meter}
 		}
 		original := c.Writer
-		c.Writer = &trafficResponseWriter{ResponseWriter: original, meter: meter, state: state}
+		c.Writer = &trafficResponseWriter{
+			ResponseWriter: original, meter: meter, state: state,
+			// The tunnel Hub owns and awaits these connections before traffic is
+			// flushed. Preserve its raw-TCP shutdown path beneath TLS wrappers.
+			managerOwnsHijack: c.Request.URL.Path == "/v1/tunnel",
+		}
 		defer func() { c.Writer = original }()
 		c.Next()
 	}
@@ -229,8 +234,9 @@ func (r *trafficRequestBody) Read(p []byte) (int, error) {
 
 type trafficResponseWriter struct {
 	gin.ResponseWriter
-	meter *traffic.Meter
-	state *serverTrafficState
+	meter             *traffic.Meter
+	state             *serverTrafficState
+	managerOwnsHijack bool
 }
 
 func (w *trafficResponseWriter) Write(p []byte) (int, error) {
@@ -248,7 +254,7 @@ func (w *trafficResponseWriter) FlushError() error           { return httpwire.F
 func (w *trafficResponseWriter) Flush()                      { _ = w.FlushError() }
 func (w *trafficResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	conn, rw, err := w.ResponseWriter.Hijack()
-	if err != nil {
+	if err != nil || w.managerOwnsHijack {
 		return conn, rw, err
 	}
 	tracked := &trafficTrackedConn{Conn: conn, state: w.state}

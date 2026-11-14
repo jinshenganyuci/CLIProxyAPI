@@ -10,14 +10,15 @@ func (e CodexExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
 }
 
 func (e *ClaudeExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
-	// Keep one alias store across credential-specific executor views without
-	// copying the mutex used to initialize that shared store.
+	// Keep continuation stores shared across credential-specific executor views
+	// without copying their lazy-initialization mutex.
 	return &ClaudeExecutor{
 		cfg:                     e.cfg.ForAPIKey(),
 		requestLogProvider:      e.requestLogProvider,
 		upstreamModelNormalizer: e.upstreamModelNormalizer,
 		oauthProfileFetcher:     e.oauthProfileFetcher,
 		oauthToolAliases:        e.claudeOAuthToolAliasStore(),
+		threadBetas:             e.claudeThreadBetaStore(),
 	}
 }
 

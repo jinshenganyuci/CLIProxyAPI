@@ -1,8 +1,19 @@
-FROM golang:1.26-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS builder
+
+ARG TARGETARCH
+ARG TARGETOS
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
+# Compile natively on the build host, including the C ABI used by plugins.
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git \
+    && case "$(go env GOARCH):${TARGETARCH}" in \
+         amd64:arm64) apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu ;; \
+         arm64:amd64) apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu ;; \
+         amd64:amd64|arm64:arm64) ;; \
+         *) echo "Unsupported build/target architecture" >&2; exit 1 ;; \
+       esac \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
 
@@ -14,7 +25,11 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
-RUN CGO_ENABLED=1 GOOS=linux go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
+RUN case "$(go env GOARCH):${TARGETARCH}" in \
+      amd64:arm64) export CC=aarch64-linux-gnu-gcc ;; \
+      arm64:amd64) export CC=x86_64-linux-gnu-gcc ;; \
+    esac \
+    && CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
 
 FROM debian:bookworm
 
