@@ -3,7 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"os"
 	"path/filepath"
 	"reflect"

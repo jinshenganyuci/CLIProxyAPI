@@ -3,11 +3,11 @@ package translator
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
 	claude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	gemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/openai/responses"

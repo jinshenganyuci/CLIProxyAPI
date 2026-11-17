@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/MoeForge/moego/json"
 	"math"
 	"net/http"
 	"reflect"

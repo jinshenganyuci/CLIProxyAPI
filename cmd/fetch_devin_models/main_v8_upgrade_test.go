@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"reflect"
 	"testing"
 

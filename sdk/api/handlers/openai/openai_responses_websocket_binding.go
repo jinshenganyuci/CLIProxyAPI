@@ -3,7 +3,7 @@ package openai
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"strings"
 
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"

@@ -2,7 +2,7 @@ package cliproxy
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"

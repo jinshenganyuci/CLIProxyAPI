@@ -272,6 +272,9 @@ func TestResponsesWebsocketExposesTerminal429WithoutTreatingQuotaAsLocalAdmissio
 			if got := shouldReplayResponsesWebsocketPinnedAuthFailure(message); got == test.wantLocal {
 				t.Fatalf("pinned auth replay = %t, want %t for %v", got, !test.wantLocal, test.err)
 			}
+			if got := shouldReleaseResponsesWebsocketPinnedAuth(message); got == test.wantLocal {
+				t.Fatalf("pinned auth release = %t, want %t for %v", got, !test.wantLocal, test.err)
+			}
 		})
 	}
 }

@@ -2,7 +2,7 @@ package redisqueue
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"reflect"
 	"sync/atomic"
 	"testing"

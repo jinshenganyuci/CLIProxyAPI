@@ -2,7 +2,6 @@ package management
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
@@ -20,6 +20,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -136,6 +137,32 @@ func resolveSIWCBindFile(authDir, path string) (string, map[string]any, error) {
 	return realPath, metadata, nil
 }
 
+func resolveSIWCBindProxyURL(target *coreauth.Auth, diskMetadata map[string]any) (string, error) {
+	if raw, exists := diskMetadata["proxy_url"]; exists && raw != nil {
+		str, ok := raw.(string)
+		if !ok {
+			return "", errors.New("invalid proxy_url")
+		}
+		trimmed := strings.TrimSpace(str)
+		if trimmed != "" {
+			if _, _, errBuild := proxyutil.BuildHTTPTransport(trimmed); errBuild != nil {
+				return "", errBuild
+			}
+		}
+		return trimmed, nil
+	}
+	if target != nil {
+		trimmed := strings.TrimSpace(target.ProxyURL)
+		if trimmed != "" {
+			if _, _, errBuild := proxyutil.BuildHTTPTransport(trimmed); errBuild != nil {
+				return "", errBuild
+			}
+		}
+		return trimmed, nil
+	}
+	return "", nil
+}
+
 // GetSIWCStatus returns the read-only local SIWC status ("off", "valid", or "invalid")
 // for a Codex credential without triggering any upstream refresh or verification request.
 func (h *Handler) GetSIWCStatus(c *gin.Context) {
@@ -242,10 +269,12 @@ func (h *Handler) StartSIWCBind(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "SIWC binding target is unavailable or invalid"})
 		return
 	}
-	selectedProxy := strings.TrimSpace(target.ProxyURL)
-	if selectedProxy == "" {
-		selectedProxy = authMetadataStringValue(metadata, "proxy_url")
+	accountProxyURL, errProxy := resolveSIWCBindProxyURL(target, metadata)
+	if errProxy != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "SIWC binding target has invalid proxy_url"})
+		return
 	}
+	selectedProxy := accountProxyURL
 	setting, errProxy := codex.ResolveCredentialProxySetting(cfg, selectedProxy)
 	if errProxy != nil {
 		status := http.StatusBadRequest
@@ -274,9 +303,9 @@ func (h *Handler) StartSIWCBind(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize SIWC authorization"})
 		return
 	}
-	var service siwcOAuthService = codex.NewCodexAuth(cfg)
+	var service siwcOAuthService = codex.NewCodexAuthWithProxyURL(cfg, accountProxyURL)
 	if factory != nil {
-		service = factory(cfg)
+		service = factory(cfg, accountProxyURL)
 	}
 	authURL, errURL := service.GenerateSIWCAuthURL(state, nonce, deviceID, codex.SIWCRedirectURI, pkce)
 	if errURL != nil {

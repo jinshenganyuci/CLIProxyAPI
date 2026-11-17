@@ -2,7 +2,7 @@ package cliproxy
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"os"
 	"path/filepath"
 	"reflect"

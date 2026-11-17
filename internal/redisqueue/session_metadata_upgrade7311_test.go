@@ -2,7 +2,7 @@ package redisqueue
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"reflect"
 	"testing"
 	"time"

@@ -2,9 +2,9 @@ package meta
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/MoeForge/moego/json"
 	"os"
 	"path/filepath"
 	"strings"

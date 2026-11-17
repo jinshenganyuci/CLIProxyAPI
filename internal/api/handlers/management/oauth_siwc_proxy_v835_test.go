@@ -34,7 +34,7 @@ func TestV835SIWCBindPinsCredentialProxyPolicy(t *testing.T) {
 				t.Fatal(errUpdate)
 			}
 			var selected *config.Config
-			f.h.siwcOAuthFactory = func(cfg *config.Config) siwcOAuthService {
+			f.h.siwcOAuthFactory = func(cfg *config.Config, _ string) siwcOAuthService {
 				selected = cfg
 				return f.service
 			}

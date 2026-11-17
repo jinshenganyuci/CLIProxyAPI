@@ -1,7 +1,7 @@
 package meta
 
 import (
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 
 	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )

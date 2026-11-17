@@ -2,12 +2,12 @@ package chat_completions
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"regexp"
 	"testing"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
+	"github.com/MoeForge/moego/regexp"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 )
 

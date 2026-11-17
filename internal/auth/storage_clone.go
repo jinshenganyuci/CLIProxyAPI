@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/MoeForge/moego/json"
 	"reflect"
 )
 

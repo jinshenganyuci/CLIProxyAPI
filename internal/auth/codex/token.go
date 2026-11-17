@@ -4,7 +4,6 @@
 package codex
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 )

@@ -2,11 +2,11 @@ package management
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"testing"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
@@ -31,7 +31,7 @@ func TestV836PendingSIWCAccountFencePreservesForkState(t *testing.T) {
 			f.auth.ProxyURL = "direct"
 			f.h.cfg.Codex.CredentialProxyPolicy = "require"
 			f.h.cfg.ProxyURL = "http://global-canary.invalid:8080"
-			f.h.siwcOAuthFactory = func(cfg *config.Config) siwcOAuthService {
+			f.h.siwcOAuthFactory = func(cfg *config.Config, _ string) siwcOAuthService {
 				if cfg.ProxyURL != "direct" {
 					t.Error("SIWC exchange did not retain selected direct route")
 				}

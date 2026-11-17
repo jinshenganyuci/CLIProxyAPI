@@ -2,9 +2,9 @@ package pluginhost
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 
+	"github.com/MoeForge/moego/json"
 	baseauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth"
 )
 

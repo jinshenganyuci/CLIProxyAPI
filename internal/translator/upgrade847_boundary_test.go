@@ -2,12 +2,12 @@ package translator
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/MoeForge/moego/base64"
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/signature"
 	geminiclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/gemini/claude"

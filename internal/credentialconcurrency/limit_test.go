@@ -1,7 +1,7 @@
 package credentialconcurrency
 
 import (
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"math"
 	"testing"
 )

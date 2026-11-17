@@ -1,7 +1,7 @@
 package executor
 
 import (
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"io"
 	"net/http"
 	"net/http/httptest"

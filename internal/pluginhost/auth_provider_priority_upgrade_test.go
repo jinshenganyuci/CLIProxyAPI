@@ -2,12 +2,12 @@ package pluginhost
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	sdkauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"

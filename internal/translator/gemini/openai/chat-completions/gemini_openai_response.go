@@ -453,8 +453,13 @@ func ConvertGeminiResponseToOpenAI(_ context.Context, _ string, originalRequestR
 							p.HasIncompleteToolCall[candidateIndex] = true
 							p.ActiveToolCall[candidateIndex] = nil
 						}
+						if partResult.Get("thought").Bool() {
+							sawNoopFunctionCall = true
+							continue
+						}
 						data := inlineDataResult.Get("data").String()
 						if data == "" {
+							sawNoopFunctionCall = true
 							continue
 						}
 						mimeType := inlineDataResult.Get("mimeType").String()
@@ -684,6 +689,9 @@ func ConvertGeminiResponseToOpenAINonStream(_ context.Context, _ string, origina
 						lastToolCall = fcItemDoc
 					} else if inlineDataResult.Exists() {
 						lastToolCall = nil
+						if partResult.Get("thought").Bool() {
+							continue
+						}
 						data := inlineDataResult.Get("data").String()
 						if data != "" {
 							mimeType := inlineDataResult.Get("mimeType").String()

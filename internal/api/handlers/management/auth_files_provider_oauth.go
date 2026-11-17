@@ -3,7 +3,6 @@ package management
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
@@ -1808,8 +1808,8 @@ func (h *Handler) restoreOverwrittenPluginRecord(ctx context.Context, rb savedPl
 			}
 		}
 	}
-	if len(rb.prevDiskBytes) > 0 && h.pluginHost != nil {
-		if restored := h.pluginHost.AuthDataToCoreAuth(pluginapi.AuthData{
+	if host := h.pluginHostSnapshot(); len(rb.prevDiskBytes) > 0 && host != nil {
+		if restored := host.AuthDataToCoreAuth(pluginapi.AuthData{
 			Provider:    restoreRecord.Provider,
 			ID:          restoreRecord.ID,
 			FileName:    restoreRecord.FileName,

@@ -2,9 +2,9 @@ package management
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 )

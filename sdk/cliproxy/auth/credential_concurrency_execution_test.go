@@ -421,11 +421,18 @@ func TestCredentialConcurrencyStreamCancellationStopsSilentUpstream(t *testing.T
 	}
 	awaitCredentialConcurrencySignal(t, result.Chunks)
 	requireCredentialConcurrencySnapshot(t, m, auths[0].ID, 1, 1)
+	waitForInFlightCount(t, m, 1)
+	_, errBusy := m.ExecuteCount(ctx, []string{"test"}, cliproxyexecutor.Request{Model: models[0]}, cliproxyexecutor.Options{})
+	if !IsCredentialConcurrencyError(errBusy) {
+		t.Fatalf("full credential must reject without adding an execution: %v", errBusy)
+	}
+	waitForInFlightCount(t, m, 1)
 	cancel()
 	awaitCredentialConcurrencySignal(t, stopped)
 	for range result.Chunks {
 	}
 	requireCredentialConcurrencySnapshot(t, m, auths[0].ID, 0, 1)
+	waitForInFlightCount(t, m, 0)
 }
 
 func TestCredentialConcurrencyBusyNeverRetriesOrActivatesCredits(t *testing.T) {

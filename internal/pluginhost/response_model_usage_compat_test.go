@@ -3,10 +3,10 @@ package pluginhost
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"testing"
 
+	"github.com/MoeForge/moego/json"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"

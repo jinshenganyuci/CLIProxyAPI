@@ -2,13 +2,13 @@ package translator
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/MoeForge/moego/base64"
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
 	codexgemini "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/gemini"
 	codexinteractions "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/codex/interactions"

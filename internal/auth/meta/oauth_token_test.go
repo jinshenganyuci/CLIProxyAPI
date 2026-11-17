@@ -3,8 +3,8 @@ package meta
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/MoeForge/moego/json"
 	"os"
 	"path/filepath"
 	"reflect"

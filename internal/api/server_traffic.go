@@ -173,7 +173,7 @@ func trafficBusinessPath(path string) bool {
 	}
 	return strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/") ||
 		strings.HasPrefix(path, "/openai/v1/") || strings.HasPrefix(path, "/backend-api/codex/") ||
-		strings.HasPrefix(path, "/api/provider/")
+		strings.HasPrefix(path, "/api/provider/") || strings.HasPrefix(path, "/muse-code/")
 }
 
 func (s *Server) trafficMiddleware() gin.HandlerFunc {

@@ -2,7 +2,7 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"net/http"
 	"strings"
 	"testing"

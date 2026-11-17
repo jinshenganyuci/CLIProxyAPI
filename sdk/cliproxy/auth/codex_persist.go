@@ -3,12 +3,12 @@ package auth
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
 	"strings"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/credentialfile"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialconcurrency"

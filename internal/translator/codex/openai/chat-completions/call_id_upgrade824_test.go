@@ -2,11 +2,11 @@ package chat_completions
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/MoeForge/moego/ojson"
 )
 

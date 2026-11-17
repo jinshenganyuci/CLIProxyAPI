@@ -3,7 +3,6 @@ package management
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -126,7 +126,7 @@ func TestV837SIWCStatusAndTogglePreserveCredentialState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	h.siwcOAuthFactory = func(*config.Config) siwcOAuthService {
+	h.siwcOAuthFactory = func(*config.Config, string) siwcOAuthService {
 		t.Error("local status/toggle constructed upstream OAuth client")
 		return nil
 	}

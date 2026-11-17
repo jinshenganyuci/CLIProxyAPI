@@ -2,7 +2,7 @@ package xai
 
 import (
 	"context"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"io"
 	"net"
 	"net/http"

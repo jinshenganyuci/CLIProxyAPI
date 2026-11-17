@@ -2,7 +2,7 @@ package auth_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"github.com/MoeForge/moego/json"
 	"reflect"
 	"testing"
 

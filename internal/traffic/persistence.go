@@ -2,8 +2,8 @@ package traffic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/MoeForge/moego/json"
 	"sort"
 	"time"
 )
