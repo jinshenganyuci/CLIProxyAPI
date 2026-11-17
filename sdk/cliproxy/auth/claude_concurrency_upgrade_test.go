@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,12 +167,49 @@ func TestClaudeUpgradeCapacityAndQuotaScopes(t *testing.T) {
 				if errQuota == nil || !errors.As(errQuota, &status) || status.StatusCode() != http.StatusTooManyRequests || cliproxyauth.IsCredentialConcurrencyError(errQuota) {
 					t.Fatalf("upstream quota error = %v, want non-capacity 429", errQuota)
 				}
+				// A terminal pool cooldown now advertises the model pool's local
+				// recovery deadline. Its underlying provider error must still discard
+				// the unrelated overage spend-cap hint.
+				retrySource := errQuota
 				var retry interface{ RetryAfter() *time.Duration }
+				if !scenario.shared && !fast {
+					var pool interface{ IsModelCooldown() bool }
+					if !errors.As(errQuota, &pool) || !pool.IsModelCooldown() || !cliproxyauth.HasTrustedRetryDeadline(errQuota) {
+						t.Fatal("exhausted model pool did not expose its trusted recovery deadline")
+					}
+					retrySource = errors.Unwrap(errQuota)
+					if retrySource == nil || !errors.As(errQuota, &retry) {
+						t.Fatal("pool cooldown lost the underlying provider error or recovery hint")
+					}
+					current, _ := manager.GetByID(auth.ID)
+					modelState := current.ModelStates[failedModel]
+					if modelState == nil {
+						t.Fatal("pool cooldown has no recorded model recovery")
+					}
+					// The first credential also has the earliest deadline in failover
+					// cases; each credential starts at the same initial backoff level.
+					deadline := modelState.Quota.NextRecoverAt
+					before := time.Now()
+					hint := retry.RetryAfter()
+					after := time.Now()
+					if hint == nil || deadline.Before(before.Add(*hint)) || deadline.After(after.Add(*hint)) {
+						t.Fatalf("pool retry hint %v does not match recorded model deadline %v", hint, deadline)
+					}
+					before = time.Now()
+					header := cliproxyauth.SafeResponseHeaders(errQuota).Get("Retry-After")
+					after = time.Now()
+					seconds, errParse := strconv.ParseInt(header, 10, 64)
+					minSeconds := int64((deadline.Sub(after) + time.Second - 1) / time.Second)
+					maxSeconds := int64((deadline.Sub(before) + time.Second - 1) / time.Second)
+					if errParse != nil || seconds <= 0 || seconds < minSeconds || seconds > maxSeconds {
+						t.Fatalf("pool Retry-After = %q, want recorded recovery rounded to %d..%d seconds", header, minSeconds, maxSeconds)
+					}
+				}
 				if scenario.shared {
 					if !errors.As(errQuota, &retry) || retry.RetryAfter() == nil || *retry.RetryAfter() < 120*time.Second || *retry.RetryAfter() > 150*time.Second {
 						t.Fatalf("shared quota lost its explicit retry duration: %v", errQuota)
 					}
-				} else if errors.As(errQuota, &retry) && retry.RetryAfter() != nil {
+				} else if errors.As(retrySource, &retry) && retry.RetryAfter() != nil {
 					t.Fatalf("overage-only quota retained the spend-cap Retry-After: %v", *retry.RetryAfter())
 				}
 				wantAttempts := int32(1)

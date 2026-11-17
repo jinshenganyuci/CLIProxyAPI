@@ -92,16 +92,24 @@ func TestPluginErrorCarriesRetryAfterIntoCooldownAndHTTPHeader(t *testing.T) {
 	if errExec == nil {
 		t.Fatal("authMgr.Execute returned nil error")
 	}
-	if got := coreauth.SafeResponseHeaders(errExec).Get("Retry-After"); got != "7" {
-		t.Fatalf("SafeResponseHeaders(errExec) Retry-After = %q, want 7", got)
-	}
 	updated, okAuth := authMgr.GetByID(authID)
 	if !okAuth || updated == nil {
 		t.Fatalf("GetByID(%q) missing", authID)
 	}
 	state := updated.ModelStates[model]
-	if state == nil || !state.NextRetryAfter.After(before.Add(5*time.Second)) {
-		t.Fatalf("model NextRetryAfter = %v, want at least %v (7s cooldown)", state, before.Add(7*time.Second))
+	if state == nil || state.NextRetryAfter.Before(before.Add(10*time.Second)) {
+		t.Fatalf("model NextRetryAfter = %v, want at least %v (10s quota floor)", state, before.Add(10*time.Second))
+	}
+	// The RPC envelope preserves the provider's seven-second hint, but the
+	// terminal pool error advertises time remaining on the effective quota floor.
+	// Bracket header generation so scheduler delays cannot make this assertion stale.
+	headerBefore := time.Now()
+	header := coreauth.SafeResponseHeaders(errExec).Get("Retry-After")
+	headerAfter := time.Now()
+	seconds, errParse := strconv.ParseInt(header, 10, 64)
+	remaining := time.Duration(seconds) * time.Second
+	if errParse != nil || seconds <= 0 || remaining < state.NextRetryAfter.Sub(headerAfter) || remaining >= state.NextRetryAfter.Sub(headerBefore)+time.Second {
+		t.Fatalf("terminal Retry-After = %q, want rounded remaining time until model recovery %v", header, state.NextRetryAfter)
 	}
 }
 

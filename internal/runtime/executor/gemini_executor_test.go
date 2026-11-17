@@ -1636,8 +1636,18 @@ func TestGeminiExecutorClaudeMalformedFunctionCallSplitUsageAndConductorFailure(
 
 func TestGeminiExecutorClaudeMalformedFunctionCallCancelAfterErrorPreservesUsageAndConductorFailure(t *testing.T) {
 	malformedBody := `{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"MALFORMED_FUNCTION_CALL"}],"usageMetadata":{"promptTokenCount":120,"candidatesTokenCount":10,"thoughtsTokenCount":313,"totalTokenCount":443},"modelVersion":"gemini-4-argon"}`
+	allowFailure := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
+		// Commit a real streaming response before the malformed terminal frame;
+		// a pure zero-output failure now correctly settles before bootstrap.
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"planning"}]}}],"modelVersion":"gemini-4-argon"}`+"\n\n")
+		w.(http.Flusher).Flush()
+		select {
+		case <-allowFailure:
+		case <-r.Context().Done():
+			return
+		}
 		_, _ = io.WriteString(w, "data: "+malformedBody+"\n\n")
 		if flusher, okFlush := w.(http.Flusher); okFlush {
 			flusher.Flush()
@@ -1692,10 +1702,16 @@ func TestGeminiExecutorClaudeMalformedFunctionCallCancelAfterErrorPreservesUsage
 	if active, limit := manager.CredentialConcurrencySnapshot(auth.ID); active != 1 || limit != 10 {
 		t.Fatalf("active stream lease = %d/%d, want 1/10", active, limit)
 	}
+	close(allowFailure)
+	sawErrorEvent := false
 	for chunk := range streamRes.Chunks {
 		if strings.Contains(string(chunk.Payload), "event: error\n") {
+			sawErrorEvent = true
 			cancel()
 		}
+	}
+	if !sawErrorEvent {
+		t.Fatal("stream did not reach cancellation after its error event")
 	}
 	if active, limit := manager.CredentialConcurrencySnapshot(auth.ID); active != 0 || limit != 10 {
 		t.Fatalf("canceled stream lease = %d/%d, want 0/10", active, limit)

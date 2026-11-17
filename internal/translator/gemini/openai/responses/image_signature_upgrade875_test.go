@@ -82,6 +82,9 @@ func TestUpgrade875GeminiImagesDoNotRetargetSignatures(t *testing.T) {
 						_ = requestDoc.SetRawBytes("input.-1", reply.Bytes())
 					}
 				}
+				// Replay a completed turn before a new user request, rather than
+				// an unsigned assistant prefill that the translator intentionally strips.
+				_ = requestDoc.SetRaw("input.-1", `{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}`)
 				replayed, errReplay := ConvertOpenAIResponsesRequestToGemini("gemini-3.6-flash-high", requestDoc.Bytes(), false)
 				if errReplay != nil {
 					t.Fatal(errReplay)
