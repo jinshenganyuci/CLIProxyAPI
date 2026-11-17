@@ -10,16 +10,22 @@ import (
 )
 
 func TestCredentialConcurrencyWeightedZeroPriorityDoesNotHideCapacity(t *testing.T) {
-	for _, mode := range []string{"single-selection", "mixed-plugin-fallback"} {
+	for _, mode := range []string{"single-selection", "mixed-plugin-fallback", "weighted-affinity-plugin-fallback"} {
 		t.Run(mode, func(t *testing.T) {
 			manager, executor, auths, models := newCredentialConcurrencyManager(t, 2, 1)
-			manager.SetSelector(&WeightedRoundRobinSelector{})
+			var selector Selector = &WeightedRoundRobinSelector{}
+			if mode == "weighted-affinity-plugin-fallback" {
+				affinity := NewSessionAffinitySelector(selector)
+				t.Cleanup(affinity.Stop)
+				selector = affinity
+			}
+			manager.SetSelector(selector)
 			zero := auths[0].Clone()
 			zero.Attributes = map[string]string{AttributeWeight: "0", "priority": "100"}
 			if _, errUpdate := manager.Update(t.Context(), zero); errUpdate != nil {
 				t.Fatal(errUpdate)
 			}
-			if mode == "mixed-plugin-fallback" {
+			if mode != "single-selection" {
 				// A plugin declining selection exercises the real mixed legacy path.
 				manager.SetPluginScheduler(&fakePluginScheduler{
 					pick: func(context.Context, pluginapi.SchedulerPickRequest) (pluginapi.SchedulerPickResponse, bool, error) {

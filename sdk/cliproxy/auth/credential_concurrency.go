@@ -133,7 +133,7 @@ func (m *Manager) availableAuthsForConcurrencySelectorLocked(ctx context.Context
 		available, selectorAuths, errAvailable := m.availableAuthsForSelector(ctx, selector, candidates, provider, model, now, schedulerAcross, clientHeaders...)
 		return available, selectorAuths, false, errAvailable
 	}
-	if _, weighted := selector.(*WeightedRoundRobinSelector); weighted {
+	if UnwrapWeightedRoundRobinSelector(selector) != nil {
 		// Match normal weighted selection before priority and capacity filtering:
 		// zero-weight credentials neither hide lower tiers nor explain a local 429.
 		candidates = positiveWeightAuths(candidates)

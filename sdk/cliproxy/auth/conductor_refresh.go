@@ -950,7 +950,9 @@ func recoverAuthAfterCredentialUpdate(existing, auth *Auth, now time.Time, mode 
 		auth.NextRetryAfter = time.Time{}
 		auth.cooldownRecordedSeq = 0
 		auth.forceCooldownUntil = time.Time{}
+		auth.quotaForceCooldownUntil = time.Time{}
 		auth.credentialRetryAfter = time.Time{}
+		auth.nonQuotaCooldownUntil = time.Time{}
 		auth.LastError = nil
 		auth.StatusMessage = ""
 		auth.Status = StatusActive
