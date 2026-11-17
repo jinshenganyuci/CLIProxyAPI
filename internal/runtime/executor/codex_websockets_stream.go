@@ -10,6 +10,7 @@ import (
 
 	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/clienterror"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
@@ -683,6 +684,21 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			}
 		}
 
+		deliverTerminalError := func(clientErr, upstreamErr error) {
+			sent := send(cliproxyexecutor.StreamChunk{Err: clientErr})
+			// Before any payload, the conductor can still fail over without closing
+			// the downstream websocket.
+			if !emittedPayload {
+				return
+			}
+			// The downstream websocket stream forwards a terminal 429 in order.
+			// An out-of-band close can interrupt that write and lose the error frame.
+			if sent && cliproxyexecutor.DownstreamWebsocket(ctx) && clienterror.HTTPStatusFromError(clientErr) == http.StatusTooManyRequests {
+				return
+			}
+			sess.notifyUpstreamDisconnect(upstreamErr)
+		}
+
 		for {
 			if ctx != nil && ctx.Err() != nil {
 				terminateReason = "context_done"
@@ -736,11 +752,6 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 				clientErr := exposeCodexIdentityWebsocketError(payload, identityState, wsErr)
 				terminateReason = "upstream_error"
 				terminateErr = wsErr
-				// The disconnect notification makes the downstream handler close the client and
-				// cancel the request context, so it must follow delivery of the error to the
-				// conductor; otherwise the cancellation can drop the error and its cooldown.
-				// When no payload chunk has been emitted yet, the conductor may still fail over
-				// to another credential on the same downstream websocket, so do not notify disconnect.
 				if sess != nil {
 					e.invalidateUpstreamConnWithoutDisconnectNotify(sess, conn, "upstream_error", wsErr)
 					sess.clearActive(conn, readCh)
@@ -750,26 +761,18 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 					terminateErr = errClearReplay
 					helps.RecordAPIWebsocketError(ctx, e.cfg, "replay_clear_error", errClearReplay)
 					reporter.PublishFailure(ctx, errClearReplay)
-					_ = send(cliproxyexecutor.StreamChunk{Err: errClearReplay})
-					if emittedPayload {
-						sess.notifyUpstreamDisconnect(wsErr)
-					}
+					deliverTerminalError(errClearReplay, wsErr)
 					return
 				}
 				helps.RecordAPIWebsocketError(ctx, e.cfg, "upstream_error", wsErr)
 				reporter.PublishFailure(ctx, wsErr)
-				_ = send(cliproxyexecutor.StreamChunk{Err: clientErr})
-				if emittedPayload {
-					sess.notifyUpstreamDisconnect(wsErr)
-				}
+				deliverTerminalError(clientErr, wsErr)
 				return
 			}
 			if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(payload, e.modelLevelCooling()); ok {
 				clientErr := exposeCodexIdentityStatusError(streamErr, identityState)
 				terminateReason = "upstream_error"
 				terminateErr = streamErr
-				// Publish the downstream disconnect only after an in-stream error was delivered,
-				// see the upstream error branch above.
 				if sess != nil {
 					e.invalidateUpstreamConnWithoutDisconnectNotify(sess, conn, "terminal_failure", streamErr)
 					sess.clearActive(conn, readCh)
@@ -779,18 +782,12 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 					terminateErr = errClearReplay
 					helps.RecordAPIWebsocketError(ctx, e.cfg, "replay_clear_error", errClearReplay)
 					reporter.PublishFailure(ctx, errClearReplay)
-					_ = send(cliproxyexecutor.StreamChunk{Err: errClearReplay})
-					if emittedPayload {
-						sess.notifyUpstreamDisconnect(streamErr)
-					}
+					deliverTerminalError(errClearReplay, streamErr)
 					return
 				}
 				helps.RecordAPIWebsocketError(ctx, e.cfg, "upstream_error", streamErr)
 				reporter.PublishFailure(ctx, streamErr)
-				_ = send(cliproxyexecutor.StreamChunk{Err: clientErr})
-				if emittedPayload {
-					sess.notifyUpstreamDisconnect(streamErr)
-				}
+				deliverTerminalError(clientErr, streamErr)
 				return
 			}
 

@@ -1191,16 +1191,20 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 					if retriedPinnedFailover || downstreamCommitted.Load() {
 						return false
 					}
-					if h != nil && h.AuthManager != nil && errMsg != nil && errMsg.Error != nil {
-						proceed, gateErr := h.AuthManager.EvaluatePreOutputStreamFailoverQuotaGate(cliCtx, modelName, lastAttemptedAuthID, errMsg.Error)
+					gateReady := false
+					if h != nil && h.AuthManager != nil && errMsg.Error != nil {
+						proceed, ready, gateErr := h.AuthManager.EvaluatePreOutputStreamFailoverQuotaGateWithDecision(cliCtx, modelName, lastAttemptedAuthID, errMsg.Error)
 						if !proceed {
 							if gateErr != nil {
 								errMsg.Error = gateErr
 							}
 							return false
 						}
+						gateReady = ready
 					}
-					if !h.responsesWebsocketHasAlternativeReplayTarget(cliCtx, modelName, requestJSON, lastAttemptedAuthID) {
+					// A Ready decision authorizes this retry. The replay still performs
+					// selection and admission with the failed credential excluded.
+					if !gateReady && !h.responsesWebsocketHasAlternativeReplayTarget(cliCtx, modelName, requestJSON, lastAttemptedAuthID) {
 						return false
 					}
 					failoverInPlace = true

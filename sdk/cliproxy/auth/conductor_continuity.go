@@ -796,6 +796,19 @@ func (m *Manager) EvaluatePreOutputStreamFailoverQuotaGate(
 	failedAuthID string,
 	err error,
 ) (bool, error) {
+	proceed, _, gateErr := m.EvaluatePreOutputStreamFailoverQuotaGateWithDecision(ctx, model, failedAuthID, err)
+	return proceed, gateErr
+}
+
+// EvaluatePreOutputStreamFailoverQuotaGateWithDecision also reports whether the
+// active scheduler explicitly permitted the unpinned retry. A skipped gate
+// allows normal handling to continue without establishing scheduler eligibility.
+func (m *Manager) EvaluatePreOutputStreamFailoverQuotaGateWithDecision(
+	ctx context.Context,
+	model string,
+	failedAuthID string,
+	err error,
+) (proceed, ready bool, gateErr error) {
 	return m.evaluatePreOutputStreamQuotaGate(ctx, nil, model, cliproxyexecutor.Options{}, failedAuthID, true, err)
 }
 
@@ -810,7 +823,8 @@ func (m *Manager) EvaluatePreOutputStreamQuotaGate(
 	opts cliproxyexecutor.Options,
 	err error,
 ) (bool, error) {
-	return m.evaluatePreOutputStreamQuotaGate(ctx, providers, model, opts, "", false, err)
+	proceed, _, gateErr := m.evaluatePreOutputStreamQuotaGate(ctx, providers, model, opts, "", false, err)
+	return proceed, gateErr
 }
 
 func (m *Manager) evaluatePreOutputStreamQuotaGate(
@@ -821,9 +835,9 @@ func (m *Manager) evaluatePreOutputStreamQuotaGate(
 	failedAuthID string,
 	unpin bool,
 	err error,
-) (bool, error) {
+) (bool, bool, error) {
 	if m == nil || err == nil || !isPositiveQuotaRejectionError(err) {
-		return true, nil
+		return true, false, nil
 	}
 	if existingSession := continuitySessionFromContext(ctx); existingSession != nil && (len(providers) == 0 || (len(opts.Headers) == 0 && len(opts.Metadata) == 0)) {
 		savedProviders, savedModel, savedOpts := existingSession.getLastStreamContext()
@@ -848,7 +862,7 @@ func (m *Manager) evaluatePreOutputStreamQuotaGate(
 	session := ensureContinuitySession(ctx, &opts)
 	normalized := m.normalizeProviders(providers)
 	if _, okContinuity := m.canRunCodexContinuity(ctx, normalized); !okContinuity {
-		return true, nil
+		return true, false, nil
 	}
 	provider := upstreamAttemptProviderFromError(err)
 	if provider == "" {
@@ -856,12 +870,12 @@ func (m *Manager) evaluatePreOutputStreamQuotaGate(
 	}
 	if provider != "" {
 		if canonicalSchedulingProvider(provider) != "codex" {
-			return true, nil
+			return true, false, nil
 		}
 	} else {
 		for _, p := range normalized {
 			if canonicalSchedulingProvider(p) != "codex" {
-				return true, nil
+				return true, false, nil
 			}
 		}
 	}
@@ -870,12 +884,12 @@ func (m *Manager) evaluatePreOutputStreamQuotaGate(
 		if termErr == nil {
 			termErr = err
 		}
-		return false, markContinuityTerminatedError(termErr)
+		return false, false, markContinuityTerminatedError(termErr)
 	}
 	if m.continuityDeadlineExceeded(session) {
 		session.budgetExhausted = true
 		session.terminated = true
-		return false, markContinuityTerminatedError(err)
+		return false, false, markContinuityTerminatedError(err)
 	}
 	retryModel := authSelectionModelFromOptions(opts, model)
 	eligibility := authSelectionEligibilityForRequest(ctx, opts)
@@ -883,23 +897,23 @@ func (m *Manager) evaluatePreOutputStreamQuotaGate(
 	defaultRequestRetry, _, _ := m.retrySettings()
 	if !m.retryAllowedForRequest(ctx, session.codexAttemptsUsed, normalized, retryModel, eligibility, pinnedAuthID, defaultRequestRetry, opts.Headers) {
 		session.terminated = true
-		return false, markContinuityTerminatedError(err)
+		return false, false, markContinuityTerminatedError(err)
 	}
 	outcome, errContinuity := m.runCodexContinuityGate(ctx, session, "pre_output_429", normalized, retryModel, opts, session.codexAttemptsUsed+1, true, defaultRequestRetry)
 	if errContinuity != nil {
-		return false, errContinuity
+		return false, false, errContinuity
 	}
 	if outcome == continuityOutcomeReady {
 		session.immediateReadyRetries = 0
 		session.codexAttemptsUsed++
 		session.priorAttemptSeen = true
-		return true, nil
+		return true, true, nil
 	}
 	session.terminated = true
 	if session.terminalErr != nil {
-		return false, markContinuityTerminatedError(session.terminalErr)
+		return false, false, markContinuityTerminatedError(session.terminalErr)
 	}
-	return false, markContinuityTerminatedError(err)
+	return false, false, markContinuityTerminatedError(err)
 }
 
 func isQuotaCooldownBlock(auth *Auth, checkModel string, now time.Time) bool {
