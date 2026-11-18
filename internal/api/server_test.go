@@ -2162,6 +2162,12 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 			Thinking:            &registry.ThinkingSupport{Levels: []string{"low", "medium", "high", "xhigh"}},
 		},
 		{
+			ID:      "gpt-6.2-sol",
+			Object:  "model",
+			OwnedBy: "openai",
+			Type:    "openai",
+		},
+		{
 			ID:            "custom-codex-model-test",
 			Object:        "model",
 			OwnedBy:       "test",
@@ -2220,12 +2226,13 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 		t.Fatal("expected codex catalog models")
 	}
 
-	var gpt55 map[string]any
-	var custom map[string]any
+	var gpt55, sol62, custom map[string]any
 	for _, model := range resp.Models {
 		switch slug, _ := model["slug"].(string); slug {
 		case "gpt-5.5":
 			gpt55 = model
+		case "gpt-6.2-sol":
+			sol62 = model
 		case "custom-codex-model-test":
 			custom = model
 		}
@@ -2242,9 +2249,22 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 	if got, _ := gpt55["max_tokens"].(float64); got != 64000 {
 		t.Fatalf("gpt-5.5 max_tokens = %v, want 64000", gpt55["max_tokens"])
 	}
-	serviceTiers, ok := gpt55["service_tiers"].([]any)
-	if !ok || len(serviceTiers) != 1 {
-		t.Fatalf("expected gpt-5.5 priority service tier, got %#v", gpt55["service_tiers"])
+	if tiers, ok := gpt55["service_tiers"].([]any); !ok || len(tiers) != 0 {
+		t.Fatalf("gpt-5.5 service_tiers = %#v, want empty array", gpt55["service_tiers"])
+	}
+	if sol62 == nil {
+		t.Fatal("expected gpt-6.2-sol codex catalog entry")
+	}
+	solTiers, ok := sol62["service_tiers"].([]any)
+	wantSolTiers := []string{"priority", "ultrafast"}
+	if !ok || len(solTiers) != len(wantSolTiers) {
+		t.Fatalf("gpt-6.2-sol service_tiers = %#v, want %v", sol62["service_tiers"], wantSolTiers)
+	}
+	for i, want := range wantSolTiers {
+		tier, _ := solTiers[i].(map[string]any)
+		if tier["id"] != want {
+			t.Fatalf("gpt-6.2-sol service_tiers[%d] = %#v, want id %q", i, tier, want)
+		}
 	}
 	if custom == nil {
 		t.Fatal("expected custom model codex catalog entry")
