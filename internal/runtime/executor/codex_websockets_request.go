@@ -18,6 +18,30 @@ import (
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 )
 
+func (e *CodexWebsocketsExecutor) prepareSessionInstructions(ctx context.Context, doc *ojson.Doc, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options, sess *codexWebsocketSession, wsURL string, useSIWC bool) (helps.CodexInstructionTurn, error) {
+	if sess == nil || opts.SourceFormat != sdktranslator.FormatOpenAIResponse {
+		return helps.PrepareCodexSessionInstructions(ctx, doc, req, opts, nil, nil, false)
+	}
+	authID := ""
+	if auth != nil {
+		authID = auth.ID
+	}
+	connectionKey, errProxy := e.validatedWebsocketConnectionKey(ctx, auth, sess, authID)
+	if errProxy != nil {
+		return helps.CodexInstructionTurn{}, errProxy
+	}
+	conn, _ := existingWebsocketSessionConn(sess, authID, wsURL, connectionKey, useSIWC)
+	return helps.PrepareCodexSessionInstructions(ctx, doc, req, opts, &sess.sessionInstructions, conn, false)
+}
+
+func (e *CodexWebsocketsExecutor) validatedWebsocketConnectionKey(ctx context.Context, auth *cliproxyauth.Auth, sess *codexWebsocketSession, authID string) (string, error) {
+	proxyCfg := sess.effectiveProxyConfig(authID, e.cfg)
+	if errProxy := validateCodexCredentialProxyPolicy(proxyCfg, auth, ctx); errProxy != nil {
+		return "", errProxy
+	}
+	return helps.CodexWebsocketExecutionConnectionKey(ctx, proxyCfg, auth)
+}
+
 func applyCodexPromptCacheHeaders(from sdktranslator.Format, req cliproxyexecutor.Request, rawJSON []byte) ([]byte, http.Header) {
 	body, headers, _ := applyCodexPromptCacheHeadersWithContext(context.Background(), from, req, rawJSON)
 	return body, headers

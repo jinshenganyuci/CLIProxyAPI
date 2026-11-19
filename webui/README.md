@@ -3,16 +3,17 @@
 The image serves `static/management.html` at `/management.html`. It is built from:
 
 - repository: `router-for-me/Cli-Proxy-API-Management-Center`
-- tag: `v1.28.1`
-- commit: `706c7c6f3308c1b0cceb880eec092be911bf8a80`
-- patch: `management-center-v1.28.1-credential-identity.patch`
+- tag: `v1.28.3`
+- commit: `e5eb4fe63ad8a2a20d13022e13e6dc4d386ac07b`
+- patch: `management-center-v1.28.3-credential-identity.patch`
 
-This release integrates official `v1.28.1` on top of the previously bundled `v1.28.0`,
-including payload text-replacement settings and contextual help. It preserves the
-fork's server-persisted API Key notes, traffic totals and filters, credential identity,
-strict proxy controls, concurrency limits, and guarded OAuth dialog lifecycle.
-Replacement-rule changes and API Key notes remain independently tracked in the
-configuration draft; login proxy settings stay locked during an active attempt.
+Management Center v1.28.3 adds developer and system role targets, JSON paths and
+RE2 patterns to payload replacement. Model discovery displays and searches
+provider-supplied model names while keeping model IDs and aliases separate.
+The bundled patch retains server-persisted API Key notes, traffic totals and
+filters, credential identity, strict proxy controls, concurrency limits, and
+OAuth dialog guards. Configuration drafts track replacement rules and API Key
+notes independently, and login proxy settings stay locked during active attempts.
 
 The v8.0.59.2 fork adds dashboard byte statistics through the authenticated v8
 `/observability/traffic` and `/observability/traffic/keys` endpoints. Container
@@ -383,9 +384,9 @@ Rebuild the asset from a clean checkout:
 
 ```sh
 git clone https://github.com/router-for-me/Cli-Proxy-API-Management-Center.git management-center
-git -C management-center checkout 3d893ec88938c3ceef200a15be6af8cf972564b3
-git -C management-center apply ../webui/management-center-v1.28.1-credential-identity.patch
-docker run --rm -e VERSION=v1.28.1 \
+git -C management-center checkout --detach e5eb4fe63ad8a2a20d13022e13e6dc4d386ac07b
+git -C management-center apply ../webui/management-center-v1.28.3-credential-identity.patch
+docker run --rm -e VERSION=v1.28.3 \
   -v "$PWD/management-center:/app" -w /app oven/bun:1.4.3 \
   sh -c 'bun install --frozen-lockfile && bun run verify'
 install -m 0644 management-center/dist/index.html static/management.html
@@ -395,7 +396,7 @@ sha256sum static/management.html
 Expected SHA-256 for this source snapshot:
 
 ```text
-a8008e4b1b4afe18cd3e2046fb4a943b974a290d21dc595fd6e4102f7c359ee4
+e2a55ba2737826c1eb2f43f4451ba1cd629f066d9d6a66c394ba9657a42027eb
 ```
 
 The Docker image sets `MANAGEMENT_STATIC_IMMUTABLE=true` so the upstream panel

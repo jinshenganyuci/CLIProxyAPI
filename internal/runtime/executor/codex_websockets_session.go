@@ -51,7 +51,8 @@ func (c *websocketConnectionCloser) Close() error {
 }
 
 type codexWebsocketSession struct {
-	sessionID string
+	sessionInstructions helps.CodexInstructionChain
+	sessionID           string
 
 	reqMu sync.Mutex
 
