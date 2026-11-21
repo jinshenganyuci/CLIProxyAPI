@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,8 @@ type issue7716CancelPrepareExecutor struct {
 	countCalls   atomic.Int32
 	streamCalls  atomic.Int32
 
-	cancel context.CancelFunc
+	cancel          context.CancelFunc
+	waitForDeadline bool
 }
 
 func (*issue7716CancelPrepareExecutor) Identifier() string { return "antigravity" }
@@ -36,6 +38,9 @@ func (e *issue7716CancelPrepareExecutor) PrepareRequestAuth(ctx context.Context,
 	e.prepareCalls.Add(1)
 	if e.cancel != nil {
 		e.cancel()
+	}
+	if e.waitForDeadline {
+		<-ctx.Done()
 	}
 	return auth, ctx.Err()
 }
@@ -176,34 +181,45 @@ func TestIssue7716PrepareCancellationStopsCredentialLoop(t *testing.T) {
 	}
 }
 
-// TestIssue7716PrepareDeadlineExceededStopsCredentialLoop asserts the same
-// behavior for context.DeadlineExceeded raised during preparation, which
-// claudeOAuthRequestCancellation never intercepts even for Claude.
+// TestIssue7716PrepareDeadlineExceededStopsCredentialLoop checks deadlines
+// that expire before credential admission or during auth preparation.
 func TestIssue7716PrepareDeadlineExceededStopsCredentialLoop(t *testing.T) {
-	model := "issue7716-model-" + uuid.NewString()
-	authIDs := []string{
-		"issue7716-auth-1-" + uuid.NewString(),
-		"issue7716-auth-2-" + uuid.NewString(),
+	tests := []struct {
+		name        string
+		timeout     time.Duration
+		wantPrepare int32
+	}{
+		{name: "expired before admission", timeout: -time.Second, wantPrepare: 0},
+		{name: "expired during preparation", timeout: time.Second, wantPrepare: 1},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				model := "issue7716-model-" + uuid.NewString()
+				authIDs := []string{
+					"issue7716-auth-1-" + uuid.NewString(),
+					"issue7716-auth-2-" + uuid.NewString(),
+				}
+				executor := &issue7716CancelPrepareExecutor{waitForDeadline: true}
+				hook := &resultCaptureHook{}
+				manager := newIssue7716Manager(t, executor, hook, model, authIDs)
+				ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+				defer cancel()
 
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancel()
-
-	executor := &issue7716CancelPrepareExecutor{} // no explicit cancel; ctx already expired
-	hook := &resultCaptureHook{}
-	manager := newIssue7716Manager(t, executor, hook, model, authIDs)
-
-	_, errExecute := manager.Execute(ctx, []string{"antigravity"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
-	if !errors.Is(errExecute, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context.DeadlineExceeded", errExecute)
-	}
-	if got := executor.prepareCalls.Load(); got != 1 {
-		t.Fatalf("PrepareRequestAuth calls = %d, want 1 (no further credentials picked)", got)
-	}
-	if got := executor.executeCalls.Load(); got != 0 {
-		t.Fatalf("upstream calls = %d, want 0", got)
-	}
-	if results := hook.Results(); len(results) != 0 {
-		t.Fatalf("recorded %d results for client deadline, want 0", len(results))
+				_, errExecute := manager.Execute(ctx, []string{"antigravity"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
+				if !errors.Is(errExecute, context.DeadlineExceeded) {
+					t.Fatalf("error = %v, want context.DeadlineExceeded", errExecute)
+				}
+				if got := executor.prepareCalls.Load(); got != tt.wantPrepare {
+					t.Fatalf("PrepareRequestAuth calls = %d, want %d", got, tt.wantPrepare)
+				}
+				if got := executor.executeCalls.Load(); got != 0 {
+					t.Fatalf("upstream calls = %d, want 0", got)
+				}
+				if results := hook.Results(); len(results) != 0 {
+					t.Fatalf("recorded %d results for client deadline, want 0", len(results))
+				}
+			})
+		})
 	}
 }

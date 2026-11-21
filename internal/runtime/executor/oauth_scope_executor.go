@@ -19,6 +19,7 @@ func (e *ClaudeExecutor) ForAPIKey() cliproxyauth.ProviderExecutor {
 		oauthProfileFetcher:     e.oauthProfileFetcher,
 		oauthToolAliases:        e.claudeOAuthToolAliasStore(),
 		threadBetas:             e.claudeThreadBetaStore(),
+		advisorOwners:           e.claudeAdvisorOwnerStore(),
 	}
 }
 
