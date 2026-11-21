@@ -15,7 +15,7 @@ type codexCitationPart struct {
 
 // Citation ranges are relative to their content block, regardless of whether
 // annotations arrive before text.done or with the final message item.
-func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event ojson.Result, contentIndex int64) *codexCitationPart {
+func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event ojson.Result, contentIndex, runeOffset int64) *codexCitationPart {
 	itemID := event.Get("item_id").String()
 	if itemID == "" {
 		itemID = event.Get("item.id").String()
@@ -40,7 +40,7 @@ func codexCitationPartForEvent(p *ConvertCliToOpenAIParams, event ojson.Result, 
 		}
 	}
 	if part == nil {
-		part = &codexCitationPart{runeOffset: p.emittedTextRunes, seen: make(map[string]struct{})}
+		part = &codexCitationPart{runeOffset: runeOffset, seen: make(map[string]struct{})}
 	}
 	for _, key := range keys {
 		p.citationParts[key] = part
@@ -56,7 +56,7 @@ func codexStreamURLCitations(p *ConvertCliToOpenAIParams, event ojson.Result) []
 			itemAnnotations = append(itemAnnotations, codexAnnotationResults(event.Get(path))...)
 		}
 		if len(itemAnnotations) > 0 {
-			if part := codexCitationPartForEvent(p, event, 0); part != nil {
+			if part := codexCitationPartForEvent(p, event, 0, p.emittedTextRunes); part != nil {
 				citations = append(citations, buildCodexURLCitations(itemAnnotations, part.runeOffset, part.seen)...)
 			} else {
 				citations = append(citations, buildCodexURLCitations(itemAnnotations, p.emittedTextRunes, p.citationKeys)...)
@@ -66,7 +66,7 @@ func codexStreamURLCitations(p *ConvertCliToOpenAIParams, event ojson.Result) []
 			if block.Get("type").String() != "output_text" {
 				continue
 			}
-			if part := codexCitationPartForEvent(p, event, int64(index)); part != nil {
+			if part := codexCitationPartForEvent(p, event, int64(index), p.emittedTextRunes); part != nil {
 				citations = append(citations, buildCodexURLCitations(codexAnnotationResults(block.Get("annotations")), part.runeOffset, part.seen)...)
 			} else {
 				citations = append(citations, buildCodexURLCitations(codexAnnotationResults(block.Get("annotations")), p.emittedTextRunes, p.citationKeys)...)
@@ -75,7 +75,7 @@ func codexStreamURLCitations(p *ConvertCliToOpenAIParams, event ojson.Result) []
 		return citations
 	}
 	if index := event.Get("content_index"); index.Exists() {
-		if part := codexCitationPartForEvent(p, event, index.Int()); part != nil {
+		if part := codexCitationPartForEvent(p, event, index.Int(), p.emittedTextRunes); part != nil {
 			return buildCodexURLCitations(codexAnnotationsFromEvent(event), part.runeOffset, part.seen)
 		}
 	}

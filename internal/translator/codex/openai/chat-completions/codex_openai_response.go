@@ -130,6 +130,8 @@ type ConvertCliToOpenAIParams struct {
 	citationKeys          map[string]struct{}
 	citationParts         map[codexCitationPartKey]*codexCitationPart
 	emittedTextRunes      int64
+	HasMessageTextDelta   bool
+	completedMessageItems map[string]struct{}
 	LastImageHashByItemID map[string][32]byte
 }
 
@@ -183,11 +185,13 @@ func ConvertCodexResponseToOpenAI(_ context.Context, modelName string, originalR
 	typeResult := rootResult.Get("type")
 	dataType := typeResult.String()
 	if dataType == "response.created" {
-		(*param).(*ConvertCliToOpenAIParams).ResponseID = strings.Clone(rootResult.Get("response.id").String())
-		(*param).(*ConvertCliToOpenAIParams).CreatedAt = rootResult.Get("response.created_at").Int()
-		(*param).(*ConvertCliToOpenAIParams).Model = strings.Clone(rootResult.Get("response.model").String())
-		if (*param).(*ConvertCliToOpenAIParams).LastImageHashByItemID == nil {
-			(*param).(*ConvertCliToOpenAIParams).LastImageHashByItemID = make(map[string][32]byte)
+		p.ResponseID = strings.Clone(rootResult.Get("response.id").String())
+		p.CreatedAt = rootResult.Get("response.created_at").Int()
+		p.Model = strings.Clone(rootResult.Get("response.model").String())
+		p.HasMessageTextDelta = false
+		clear(p.completedMessageItems)
+		if p.LastImageHashByItemID == nil {
+			p.LastImageHashByItemID = make(map[string][32]byte)
 		}
 		return [][]byte{}
 	}
@@ -235,15 +239,18 @@ func ConvertCodexResponseToOpenAI(_ context.Context, modelName string, originalR
 	} else if dataType == "response.reasoning_summary_text.done" || dataType == "response.reasoning_text.done" {
 		_ = templateDoc.Set("choices.0.delta.role", "assistant")
 		_ = templateDoc.Set("choices.0.delta.reasoning_content", "\n\n")
-	} else if dataType == "response.output_text.delta" {
+	} else if dataType == "response.output_text.delta" || dataType == "response.refusal.delta" {
 		if deltaResult := rootResult.Get("delta"); deltaResult.Exists() {
 			if contentIndex := rootResult.Get("content_index"); contentIndex.Exists() {
-				codexCitationPartForEvent(p, rootResult, contentIndex.Int())
+				codexCitationPartForEvent(p, rootResult, contentIndex.Int(), p.emittedTextRunes)
 			}
 			delta := deltaResult.String()
 			_ = templateDoc.Set("choices.0.delta.role", "assistant")
 			_ = templateDoc.Set("choices.0.delta.content", delta)
 			p.emittedTextRunes += int64(utf8.RuneCountInString(delta))
+			if delta != "" {
+				p.HasMessageTextDelta = true
+			}
 		}
 	} else if dataType == "response.output_text.annotation.added" || dataType == "response.output_text.done" || dataType == "response.content_part.done" {
 		citations := codexStreamURLCitations(p, rootResult)
@@ -299,6 +306,10 @@ func ConvertCodexResponseToOpenAI(_ context.Context, modelName string, originalR
 		_ = templateDoc.Set("choices.0.native_finish_reason", nativeFinishReason)
 	} else if dataType == "response.output_item.added" {
 		itemResult := rootResult.Get("item")
+		if itemResult.Exists() && itemResult.Get("type").String() == "message" {
+			p.HasMessageTextDelta = false
+			return [][]byte{}
+		}
 		if !itemResult.Exists() || !isCodexToolCallType(itemResult.Get("type").String()) {
 			return [][]byte{}
 		}
@@ -375,12 +386,55 @@ func ConvertCodexResponseToOpenAI(_ context.Context, modelName string, originalR
 			return [][]byte{}
 		}
 		if itemResult.Get("type").String() == "message" {
+			key := ""
+			if itemID := itemResult.Get("id").String(); itemID != "" {
+				key = "item:" + itemID
+			} else if index := rootResult.Get("output_index"); index.Exists() {
+				key = "output:" + index.Raw
+			}
+			_, completed := p.completedMessageItems[key]
+			var fallbackText string
+			if !completed {
+				defer func() { p.HasMessageTextDelta = false }()
+				if !p.HasMessageTextDelta {
+					var sb strings.Builder
+					offset := p.emittedTextRunes
+					for index, part := range itemResult.Get("content").Array() {
+						text := part.Get("text").String()
+						switch part.Get("type").String() {
+						case "output_text":
+							codexCitationPartForEvent(p, rootResult, int64(index), offset)
+						case "refusal":
+							if refusal := part.Get("refusal").String(); refusal != "" {
+								text = refusal
+							}
+						default:
+							continue
+						}
+						sb.WriteString(text)
+						offset += int64(utf8.RuneCountInString(text))
+					}
+					fallbackText = sb.String()
+				}
+				if key != "" && (p.HasMessageTextDelta || fallbackText != "") {
+					if p.completedMessageItems == nil {
+						p.completedMessageItems = make(map[string]struct{})
+					}
+					p.completedMessageItems[key] = struct{}{}
+				}
+			}
 			citations := codexStreamURLCitations(p, rootResult)
-			if len(citations) == 0 {
+			if fallbackText == "" && len(citations) == 0 {
 				return [][]byte{}
 			}
 			_ = templateDoc.Set("choices.0.delta.role", "assistant")
-			_ = templateDoc.SetRawBytes("choices.0.delta.annotations", translatorcommon.JoinRawArray(citations))
+			if fallbackText != "" {
+				_ = templateDoc.Set("choices.0.delta.content", fallbackText)
+				p.emittedTextRunes += int64(utf8.RuneCountInString(fallbackText))
+			}
+			if len(citations) > 0 {
+				_ = templateDoc.SetRawBytes("choices.0.delta.annotations", translatorcommon.JoinRawArray(citations))
+			}
 			return [][]byte{templateDoc.Bytes()}
 		}
 		itemType := itemResult.Get("type").String()
@@ -588,10 +642,16 @@ func ConvertCodexResponseToOpenAINonStream(_ context.Context, _ string, original
 				// Extract message content and URL citations.
 				if contentResult := outputItem.Get("content"); contentResult.IsArray() {
 					for _, contentItem := range contentResult.Array() {
-						if contentItem.Get("type").String() != "output_text" {
+						partType := contentItem.Get("type").String()
+						if partType != "output_text" && partType != "refusal" {
 							continue
 						}
 						text := contentItem.Get("text").String()
+						if partType == "refusal" {
+							if refusal := contentItem.Get("refusal").String(); refusal != "" {
+								text = refusal
+							}
+						}
 						contentText += text
 						messageAnnotations = append(messageAnnotations, buildCodexURLCitations(
 							codexAnnotationResults(contentItem.Get("annotations")),

@@ -85,3 +85,24 @@ func TestUpgrade815CodexCitationsUseContentOriginsAcrossLifecycle(t *testing.T) 
 		})
 	}
 }
+
+func TestCodexDoneOnlyMessageMaintainsCitationOffsets(t *testing.T) {
+	const final = `data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"refusal","refusal":"前🙂"},{"type":"output_text","text":"引用","annotations":[{"type":"url_citation","url":"https://example.invalid/source","start_index":0,"end_index":2}]},{"type":"output_text","text":"出处","annotations":[{"type":"url_citation","url":"https://example.invalid/source","start_index":0,"end_index":2}]}]}}`
+	var state any
+	chunks := ConvertCodexResponseToOpenAI(t.Context(), "gpt-5.5", nil, nil, []byte(final), &state)
+	if len(chunks) != 1 || ojson.GetBytes(chunks[0], "choices.0.delta.content").String() != "前🙂引用出处" {
+		t.Fatalf("unexpected final message content: %q", chunks)
+	}
+	annotations := ojson.GetBytes(chunks[0], "choices.0.delta.annotations").Array()
+	if len(annotations) != 2 {
+		t.Fatalf("expected one citation per text block: %s", chunks[0])
+	}
+	for index, annotation := range annotations {
+		if annotation.Get("start_index").Int() != int64(2+2*index) || annotation.Get("end_index").Int() != int64(4+2*index) {
+			t.Fatalf("citation %d does not refer to its block: %s", index, annotation.Raw)
+		}
+	}
+	if chunks := ConvertCodexResponseToOpenAI(t.Context(), "gpt-5.5", nil, nil, []byte(final), &state); len(chunks) != 0 {
+		t.Fatalf("duplicate final event emitted additional text or citations: %q", chunks)
+	}
+}
