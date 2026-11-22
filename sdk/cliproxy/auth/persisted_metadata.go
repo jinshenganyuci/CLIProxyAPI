@@ -210,10 +210,21 @@ func (m *Manager) updatePersistedMetadata(ctx context.Context, id string, prepar
 	applyPreservedRenewalState(latest, updated, updateModeReplace, now)
 	if credentialChanged {
 		if !updated.Disabled && updated.Status != StatusDisabled && (updated.RejectedAccessToken == "" || authAccessToken(updated) != updated.RejectedAccessToken) {
-			cooldownStateChanged = recoverAuthAfterCredentialUpdate(latest, updated, now, updateModeReplace) || cooldownStateChanged
+			var clearedAuthGrantRetry bool
+			cooldownStateChanged, clearedAuthGrantRetry = recoverAuthAfterCredentialUpdate(latest, updated, now, updateModeReplace)
 			if latest.Quota.Exceeded && latest.Quota.Reason == "credential_quota" && latest.Quota.NextRecoverAt.After(now) {
 				updated.Unavailable = latest.Unavailable
-				updated.NextRetryAfter = latest.NextRetryAfter
+				if clearedAuthGrantRetry {
+					updated.NextRetryAfter = latest.Quota.NextRecoverAt
+					if latest.forceCooldownUntil.After(updated.NextRetryAfter) {
+						updated.NextRetryAfter = latest.forceCooldownUntil
+					}
+				} else {
+					updated.NextRetryAfter = latest.NextRetryAfter
+				}
+				if updated.credentialRetryAfter.After(updated.NextRetryAfter) {
+					updated.NextRetryAfter = updated.credentialRetryAfter
+				}
 				updated.Quota = mergeQuotaObservation(latest.Quota, updated.Quota)
 				if updated.Status == StatusActive {
 					updated.Status = latest.Status

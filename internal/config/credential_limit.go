@@ -16,18 +16,11 @@ func ValidateCredentialConcurrencyLimit(limit *int) error {
 	return errParse
 }
 
-func validateCredentialConcurrencyLimitYAML(data []byte) error {
+func validateCredentialConcurrencyLimitNode(root *yaml.Node) error {
 	// Decode into native values before the typed config: decoding directly into int
 	// can truncate YAML floats. Native decoding also resolves aliases and merge keys
 	// with YAML precedence, including aliases on the root and credential sequences.
-	var node yaml.Node
-	if errUnmarshal := yaml.Unmarshal(data, &node); errUnmarshal != nil {
-		return errUnmarshal
-	}
-	if len(node.Content) == 0 {
-		return nil
-	}
-	flat, errFlatten := flattenV8(node.Content[0])
+	flat, errFlatten := flattenV8(root)
 	if errFlatten != nil {
 		return errFlatten
 	}

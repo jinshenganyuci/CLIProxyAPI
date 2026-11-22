@@ -63,6 +63,10 @@ func WithFileLock(authFilePath string, fn func() error) error {
 	return fn()
 }
 
+var syncTempCredentialFile = func(tmpFile *os.File) error {
+	return tmpFile.Sync()
+}
+
 // WriteJSONFileAtomic writes data atomically while retaining unchanged JSON values
 // from the existing file. Read-modify-write callers must hold WithFileLock.
 func WriteJSONFileAtomic(authFilePath string, data map[string]any) error {
@@ -317,9 +321,9 @@ func writeTokenFileAtomic(path string, data []byte) error {
 		cleanup()
 		return errWrite
 	}
-	if errSync := temporary.Sync(); errSync != nil {
+	if errSync := syncTempCredentialFile(temporary); errSync != nil {
 		cleanup()
-		return errSync
+		return fmt.Errorf("failed to sync temp credential file: %w", errSync)
 	}
 	if errClose := temporary.Close(); errClose != nil {
 		_ = os.Remove(temporaryPath)
