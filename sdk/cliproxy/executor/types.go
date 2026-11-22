@@ -291,6 +291,10 @@ type StreamChunk struct {
 	Incomplete bool
 	// Err reports any terminal error encountered while producing chunks.
 	Err error
+	// ObservedError carries a terminal provider failure already encoded in
+	// Payload. It is used for accounting before delivery; Err still signals
+	// the transport end after the provider's trailing usage data.
+	ObservedError error
 }
 
 // StreamResult wraps the streaming response, providing both the chunk channel

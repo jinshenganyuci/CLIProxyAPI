@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -22,7 +18,8 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 	var mu sync.Mutex
 	var remote []byte
 	puts, gets := 0, 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	objectStore := objectConfigTestStore(t, configPath, func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		if r.URL.Path != "/bucket/"+objectStoreConfigKey {
@@ -31,6 +28,9 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 		}
 		switch r.Method {
 		case http.MethodPut:
+			if got := r.Header.Get("If-None-Match"); got != "*" {
+				t.Errorf("If-None-Match = %q, want literal *", got)
+			}
 			data, errRead := io.ReadAll(r.Body)
 			if errRead != nil {
 				http.Error(w, "read failed", http.StatusBadRequest)
@@ -55,19 +55,12 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 		default:
 			http.Error(w, "unexpected method", http.StatusBadRequest)
 		}
-	}))
-	t.Cleanup(server.Close)
-	// Anonymous local S3 requests keep the fixture body unwrapped by AWS chunk signing.
-	client, errClient := minio.New(strings.TrimPrefix(server.URL, "http://"), &minio.Options{Creds: credentials.NewStaticV4("", "", ""), Region: "us-east-1"})
-	if errClient != nil {
-		t.Fatal(errClient)
-	}
-	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	})
 	const activeSecret = "upgrade830-active-fixture"
 	const obsoleteSecret = "upgrade830-obsolete-fixture"
 	writeSeedTestFile(t, configPath, fmt.Sprintf("# operator note\nport: 8317\nremote-management:\n  secret-key: %s\nmanagement:\n  secret-key: %s\n", obsoleteSecret, activeSecret))
-	objectStore := &ObjectTokenStore{client: client, cfg: ObjectStoreConfig{Bucket: "bucket"}, configPath: configPath}
-	if _, errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
+	created, errSync := objectStore.syncConfigFromBucket(t.Context(), "")
+	if errSync != nil {
 		t.Fatal(errSync)
 	}
 	mu.Lock()
@@ -86,9 +79,16 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 	if loaded.SourceHash != config.ComputeSourceHash(seeded) || !bytes.Equal(readSeedTestFile(t, configPath), seeded) {
 		t.Fatal("startup load changed the uploaded seed or its source fingerprint")
 	}
+	if created.ServerID == "" || loaded.ServerID != created.ServerID {
+		t.Fatal("startup load did not reuse the server ID in the uploaded seed")
+	}
 	writeSeedTestFile(t, configPath, "port: 9999\n")
-	if _, errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
-		t.Fatal(errSync)
+	restarted, errRestart := objectStore.syncConfigFromBucket(t.Context(), "")
+	if errRestart != nil {
+		t.Fatal(errRestart)
+	}
+	if restarted.ServerID != created.ServerID {
+		t.Fatal("restart did not reuse the server ID from object storage")
 	}
 	mu.Lock()
 	defer mu.Unlock()

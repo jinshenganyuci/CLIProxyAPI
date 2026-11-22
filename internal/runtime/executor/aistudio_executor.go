@@ -380,7 +380,16 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			_ = helps.StopTranslatedClaudeStream(ctx, &streamErr, reporter, &streamUsage, out)
 			return false
 		}
-		emitRelayFrame := func(frame []byte) bool {
+		translatedChunk := func(line []byte, observedErr error) cliproxyexecutor.StreamChunk {
+			chunk := cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(line)}
+			if observedErr != nil {
+				if _, okError := helps.TranslatedClaudeStreamErrorPayload(responseFormat, [][]byte{line}); okError {
+					chunk.ObservedError = observedErr
+				}
+			}
+			return chunk
+		}
+		translateRelayFrame := func(frame []byte, observedErr error) bool {
 			filtered := helps.FilterSSEUsageMetadata(frame)
 			lines := helps.TranslateStreamWithClaudeInputTokens(ctx, body.toFormat, responseFormat, req.Model, helps.ApplyPatchOriginalRequest(req, opts), translatedReq, filtered, &param, claudeInputTokens)
 			helps.RecordApplyPatchStreamFailure(ctx, param, reporter, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage)
@@ -390,11 +399,14 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			if replayAccumulator != nil && replayAccumulator.terminal && !replayCommitted && antigravityStreamChunksHaveTerminalCommitEvent(lines) {
 				commitReplay()
 			}
+			if observedErr == nil {
+				observedErr = streamErr
+			}
 			for i := range lines {
-				spaced := ensureColonSpacedJSON(lines[i])
+				chunk := translatedChunk(lines[i], observedErr)
 				select {
-				case out <- cliproxyexecutor.StreamChunk{Payload: spaced}:
-					if len(spaced) > 0 {
+				case out <- chunk:
+					if len(chunk.Payload) > 0 {
 						zeroOutputGuard.MarkEmitted()
 					}
 				case <-ctx.Done():
@@ -402,6 +414,13 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				}
 			}
 			return !helps.StopApplyPatchStream(ctx, param, reporter, out, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}, &streamUsage)
+		}
+		emitRelayFrame := func(frame []byte) bool {
+			return translateRelayFrame(frame, nil)
+		}
+		emitZeroOutputError := func(frame []byte, finishReason string) bool {
+			err := newGeminiZeroOutputStatusErr(helps.GeminiZeroOutputErrorMessage(responseFormat, finishReason))
+			return translateRelayFrame(frame, err)
 		}
 		processRelayFrames := func(payloads [][]byte) bool {
 			for _, payload := range payloads {
@@ -425,7 +444,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 						if len(errFrame) == 0 {
 							errFrame = frame
 						}
-						if !emitRelayFrame(errFrame) {
+						if !emitZeroOutputError(errFrame, finishReason) {
 							return false
 						}
 						return failZeroOutput(finishReason)
@@ -457,7 +476,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				if len(errFrame) == 0 {
 					errFrame = []byte("[DONE]")
 				}
-				if !emitRelayFrame(errFrame) {
+				if !emitZeroOutputError(errFrame, finishReason) {
 					return
 				}
 				failZeroOutput(finishReason)
@@ -486,7 +505,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 			commitReplay()
 			for _, line := range lines {
 				select {
-				case out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(line)}:
+				case out <- translatedChunk(line, streamErr):
 				case <-ctx.Done():
 					return
 				}
@@ -574,7 +593,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 					if len(errFrame) == 0 {
 						errFrame = event.Payload
 					}
-					if !emitRelayFrame(errFrame) {
+					if !emitZeroOutputError(errFrame, finishReason) {
 						return false
 					}
 					return failZeroOutput(finishReason)
@@ -599,7 +618,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				commitReplay()
 				for i := range lines {
 					select {
-					case out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(lines[i])}:
+					case out <- translatedChunk(lines[i], streamErr):
 					case <-ctx.Done():
 						return false
 					}
@@ -638,7 +657,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				if len(errFrame) == 0 {
 					errFrame = []byte("[DONE]")
 				}
-				_ = emitRelayFrame(errFrame)
+				_ = emitZeroOutputError(errFrame, finishReason)
 			}
 			failZeroOutput(finishReason)
 			return

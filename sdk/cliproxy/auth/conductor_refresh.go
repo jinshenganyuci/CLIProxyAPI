@@ -1512,10 +1512,27 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
 		return auth, false
 	}
 	failedToken := authAccessTokenForRequest(ctx, auth, clientHeaders...)
+	canRetry := !alreadyTried && authHasRefreshCredential(auth) && !hasUnauthorizedAuthFailure(auth)
 	if failedToken != "" && !m.markRejectedAccessTokenAtVersion(auth.ID, failedToken, auth.RegistrationEpoch, auth.CredentialVersion) {
-		return auth, false
+		if !canRetry {
+			return auth, false
+		}
+		// A concurrent refresh can rotate the token during this attempt. Reuse that
+		// snapshot only within the same registration and only if this route's token
+		// actually changed. Never apply the old rejection to the newer credential.
+		current, ok := m.GetByID(auth.ID)
+		if !ok || current == nil || current.RegistrationEpoch != auth.RegistrationEpoch ||
+			current.Disabled || current.Status == StatusDisabled || hasUnauthorizedAuthFailure(current) {
+			return auth, false
+		}
+		currentToken := authAccessTokenForRequest(ctx, current, clientHeaders...)
+		if currentToken == "" || currentToken == failedToken ||
+			currentToken == current.RejectedAccessToken || currentToken == current.RejectedSIWCAccessToken {
+			return auth, false
+		}
+		return current, true
 	}
-	if alreadyTried || !authHasRefreshCredential(auth) || hasUnauthorizedAuthFailure(auth) {
+	if !canRetry {
 		return auth, false
 	}
 	log.Debugf("unauthorized response for %s (%s), refreshing credentials before fallback", auth.Provider, auth.ID)
