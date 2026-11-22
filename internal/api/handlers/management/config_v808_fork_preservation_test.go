@@ -47,6 +47,10 @@ plugins:
 	if errLoad != nil {
 		t.Fatal(errLoad)
 	}
+	beforeDelete, errRead := os.ReadFile(path)
+	if errRead != nil {
+		t.Fatal(errRead)
+	}
 	beforeInfo, errStat := os.Stat(path)
 	if errStat != nil {
 		t.Fatal(errStat)
@@ -72,7 +76,7 @@ plugins:
 		t.Fatalf("DELETE replaced the mounted configuration inode: %v", errStat)
 	}
 	var want, got map[string]any
-	if errDecode := yaml.Unmarshal([]byte(original), &want); errDecode != nil {
+	if errDecode := yaml.Unmarshal(beforeDelete, &want); errDecode != nil {
 		t.Fatal(errDecode)
 	}
 	if errDecode := yaml.Unmarshal(saved, &got); errDecode != nil {

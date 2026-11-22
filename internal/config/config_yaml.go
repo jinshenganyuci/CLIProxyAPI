@@ -135,7 +135,7 @@ func renderConfigSave(data []byte, persistCfg *Config, migrating bool) ([]byte, 
 	}
 	// A removed plugin may have owned an anchor used by an unrelated setting.
 	if errAliases := materializeMissingYAMLAliases(original.Content[0]); errAliases != nil {
-		return fmt.Errorf("preserve config YAML aliases: %w", errAliases)
+		return nil, nil, nil, fmt.Errorf("preserve config YAML aliases: %w", errAliases)
 	}
 	NormalizeCollectionNodeStyles(original.Content[0])
 

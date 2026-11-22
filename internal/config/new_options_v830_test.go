@@ -26,7 +26,12 @@ func TestV830NewOptionsMigrationAndRuntimeSnapshot(t *testing.T) {
 			if errLoad != nil {
 				t.Fatal(errLoad)
 			}
-			if cfg.SourceHash != ComputeSourceHash([]byte(tc.raw)) {
+			startupBytes, errStartup := os.ReadFile(path)
+			if errStartup != nil {
+				t.Fatal(errStartup)
+			}
+			startupHash := ComputeSourceHash(startupBytes)
+			if cfg.SourceHash != startupHash {
 				t.Fatal("source hash does not describe the parsed input")
 			}
 			if cfg.TLSHandshakeTimeoutSeconds != 7 || cfg.ClaudeHeaderDefaults.InjectDiagnostics == nil || *cfg.ClaudeHeaderDefaults.InjectDiagnostics || cfg.ClaudeHeaderDefaults.ClientRequestID != "off" || !reflect.DeepEqual(cfg.ClaudeHeaderDefaults.AnthropicBetaStrip, []string{"beta-a"}) {
@@ -36,7 +41,7 @@ func TestV830NewOptionsMigrationAndRuntimeSnapshot(t *testing.T) {
 			cfg.ClaudeHeaderDefaults.AnthropicBetaStrip[0] = "mutated"
 			cfg.ClaudeHeaderDefaults.AnthropicBetaAppend[0] = "mutated"
 			*cfg.ClaudeHeaderDefaults.InjectDiagnostics = true
-			if snapshot.ClaudeHeaderDefaults.AnthropicBetaStrip[0] != "beta-a" || snapshot.ClaudeHeaderDefaults.AnthropicBetaAppend[0] != "beta-b" || *snapshot.ClaudeHeaderDefaults.InjectDiagnostics || snapshot.SourceHash != ComputeSourceHash([]byte(tc.raw)) {
+			if snapshot.ClaudeHeaderDefaults.AnthropicBetaStrip[0] != "beta-a" || snapshot.ClaudeHeaderDefaults.AnthropicBetaAppend[0] != "beta-b" || *snapshot.ClaudeHeaderDefaults.InjectDiagnostics || snapshot.SourceHash != startupHash {
 				t.Fatal("runtime snapshot shares new mutable settings or loses its source fence")
 			}
 			if errSave := SaveConfigPreserveComments(path, snapshot, true); errSave != nil {

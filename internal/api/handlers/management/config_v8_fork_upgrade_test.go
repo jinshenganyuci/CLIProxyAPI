@@ -43,6 +43,10 @@ plugins:
 	if errLoad != nil {
 		t.Fatal(errLoad)
 	}
+	startupBytes, errStartup := os.ReadFile(path)
+	if errStartup != nil {
+		t.Fatal(errStartup)
+	}
 	h := &Handler{cfg: cfg, configFilePath: path}
 	router := gin.New()
 	router.GET("/v0/management/config", h.GetConfig)
@@ -69,7 +73,7 @@ plugins:
 	}
 	for _, url := range []string{"/v8/management/config", "/v8/management/config.yaml", "/v0/management/config.yaml"} {
 		request(http.MethodGet, url, "", http.StatusOK)
-		assertUnchanged([]byte(raw))
+		assertUnchanged(startupBytes)
 	}
 	for _, invalid := range []string{
 		`{"api-keys":{"codex":[{"name":"invalid","base-url":"https://example.invalid","keys":[{"api-key":"synthetic","concurrency-limit":3.5}]}]}}`,
@@ -77,7 +81,7 @@ plugins:
 		`{"oauth":{"providers":{"codex":{"credential-proxy-policy":"invalid"}}}}`,
 	} {
 		request(http.MethodPatch, "/v8/management/config", invalid, http.StatusUnprocessableEntity)
-		assertUnchanged([]byte(raw))
+		assertUnchanged(startupBytes)
 		if h.cfg != cfg {
 			t.Fatal("failed migration replaced runtime configuration")
 		}

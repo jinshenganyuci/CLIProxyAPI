@@ -68,6 +68,10 @@ plugins:
 			if errLoad != nil {
 				t.Fatal(errLoad)
 			}
+			startupBytes, errStartup := os.ReadFile(path)
+			if errStartup != nil {
+				t.Fatal(errStartup)
+			}
 			beforeInfo, errStat := os.Stat(path)
 			if errStat != nil {
 				t.Fatal(errStat)
@@ -126,7 +130,7 @@ plugins:
 			group["auth_index"] = "forged-group-index"
 			group["auth-index"] = "forged-group-legacy-index"
 			// Reading the JSON view must not write ephemeral indexes onto disk.
-			if disk, errRead := os.ReadFile(path); errRead != nil || string(disk) != original {
+			if disk, errRead := os.ReadFile(path); errRead != nil || !bytes.Equal(disk, startupBytes) {
 				t.Fatalf("GET changed persisted configuration: %v", errRead)
 			}
 			var upload any = view

@@ -94,6 +94,7 @@ oauth:
 
 func TestV8ForkMigrationRoundTripAndBackupRestore(t *testing.T) {
 	const source = `# Fork settings must survive migration.
+server: {server-id: 0156213d-5b12-43d0-9ac4-16ae97897afa}
 port: 8317
 api-keys: [synthetic-client-a, synthetic-client-b, synthetic-client-c]
 auth-dir: /synthetic/auths

@@ -15,6 +15,7 @@ import (
 
 func TestV812SharedUpstreamSavePreservesForkPolicyAndPluginAliases(t *testing.T) {
 	const pluginYAML = `# Keep plugin policy comments.
+server: {server-id: 0156213d-5b12-43d0-9ac4-16ae97897afa}
 plugins:
   enabled: true
   configs:
