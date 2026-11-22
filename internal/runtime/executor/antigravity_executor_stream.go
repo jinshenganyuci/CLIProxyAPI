@@ -205,7 +205,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 		var streamErr error
 		var translatedClaudeErr error
 		var translatedErrorStopped bool
-		sseJSON := helps.NewSSEJSONAssembler(streamScannerBuffer)
+		sseJSON := helps.NewSSEJSONAssemblerWithBareContinuations(streamScannerBuffer)
 		var replayCommitted bool
 		var terminalDelivered bool
 		var param any

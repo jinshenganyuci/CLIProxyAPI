@@ -67,7 +67,7 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 	const obsoleteSecret = "upgrade830-obsolete-fixture"
 	writeSeedTestFile(t, configPath, fmt.Sprintf("# operator note\nport: 8317\nremote-management:\n  secret-key: %s\nmanagement:\n  secret-key: %s\n", obsoleteSecret, activeSecret))
 	objectStore := &ObjectTokenStore{client: client, cfg: ObjectStoreConfig{Bucket: "bucket"}, configPath: configPath}
-	if errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
+	if _, errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
 		t.Fatal(errSync)
 	}
 	mu.Lock()
@@ -87,7 +87,7 @@ func TestUpgrade830ObjectConfigSeedHTTPAndRestart(t *testing.T) {
 		t.Fatal("startup load changed the uploaded seed or its source fingerprint")
 	}
 	writeSeedTestFile(t, configPath, "port: 9999\n")
-	if errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
+	if _, errSync := objectStore.syncConfigFromBucket(t.Context(), ""); errSync != nil {
 		t.Fatal(errSync)
 	}
 	mu.Lock()

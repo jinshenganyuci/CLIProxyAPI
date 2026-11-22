@@ -64,7 +64,7 @@ func TestV858TerminalAndRequest400PreserveForkBindingLeaseAndReplacement(t *test
 					plugin := &credentialConcurrencyPlugin{allowed: map[string]map[string]bool{"bound-key": {selected.ID: true}}}
 					m.SetPluginScheduler(plugin)
 					hook := &resultCaptureHook{}
-					m.hook = hook
+					m.hook = &hookChain{primary: hook}
 					terminal := &cliproxyexecutor.RequestTerminatedError{HTTPStatus: http.StatusBadGateway, Header: http.Header{"X-Fixture": {"preserved"}}, Body: []byte(`{"detail":"synthetic terminal outcome"}`)}
 					var failure error = terminal
 					if kind == "wrapped401" {

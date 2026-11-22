@@ -310,6 +310,11 @@ func (m *Manager) updatePreparedAuthStrict(ctx context.Context, base, updated *A
 // UpdateRefreshedAuth atomically merges refresh results into the latest runtime auth
 // under the manager lock, preserving concurrent modifications (proxy_url, notes, weights, etc.).
 func (m *Manager) UpdateRefreshedAuth(ctx context.Context, base, updated *Auth) (*Auth, error) {
+	committedAuth, _, _, err := m.updateRefreshedAuthWithStatus(ctx, base, updated)
+	return committedAuth, err
+}
+
+func (m *Manager) updateRefreshedAuthWithStatus(ctx context.Context, base, updated *Auth) (*Auth, bool, bool, error) {
 	if base != nil && updated != nil && base.ID == updated.ID && updated.CodexRefreshPatch == nil && IsCodexAuthRecord(base) && IsCodexAuthRecord(updated) {
 		// Legacy SDK and plugin refreshers return updated metadata without the new
 		// persistence patch. Derive only changed credential partitions so their
@@ -319,10 +324,6 @@ func (m *Manager) UpdateRefreshedAuth(ctx context.Context, base, updated *Auth) 
 			updated.CodexRefreshPatch = patch
 		}
 	}
-	return m.updateInternal(ctx, base, updated, updateModeRefresh)
-}
-
-func (m *Manager) updateRefreshedAuthWithStatus(ctx context.Context, base, updated *Auth) (*Auth, bool, bool, error) {
 	return m.updateInternalWithStatus(ctx, base, updated, updateModeRefresh, false)
 }
 

@@ -426,7 +426,7 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	var sawFinishReason bool
 	var streamUsage helps.StreamUsageBuffer
 	streamUsage.SetRequestPayload(requestPayload)
-	sseJSON := helps.NewSSEJSONAssembler(streamScannerBuffer)
+	sseJSON := helps.NewSSEJSONAssemblerWithBareContinuations(streamScannerBuffer)
 	scanner := bufio.NewScanner(httpResp.Body)
 	scanner.Buffer(nil, streamScannerBuffer)
 	for scanner.Scan() {

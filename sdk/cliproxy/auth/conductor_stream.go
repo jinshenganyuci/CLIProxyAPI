@@ -663,6 +663,11 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 			payload = execReq.Payload
 		}
 		execOpts.Metadata = ensureCanonicalSessionMetadata(execOpts.Metadata, execOpts.Headers, payload)
+		execReq = attachResolvedExecutionModelInfo(routing, execReq, auth, routeModel, execModel, executionModel != "")
+		if selection, ok := execOpts.ExecutionLifecycle.(*HomeDispatchSelection); ok && selection != nil && executionModel == "" {
+			// Legacy Home dispatches inherit the selected credential's capability.
+			execReq = attachResolvedHomeModelInfo(execReq, auth, routeModel, selection.modelInfo, selection.configurationUpdateSupport)
+		}
 		var errIntercept error
 		execReq, execOpts, errIntercept = prepareRequestAfterAuth(execCtx, executor, auth, provider, execReq, execOpts, requestedModelAliasFromOptions(execOpts, routeModel))
 		if errIntercept != nil {
@@ -675,11 +680,6 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
 				}
 			}
 			return nil, errIntercept
-		}
-		execReq = attachResolvedExecutionModelInfo(routing, execReq, auth, routeModel, execModel, executionModel != "")
-		if selection, ok := execOpts.ExecutionLifecycle.(*HomeDispatchSelection); ok && selection != nil && executionModel == "" {
-			// Legacy Home dispatches inherit the selected credential's capability.
-			execReq = attachResolvedHomeModelInfo(execReq, auth, routeModel, selection.modelInfo, selection.configurationUpdateSupport)
 		}
 		if errCtx := execCtx.Err(); errCtx != nil {
 			return nil, errCtx

@@ -64,7 +64,7 @@ func TestV824OperatorMetadataPreemptsBackgroundStoreWithoutLosingControls(t *tes
 						}
 						defer release()
 					}
-					manager.hook = metadataPreemptHookV824{updated: func() {
+					manager.hook = &hookChain{primary: metadataPreemptHookV824{updated: func() {
 						state := manager.globalMetadataSaveState()
 						state.mu.Lock()
 						active := state.fgActive
@@ -72,7 +72,7 @@ func TestV824OperatorMetadataPreemptsBackgroundStoreWithoutLosingControls(t *tes
 						if active != 0 {
 							t.Errorf("foreground save gate held during lifecycle hook: %d", active)
 						}
-					}}
+					}}}
 					bgCtx, cancelBG := context.WithCancel(context.Background())
 					defer cancelBG()
 					bgDone := make(chan [2]bool, 1)

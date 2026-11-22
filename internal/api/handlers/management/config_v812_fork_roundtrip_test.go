@@ -19,6 +19,7 @@ import (
 
 func TestConfigV812AuthIndexRoundTripPreservesForkCredentialPolicy(t *testing.T) {
 	const original = `config-version: 8
+server: {server-id: 20fb88e4-73ab-44db-b5b5-4e7120ba3368}
 requests: {proxy-url: socks5h://127.0.0.1:18080}
 client: {codex: {enable-apply-patch: false, optimize-multi-agent-v2: true}}
 oauth:

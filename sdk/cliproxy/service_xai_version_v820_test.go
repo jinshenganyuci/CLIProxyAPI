@@ -17,12 +17,16 @@ func TestV820ServiceVersionUpdaterRebindsProxyUntilShutdown(t *testing.T) {
 	entered := make(chan int, 4)
 	newProxy := func(index int) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			calls[index].Add(1)
+			// Refuse both startup version checks before they reach external hosts.
+			w.WriteHeader(http.StatusBadGateway)
+			if r.Method == http.MethodConnect && r.Host == "antigravity-hub-auto-updater-974169037036.us-central1.run.app:443" {
+				return
+			}
 			if r.Method != http.MethodConnect || r.Host != "registry.npmjs.org:443" {
 				t.Errorf("unexpected version route: %s %s", r.Method, r.Host)
+				return
 			}
-			// Refuse CONNECT so no request reaches the public npm registry.
-			w.WriteHeader(http.StatusBadGateway)
+			calls[index].Add(1)
 			entered <- index
 		}))
 	}

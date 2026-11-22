@@ -165,3 +165,25 @@ func TestSSEJSONAssembler_RawMultilineJSONAndNilReceiver(t *testing.T) {
 		t.Fatalf("nil receiver Push = %q, want %q", string(p), `{"nil":true}`)
 	}
 }
+
+func TestSSEJSONAssembler_BareContinuationsKeepControlLinesOutOfJSON(t *testing.T) {
+	asm := NewSSEJSONAssemblerWithBareContinuations(4096)
+	lines := []string{
+		"data: {",
+		"event: message",
+		"custom: ignored",
+		": keepalive",
+		"\"values\": [",
+		"false,",
+		"20]",
+		"}",
+	}
+	for _, line := range lines[:len(lines)-1] {
+		if got := asm.Push([]byte(line)); got != nil {
+			t.Fatalf("line %q returned premature payload %q", line, got)
+		}
+	}
+	if got, want := string(asm.Push([]byte("}"))), "{\n\"values\": [\nfalse,\n20]\n}"; got != want {
+		t.Fatalf("reassembled payload = %q, want %q", got, want)
+	}
+}

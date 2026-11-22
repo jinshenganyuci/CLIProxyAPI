@@ -13,6 +13,7 @@ type SSEJSONAssembler struct {
 	fromData          bool
 	discardUntilBlank bool
 	maxBytes          int
+	allowBareJSON     bool
 }
 
 // NewSSEJSONAssembler creates an SSEJSONAssembler bounded by maxBytes.
@@ -22,6 +23,15 @@ func NewSSEJSONAssembler(maxBytes int) *SSEJSONAssembler {
 		maxBytes = StreamScannerBuffer
 	}
 	return &SSEJSONAssembler{maxBytes: maxBytes}
+}
+
+// NewSSEJSONAssemblerWithBareContinuations also accepts bare JSON lines after
+// a data: line. Antigravity can emit pretty-printed JSON with only the first
+// line marked as SSE data.
+func NewSSEJSONAssemblerWithBareContinuations(maxBytes int) *SSEJSONAssembler {
+	assembler := NewSSEJSONAssembler(maxBytes)
+	assembler.allowBareJSON = true
+	return assembler
 }
 
 // Reset clears any buffered partial JSON state.
@@ -70,7 +80,7 @@ func (a *SSEJSONAssembler) Push(line []byte) []byte {
 			chunk = bytes.TrimSpace(trimmed[len("data:"):])
 		} else if bytes.Equal(trimmed, []byte("data")) {
 			return nil
-		} else if a.fromData {
+		} else if a.fromData && (!a.allowBareJSON || !isBareJSONContinuation(trimmed)) {
 			return nil
 		} else {
 			chunk = trimmed
@@ -117,6 +127,19 @@ func (a *SSEJSONAssembler) Push(line []byte) []byte {
 	a.pending = append([]byte(nil), payload...)
 	a.fromData = isFromData
 	return nil
+}
+
+func isBareJSONContinuation(line []byte) bool {
+	switch line[0] {
+	case '"', '{', '}', '[', ']', ',':
+		return true
+	}
+	// A primitive token can be followed by whitespace, a delimiter, or the
+	// end of the line. Reject unknown SSE fields such as "custom: value".
+	if end := bytes.IndexAny(line, " 	,]}"); end >= 0 {
+		line = line[:end]
+	}
+	return ojson.ValidBytes(line)
 }
 
 func isSSEControlLine(trimmed []byte) bool {
