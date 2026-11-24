@@ -1139,7 +1139,11 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 				return
 			}
 		}
-		if pendingFilterMsg != "" && (isImagenModel(baseModel) || scanner.Err() == nil) && !sawFinishReason {
+		var errScan error
+		if scanner != nil {
+			errScan = scanner.Err()
+		}
+		if pendingFilterMsg != "" && errScan == nil && !sawFinishReason {
 			filterErr := statusErr{code: http.StatusBadRequest, msg: pendingFilterMsg}
 			helps.RecordAPIResponseError(ctx, e.cfg, filterErr)
 			if !streamUsage.PublishFailure(ctx, reporter, filterErr) {
@@ -1151,14 +1155,14 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 			}
 			return
 		}
-		if scanner.Err() == nil && len(pendingFilterLine) > 0 {
+		if errScan == nil && len(pendingFilterLine) > 0 {
 			if !guardAndEmitLine(pendingFilterLine) {
 				return
 			}
 			pendingFilterLine = nil
 			pendingFilterMsg = ""
 		}
-		if (isImagenModel(baseModel) || scanner.Err() == nil) && ctx.Err() == nil && zeroOutputGuard.HasAbnormalFinish() {
+		if errScan == nil && ctx.Err() == nil && zeroOutputGuard.HasAbnormalFinish() {
 			_, action, finishReason := zeroOutputGuard.Finalize()
 			if action == helps.GeminiZeroOutputEmitErrorThenFail {
 				errFrame := zeroOutputGuard.AbnormalFrame()
@@ -1178,12 +1182,7 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 		if helps.StopTranslatedClaudeStream(ctx, &streamErr, reporter, &streamUsage, out) {
 			return
 		}
-		if errScan := func() error {
-			if scanner == nil {
-				return nil
-			}
-			return scanner.Err()
-		}(); errScan != nil {
+		if errScan != nil {
 			if terminalDelivered && errors.Is(errScan, context.Canceled) {
 				return
 			}
@@ -1562,7 +1561,11 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 				return
 			}
 		}
-		if pendingFilterMsg != "" && (isImagenModel(baseModel) || scanner.Err() == nil) && !sawFinishReason {
+		var errScan error
+		if scanner != nil {
+			errScan = scanner.Err()
+		}
+		if pendingFilterMsg != "" && errScan == nil && !sawFinishReason {
 			filterErr := statusErr{code: http.StatusBadRequest, msg: pendingFilterMsg}
 			helps.RecordAPIResponseError(ctx, e.cfg, filterErr)
 			if !streamUsage.PublishFailure(ctx, reporter, filterErr) {
@@ -1574,14 +1577,14 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 			}
 			return
 		}
-		if scanner.Err() == nil && len(pendingFilterLine) > 0 {
+		if errScan == nil && len(pendingFilterLine) > 0 {
 			if !guardAndEmitLine(pendingFilterLine) {
 				return
 			}
 			pendingFilterLine = nil
 			pendingFilterMsg = ""
 		}
-		if (isImagenModel(baseModel) || scanner.Err() == nil) && ctx.Err() == nil && zeroOutputGuard.HasAbnormalFinish() {
+		if errScan == nil && ctx.Err() == nil && zeroOutputGuard.HasAbnormalFinish() {
 			_, action, finishReason := zeroOutputGuard.Finalize()
 			if action == helps.GeminiZeroOutputEmitErrorThenFail {
 				errFrame := zeroOutputGuard.AbnormalFrame()
@@ -1601,12 +1604,7 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 		if helps.StopTranslatedClaudeStream(ctx, &streamErr, reporter, &streamUsage, out) {
 			return
 		}
-		if errScan := func() error {
-			if scanner == nil {
-				return nil
-			}
-			return scanner.Err()
-		}(); errScan != nil {
+		if errScan != nil {
 			if terminalDelivered && errors.Is(errScan, context.Canceled) {
 				return
 			}
