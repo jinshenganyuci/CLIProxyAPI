@@ -50,7 +50,7 @@ func TestDevinV8RawExportAndAggregatedReload(t *testing.T) {
 			if errValidate != nil {
 				t.Fatal(errValidate)
 			}
-			if len(reloaded) != 2 || reloaded[0].ID != "devin/private-v8" || reloaded[1].ID != "devin/swe-1-6-slow" {
+			if len(reloaded) != 2 || reloaded[0].ID != "private-v8" || reloaded[1].ID != "swe-1-6-slow" {
 				t.Fatalf("export/reload changed aggregate identity: %#v", reloaded)
 			}
 			if !reflect.DeepEqual(reloaded[0].Thinking.Levels, []string{"low", "high"}) || reloaded[0].OwnedBy != "anthropic" || reloaded[0].ContextLength != 2000 {

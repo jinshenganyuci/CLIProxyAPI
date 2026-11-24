@@ -80,7 +80,7 @@ func TestUpgrade802AntigravitySummaryIntentSurvivesThinking(t *testing.T) {
 				if !include.Exists() || include.Bool() != tc.want {
 					t.Fatalf("stream=%v includeThoughts=%s, want %v: %s", stream, include.Raw, tc.want, out)
 				}
-				if level := ojson.GetBytes(out, "request.generationConfig.thinkingConfig.thinkingLevel").String(); level != "low" {
+				if level := ojson.GetBytes(out, "request.generationConfig.thinkingConfig.thinkingLevel").String(); level != "LOW" {
 					t.Fatalf("summary visibility changed thinking level to %q: %s", level, out)
 				}
 			}

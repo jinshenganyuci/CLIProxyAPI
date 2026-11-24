@@ -75,6 +75,20 @@ func TestGetStaticModelDefinitions_BuiltInChannel(t *testing.T) {
 	}
 }
 
+func TestGetStaticModelDefinitions_DevinUsesPublishedIDs(t *testing.T) {
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir()}, nil)
+
+	rec, body := invokeGetStaticModelDefinitions(t, h, "Devin")
+	if rec.Code != http.StatusOK || body.Channel != "devin" || len(body.Models) == 0 {
+		t.Fatalf("unexpected Devin catalog (%d): %s", rec.Code, rec.Body.String())
+	}
+	for _, model := range body.Models {
+		if native, qualified := strings.CutPrefix(model.ID, "devin/"); !qualified || native == "" || strings.HasPrefix(native, "devin/") {
+			t.Fatalf("catalog model ID %q is not a qualified route", model.ID)
+		}
+	}
+}
+
 func TestGetStaticModelDefinitions_FallsBackToPluginStaticModels(t *testing.T) {
 	const provider = "workbuddy"
 	reg := registry.GetGlobalRegistry()

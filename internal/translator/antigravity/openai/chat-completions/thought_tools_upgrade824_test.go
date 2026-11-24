@@ -2,6 +2,7 @@ package chat_completions
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/MoeForge/moego/ojson"
@@ -12,9 +13,11 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 		`{"response":{"candidates":[{"content":{"parts":[{"text":"consider","thought":true}]}}]}}`,
 		`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"fixture"}}}]}}]}}`,
 		`{"response":{"candidates":[{"content":{"parts":[{"text":"continue thinking","thought":true}]}}],"cpaUsageMetadata":{"promptTokenCount":17,"candidatesTokenCount":3,"thoughtsTokenCount":11,"totalTokenCount":31}}}`,
+		`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"limit":1}}}]}}]}}`,
 		`{"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":17,"candidatesTokenCount":3,"thoughtsTokenCount":11,"totalTokenCount":31}}}`,
 	}
 	var state any
+	var arguments strings.Builder
 	for i, chunk := range chunks {
 		outputs := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte(chunk), &state)
 		if len(outputs) != 1 {
@@ -22,19 +25,33 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 		}
 		out := outputs[0]
 		tools := ojson.GetBytes(out, "choices.0.delta.tool_calls")
-		if i == 1 {
+		switch i {
+		case 1:
 			if tools.Get("#").Int() != 1 || tools.Get("0.function.name").String() != "read_file" {
 				t.Fatalf("real tool delta missing: %s", out)
 			}
-		} else if tools.Exists() {
-			t.Fatalf("chunk %d contains phantom/null tool_calls: %s", i, out)
+			arguments.WriteString(tools.Get("0.function.arguments").String())
+		case 3, 4:
+			tool := tools.Get("0")
+			index := tool.Get("index")
+			if tools.Get("#").Int() != 1 || !index.Exists() || index.Int() != 0 || tool.Get("id").Exists() || tool.Get("function.name").Exists() {
+				t.Fatalf("chunk %d must only continue the original tool call: %s", i, out)
+			}
+			arguments.WriteString(tool.Get("function.arguments").String())
+		default:
+			if tools.Exists() {
+				t.Fatalf("chunk %d contains phantom/null tool_calls: %s", i, out)
+			}
 		}
 		if i == 2 && (ojson.GetBytes(out, "choices.0.delta.reasoning_content").String() != "continue thinking" || ojson.GetBytes(out, "choices.0.finish_reason").String() != "") {
 			t.Fatalf("thinking chunk lost content or finalized early: %s", out)
 		}
-		if i == 3 && (ojson.GetBytes(out, "choices.0.finish_reason").String() != "tool_calls" || ojson.GetBytes(out, "usage.completion_tokens").Int() != 14 || ojson.GetBytes(out, "usage.completion_tokens_details.reasoning_tokens").Int() != 11) {
+		if i == 4 && (ojson.GetBytes(out, "choices.0.finish_reason").String() != "tool_calls" || ojson.GetBytes(out, "usage.completion_tokens").Int() != 14 || ojson.GetBytes(out, "usage.completion_tokens_details.reasoning_tokens").Int() != 11) {
 			t.Fatalf("terminal lost real tool state or thought usage: %s", out)
 		}
+	}
+	if got := arguments.String(); got != `{"path":"fixture","limit":1}` {
+		t.Fatalf("tool argument fragments did not form one JSON object: %q", got)
 	}
 	if got := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte("[DONE]"), &state); len(got) != 0 {
 		t.Fatalf("DONE duplicated terminal: %q", got)

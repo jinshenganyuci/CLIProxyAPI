@@ -183,7 +183,9 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 
 			if partTextResult.Exists() {
 				text := partTextResult.String()
-				if text != "" && hasOpenAntigravityOpenAIToolArguments(params) {
+				isThought := partResult.Get("thought").Bool()
+				// Reasoning can arrive between fragments of a tool call's arguments.
+				if text != "" && !isThought && hasOpenAntigravityOpenAIToolArguments(params) {
 					if !hasToolCallsArray {
 						_ = templateDoc.SetRaw("choices.0.delta.tool_calls", `[]`)
 						hasToolCallsArray = true
@@ -193,7 +195,7 @@ func ConvertAntigravityResponseToOpenAI(_ context.Context, _ string, originalReq
 				}
 
 				// Handle text content, distinguishing between regular content and reasoning/thoughts.
-				if partResult.Get("thought").Bool() {
+				if isThought {
 					hasReasoningContent = true
 					reasoningContent.WriteString(text)
 				} else {

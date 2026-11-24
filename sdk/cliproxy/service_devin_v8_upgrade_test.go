@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestDevinV8ServiceRoutesAggregatesAndPreservesCredentialControls(t *testing
 				t.Fatalf("legacy exact variant unexpectedly routable: %v", got)
 			}
 			metadata := registry.LookupDevinModel(tc.legacy)
-			if metadata == nil || metadata.ID != tc.base {
+			if metadata == nil || metadata.ID != strings.TrimPrefix(tc.base, "devin/") {
 				t.Fatalf("legacy metadata lookup failed: %#v", metadata)
 			}
 			migrated := tc.base + "(" + tc.effort + ")"
@@ -87,19 +88,15 @@ func TestDevinV8AliasSourcesAndExclusionsNeedCanonicalIDs(t *testing.T) {
 	if got := util.GetProviderName("private-old-high"); len(got) != 1 || got[0] != "devin" {
 		t.Fatalf("canonical source should restore custom alias route: %v", got)
 	}
-	models := registry.GetDevinModels()
-	oldExclusion := applyExcludedModels(models, []string{"devin/gpt-6-astra-high"})
-	newExclusion := applyExcludedModels(models, []string{"devin/gpt-6-astra"})
-	contains := func(models []*ModelInfo, id string) bool {
-		for _, model := range models {
-			if model.ID == id {
-				return true
-			}
-		}
-		return false
+	cfg.OAuthExcludedModels = map[string][]string{"devin": {"devin/gpt-6-astra-high"}}
+	service.registerModelsForAuth(context.Background(), auth)
+	if !reg.ClientSupportsModel(authID, "devin/gpt-6-astra") {
+		t.Fatal("old variant exclusion should not block the canonical model")
 	}
-	if !contains(oldExclusion, "devin/gpt-6-astra") || contains(newExclusion, "devin/gpt-6-astra") {
-		t.Fatal("exclusion matching did not distinguish old variant and canonical base")
+	cfg.OAuthExcludedModels["devin"] = []string{"devin/gpt-6-astra"}
+	service.registerModelsForAuth(context.Background(), auth)
+	if reg.ClientSupportsModel(authID, "devin/gpt-6-astra") || reg.ClientSupportsModel(authID, "private-old-high") {
+		t.Fatal("canonical exclusion must block both the source model and its alias")
 	}
 }
 

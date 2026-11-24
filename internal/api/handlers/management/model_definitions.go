@@ -71,6 +71,15 @@ func (h *Handler) GetStaticModelDefinitions(c *gin.Context) {
 	}
 
 	models := registry.GetStaticModelDefinitionsByChannel(channel)
+	if strings.EqualFold(channel, "devin") {
+		// The Devin catalog stores native IDs. Return published route IDs so
+		// clients can reuse them as exact OAuth alias or exclusion rules.
+		for _, model := range models {
+			if model != nil {
+				model.ID = "devin/" + model.ID
+			}
+		}
+	}
 	if len(models) == 0 {
 		models = h.pluginModelDefinitionsByChannel(channel)
 	}
@@ -80,7 +89,7 @@ func (h *Handler) GetStaticModelDefinitions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"channel": strings.ToLower(strings.TrimSpace(channel)),
+		"channel": strings.ToLower(channel),
 		"models":  models,
 	})
 }

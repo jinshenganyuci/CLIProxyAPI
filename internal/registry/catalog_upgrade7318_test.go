@@ -93,7 +93,7 @@ func TestDevinCatalogFallbackPreservesCustomModels7318(t *testing.T) {
 	}
 
 	custom := LookupDevinModel(" CUSTOM-PRIVATE ")
-	if custom == nil || custom.ID != "devin/custom-private" || !custom.SupportConfigurationUpdate || custom.ContextLength != 65536 {
+	if custom == nil || custom.ID != "custom-private" || !custom.SupportConfigurationUpdate || custom.ContextLength != 65536 {
 		t.Fatalf("custom metadata was not retained: %#v", custom)
 	}
 	custom.Thinking.Levels[0] = "mutated"

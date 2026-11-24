@@ -4,6 +4,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestDevinV8AggregationPreservesCustomCatalogMetadata(t *testing.T) {
 		t.Fatalf("aggregated catalog = %d, want two independent models", len(models))
 	}
 	model := models[0]
-	if model.ID != "devin/private-custom" || model.DisplayName != "Canonical Private Custom" || model.OwnedBy != "private" {
+	if model.ID != "private-custom" || model.DisplayName != "Canonical Private Custom" || model.OwnedBy != "private" {
 		t.Fatalf("canonical custom identity lost: %#v", model)
 	}
 	if model.ContextLength != 4000 || model.InputTokenLimit != 4000 || model.MaxCompletionTokens != 400 || model.OutputTokenLimit != 400 {
@@ -45,7 +46,7 @@ func TestDevinV8AggregationPreservesCustomCatalogMetadata(t *testing.T) {
 			}
 		}
 	}
-	if unrelated := models[1]; unrelated.ID != "devin/private-unrelated" || unrelated.OwnedBy != "other" || unrelated.ContextLength != 8192 {
+	if unrelated := models[1]; unrelated.ID != "private-unrelated" || unrelated.OwnedBy != "other" || unrelated.ContextLength != 8192 {
 		t.Fatalf("unrelated custom model changed: %#v", unrelated)
 	}
 }
@@ -70,7 +71,7 @@ func TestDevinV8DynamicCatalogAggregationAndReplacement(t *testing.T) {
 	}
 	for _, id := range []string{"private-one", "DEVIN/PRIVATE-ONE-HIGH", "private-one-low-fast"} {
 		model := LookupDevinModel(id)
-		if model == nil || model.ID != "devin/private-one" || !reflect.DeepEqual(model.Thinking.Levels, []string{"low", "medium", "high"}) {
+		if model == nil || model.ID != "private-one" || !reflect.DeepEqual(model.Thinking.Levels, []string{"low", "medium", "high"}) {
 			t.Fatalf("variant metadata lookup %q did not resolve aggregate: %#v", id, model)
 		}
 		model.Thinking.Levels[0] = "mutated"
@@ -252,8 +253,12 @@ func TestDevinV8PreviousCatalogIDsHaveBaseMetadata(t *testing.T) {
 	for oldID, wantBase := range previous {
 		t.Run(oldID, func(t *testing.T) {
 			model := LookupDevinModel(oldID)
-			if model == nil || model.ID != wantBase {
-				t.Fatalf("previous ID %q: got %#v, want aggregate %q", oldID, model, wantBase)
+			if nativeBase := strings.TrimPrefix(wantBase, "devin/"); model == nil || model.ID != nativeBase {
+				t.Fatalf("previous ID %q: got %#v, want native aggregate %q", oldID, model, nativeBase)
+			}
+			published := LookupStaticModelInfo(wantBase)
+			if published == nil || published.ID != wantBase {
+				t.Fatalf("previous ID %q: got %#v, want qualified aggregate %q", oldID, published, wantBase)
 			}
 		})
 	}
