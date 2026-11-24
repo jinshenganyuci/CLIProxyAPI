@@ -29,6 +29,7 @@ func convertInteractionsRequestToAntigravity(modelName string, inputRawJSON []by
 	copyInteractionsGenerationConfigToAntigravityDoc(outDoc, root)
 	contentItems := translatorcommon.NewRawArrayItems(root.Get("input.#").Int())
 	errInput := appendInteractionsInputToAntigravity(&contentItems, root.Get("input"))
+	contentItems = translatorcommon.MergeAdjacentGeminiUserContents(contentItems)
 	translatorcommon.SetRawArrayItemsDoc(outDoc, "request.contents", contentItems)
 	copyInteractionsToolsToAntigravityDoc(outDoc, root, functionNameMap)
 	translatorcommon.RestrictGeminiBuiltinToolsDoc(outDoc, "request.tools", "request.toolConfig.functionCallingConfig")

@@ -561,7 +561,10 @@ func responsesReasoningToInteractions(item ojson.Result, replayDevin bool) []byt
 	raw := content.String()
 	sig := strings.TrimSpace(raw)
 	openAI := replayDevin && signature.IsDevinOpenAIReasoningSignature(raw)
-	if !openAI && !strings.HasPrefix(sig, "sealed.v1.") {
+	// Devin issues Gemini thought signatures in the unprefixed Vertex bare-Tink envelope.
+	// Replay only that shape: Devin rejects a request whose signature it cannot verify.
+	gemini := replayDevin && !strings.Contains(sig, "#") && signature.IsGeminiVertexBareTinkSignature(sig)
+	if !openAI && !gemini && !strings.HasPrefix(sig, "sealed.v1.") {
 		return nil
 	}
 	var texts []string
@@ -576,6 +579,8 @@ func responsesReasoningToInteractions(item ojson.Result, replayDevin bool) []byt
 	if openAI {
 		sig = raw
 		_ = stepDoc.Set("signature_type", "openai")
+	} else if gemini {
+		_ = stepDoc.Set("signature_type", "gemini")
 	}
 	_ = stepDoc.Set("signature", sig)
 	return stepDoc.Bytes()
