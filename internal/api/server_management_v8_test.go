@@ -118,9 +118,10 @@ func TestManagementV8IndependentContract(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		query, channel string
+		v0Qualified    bool
 	}{
-		{"Copilot", "copilot"},
-		{"Devin", "devin"},
+		{query: "Copilot", channel: "copilot"},
+		{query: "Devin", channel: "devin", v0Qualified: true},
 	} {
 		prefix := tc.channel + "/"
 		v8Models := ojson.Get(request(http.MethodGet, "/v8/management/routing/model-definitions/"+tc.query, "", http.StatusOK), "models").Array()
@@ -131,10 +132,11 @@ func TestManagementV8IndependentContract(t *testing.T) {
 		patterns := []string{"*/gpt-*", "*/claude-*", "*/gemini-*"}
 		matched := make(map[string]bool, len(patterns))
 		for i, entry := range v8Models {
-			nativeID := v0Models[i].Get("id").String()
+			v0ID := v0Models[i].Get("id").String()
+			nativeID, qualified := strings.CutPrefix(v0ID, prefix)
 			id := entry.Get("id").String()
-			if nativeID == "" || strings.HasPrefix(nativeID, prefix) || id != prefix+nativeID {
-				t.Fatalf("%s catalog IDs: v8=%q v0=%q", tc.channel, id, nativeID)
+			if qualified != tc.v0Qualified || nativeID == "" || strings.HasPrefix(nativeID, prefix) || id != prefix+nativeID {
+				t.Fatalf("%s catalog IDs: v8=%q v0=%q", tc.channel, id, v0ID)
 			}
 			for _, pattern := range patterns {
 				matched[pattern] = matched[pattern] || modelconfig.MatchExcludedModelPattern(pattern, id)

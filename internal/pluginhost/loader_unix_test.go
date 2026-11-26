@@ -125,13 +125,18 @@ func TestUnixPluginReloadAfterShutdownUsesReplacedFile(t *testing.T) {
 	if second.handle == firstHandle {
 		t.Fatal("second handle reuses the first image after the plugin file changed")
 	}
-	baselineCalls := testShutdownCallCount(t, secondClient)
-
+	// Keep the fixture's read-only counter callable after the loader clears
+	// the client API table. The original image stays mapped after shutdown.
+	secondCounter := &dynamicLibraryClient{api: second.api}
+	baselineCalls := testShutdownCallCount(t, secondCounter)
 	secondClient.Shutdown()
+	secondClient.Shutdown()
+	if gotCalls := testShutdownCallCount(t, secondCounter); gotCalls != baselineCalls+1 {
+		t.Fatalf("plugin shutdown calls = %d, want baseline %d + 1", gotCalls, baselineCalls)
+	}
 
-	// Reopening without a content change must reuse the already resident
-	// image instead of mapping a second copy of the same runtime, and the
-	// shutdown above must have reached that image exactly once.
+	// Reopening unchanged content must create a fresh instance with its own
+	// runtime state, while the previous image stays mapped.
 	thirdClient, errOpenThird := dynamicLibraryLoader{}.Open(file, host)
 	if errOpenThird != nil {
 		t.Fatalf("Open() third error = %v", errOpenThird)
@@ -140,8 +145,8 @@ func TestUnixPluginReloadAfterShutdownUsesReplacedFile(t *testing.T) {
 	if !okThird {
 		t.Fatalf("Open() third client type = %T, want *dynamicLibraryClient", thirdClient)
 	}
-	if third.handle != second.handle {
-		t.Fatalf("third handle = %v, want reused resident handle %v", third.handle, second.handle)
+	if third.handle == second.handle || third.handle == firstHandle {
+		t.Fatalf("third handle = %v, want a fresh image distinct from %v and %v", third.handle, firstHandle, second.handle)
 	}
 	respThird, errCallThird := thirdClient.Call(context.Background(), "test.marker", nil)
 	if errCallThird != nil {
@@ -150,8 +155,8 @@ func TestUnixPluginReloadAfterShutdownUsesReplacedFile(t *testing.T) {
 	if string(respThird) != "v2" {
 		t.Fatalf("Call() third response = %q, want v2", respThird)
 	}
-	if gotCalls := testShutdownCallCount(t, thirdClient); gotCalls != baselineCalls+1 {
-		t.Fatalf("plugin shutdown calls = %d, want baseline %d + 1", gotCalls, baselineCalls)
+	if gotCalls := testShutdownCallCount(t, thirdClient); gotCalls != 0 {
+		t.Fatalf("reloaded plugin shutdown calls = %d, want 0 for the fresh runtime", gotCalls)
 	}
 	thirdClient.Shutdown()
 }

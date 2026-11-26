@@ -1,4 +1,4 @@
-package gemini
+package common
 
 import (
 	"fmt"
@@ -7,12 +7,8 @@ import (
 	"github.com/MoeForge/moego/ojson"
 )
 
-// NormalizeAntigravityRequestDoc applies the native Antigravity wire format.
-func NormalizeAntigravityRequestDoc(doc *ojson.Doc) {
-	normalizeAntigravityRequestDocAt(doc, "request.")
-}
-
-func normalizeAntigravityRequestDocAt(doc *ojson.Doc, prefix string) {
+// NormalizeAntigravityRequestDocAt applies the native Antigravity wire format at prefix.
+func NormalizeAntigravityRequestDocAt(doc *ojson.Doc, prefix string) {
 	if doc == nil {
 		return
 	}

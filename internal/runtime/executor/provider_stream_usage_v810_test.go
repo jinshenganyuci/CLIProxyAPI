@@ -72,6 +72,9 @@ func TestProviderV810StreamUsageSurvivesTermination(t *testing.T) {
 					}
 					if provider == "gemini-interactions" {
 						payload = `{"event_type":"interaction.complete","interaction":{"outputs":[{"type":"text","text":"observed"}],"usage":{"total_input_tokens":11,"total_output_tokens":22,"total_tokens":33}}}`
+						if ending == "cancel" {
+							payload = strings.Replace(payload, "interaction.complete", "interaction.in_progress", 1)
+						}
 					}
 					frame := "data: " + payload + "\n\n"
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

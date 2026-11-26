@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -96,7 +95,9 @@ func TestV827PreFirstTokenCommitKeepsProxyErrorAndPluginAccounting(t *testing.T)
 			ticks := make(chan time.Time)
 			restore := handlers.SetStreamingKeepAliveTickerFactoryForTest(func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} })
 			defer restore()
-			writer := &v827KeepAliveWriter{ResponseRecorder: httptest.NewRecorder(), wrote: make(chan struct{})}
+			writer := &v827KeepAliveWriter{
+				ResponseRecorder: httptest.NewRecorder(), keepAlive: ": keep-alive\n\n", wrote: make(chan struct{}),
+			}
 			router := gin.New()
 			router.POST("/v1/chat/completions", NewOpenAIAPIHandler(base).ChatCompletions)
 			finished := make(chan struct{})
@@ -178,13 +179,14 @@ func (*v827PreFTExecutor) HttpRequest(context.Context, *coreauth.Auth, *http.Req
 
 type v827KeepAliveWriter struct {
 	*httptest.ResponseRecorder
-	mode  string
-	once  sync.Once
-	wrote chan struct{}
+	mode      string
+	keepAlive string
+	once      sync.Once
+	wrote     chan struct{}
 }
 
 func (w *v827KeepAliveWriter) Write(payload []byte) (int, error) {
-	if bytes.Contains(payload, []byte(": keep-alive")) {
+	if string(payload) == w.keepAlive {
 		w.once.Do(func() { close(w.wrote) })
 		switch w.mode {
 		case "write-error":
@@ -282,7 +284,13 @@ func TestV827PreFirstTokenDeliveryFailureCancelsBootstrapAndReleasesLease(t *tes
 						NewOpenAIAPIHandler(base).streamImagesWithModel(c, []byte(body), []byte(body), model, "b64_json", "image_generation")
 					})
 				}
-				writer := &v827KeepAliveWriter{ResponseRecorder: httptest.NewRecorder(), mode: mode, wrote: make(chan struct{})}
+				keepAlive := ": keep-alive\n\n"
+				if endpoint == "gemini" || endpoint == "interactions" {
+					keepAlive = "\n\n"
+				}
+				writer := &v827KeepAliveWriter{
+					ResponseRecorder: httptest.NewRecorder(), mode: mode, keepAlive: keepAlive, wrote: make(chan struct{}),
+				}
 				finished := make(chan struct{})
 				go func() {
 					defer close(finished)
@@ -307,8 +315,24 @@ func TestV827PreFirstTokenDeliveryFailureCancelsBootstrapAndReleasesLease(t *tes
 				if active, limit := manager.CredentialConcurrencySnapshot(id); active != 10 || limit != 10 {
 					t.Fatalf("bootstrap admission = %d/%d, want 10/10", active, limit)
 				}
-				ticks <- time.Unix(1, 0)
-				<-writer.wrote
+				select {
+				case ticks <- time.Unix(1, 0):
+				case <-finished:
+					t.Fatal("handler ended before the first keepalive tick")
+				case <-time.After(5 * time.Second):
+					t.Fatal("handler did not accept the first keepalive tick")
+				}
+				select {
+				case <-writer.wrote:
+				case <-finished:
+					select {
+					case <-writer.wrote:
+					default:
+						t.Fatalf("handler ended without writing keepalive %q", keepAlive)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatalf("handler did not write keepalive %q", keepAlive)
+				}
 				select {
 				case <-finished:
 				case <-time.After(time.Second):

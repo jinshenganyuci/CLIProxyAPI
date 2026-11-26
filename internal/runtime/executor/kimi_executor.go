@@ -290,6 +290,7 @@ func (e *KimiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 		return nil, err
 	}
 
+	helps.SetBoolIfDifferentDoc(doc, "stream", true)
 	if err = doc.Set("stream_options.include_usage", true); err != nil {
 		return nil, fmt.Errorf("kimi executor: failed to set stream_options in payload: %w", err)
 	}

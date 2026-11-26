@@ -1125,14 +1125,14 @@ func (e *GeminiVertexExecutor) executeStreamWithServiceAccount(ctx context.Conte
 				continue
 			}
 			// Record usage before any buffered frame can terminate downstream delivery.
-			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
-				sawFinishReason = true
-			}
 			streamUsage.ObserveGeminiStream(line)
 			if filterMsg, blocked := clienterror.GeminiFilterBlockMessage(rawPayload); blocked {
 				pendingFilterLine = bytes.Clone(line)
 				pendingFilterMsg = filterMsg
 				continue
+			}
+			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
+				sawFinishReason = true
 			}
 			if blockMsg, blocked := helps.GeminiPromptBlockErrorMessage(rawPayload); blocked {
 				blockErr := statusErr{code: http.StatusBadGateway, msg: blockMsg}
@@ -1552,14 +1552,14 @@ func (e *GeminiVertexExecutor) executeStreamWithAPIKey(ctx context.Context, auth
 				continue
 			}
 			// Record usage before any buffered frame can terminate downstream delivery.
-			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
-				sawFinishReason = true
-			}
 			streamUsage.ObserveGeminiStream(line)
 			if filterMsg, blocked := clienterror.GeminiFilterBlockMessage(rawPayload); blocked {
 				pendingFilterLine = bytes.Clone(line)
 				pendingFilterMsg = filterMsg
 				continue
+			}
+			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
+				sawFinishReason = true
 			}
 			if blockMsg, blocked := helps.GeminiPromptBlockErrorMessage(rawPayload); blocked {
 				blockErr := statusErr{code: http.StatusBadGateway, msg: blockMsg}
@@ -2442,6 +2442,9 @@ func (e *GeminiVertexExecutor) executeInteractionsStream(ctx context.Context, au
 			frame = append(frame, line...)
 		}
 		errScan := scanner.Err()
+		if errScan != nil && !(terminalDelivered && errors.Is(errScan, context.Canceled)) {
+			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+		}
 		if errScan == nil && ctx.Err() == nil {
 			if !emitFrame() {
 				return
@@ -2454,7 +2457,6 @@ func (e *GeminiVertexExecutor) executeInteractionsStream(ctx context.Context, au
 			if terminalDelivered && errors.Is(errScan, context.Canceled) {
 				return
 			}
-			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			streamUsage.PublishFailure(ctx, reporter, errScan)
 			select {
 			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:

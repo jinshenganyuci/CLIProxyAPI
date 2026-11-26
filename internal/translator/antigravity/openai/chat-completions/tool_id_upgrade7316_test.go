@@ -53,7 +53,7 @@ func TestToolIDUpgrade7316ParallelRequestsAndTurnsStayPaired(t *testing.T) {
 						t.Fatalf("tool ID collision or mispairing: %s", out)
 					}
 					seen[id] = true
-					if got := results[i].Get("functionResponse.response.result").String(); got != fmt.Sprintf("request=%d turn=%d tool=%d <>&", request, turn, i) {
+					if got := results[i].Get("functionResponse.response.output").String(); got != fmt.Sprintf("request=%d turn=%d tool=%d <>&", request, turn, i) {
 						t.Fatalf("tool result belongs to another request/turn: %s", out)
 					}
 					if calls[i].Get("functionCall.args.n").Raw != "9223372036854775807" || calls[i].Get("functionCall.args.ok").Raw != "false" {

@@ -21,13 +21,13 @@ func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
 	for _, route := range []struct {
 		name, template, path string
 		convert              func(string, []byte, bool) ([]byte, error)
-		directResponse       bool
+		opaqueResponseKey    string
 	}{
-		{"claude-gemini", claude, "contents.1.parts.0.functionResponse.response.result", geminiclaude.ConvertClaudeRequestToGemini, false},
-		{"claude-antigravity", claude, "request.contents.1.parts.0.functionResponse.response.result", agclaude.ConvertClaudeRequestToAntigravity, false},
-		{"responses-gemini", responses, "contents.1.parts.0.functionResponse.response.result", geminiresponses.ConvertOpenAIResponsesRequestToGemini, false},
-		{"interactions-gemini", interactions, "contents.0.parts.0.functionResponse.response", geminiinteractions.ConvertInteractionsRequestToGemini, true},
-		{"interactions-antigravity", interactions, "request.contents.0.parts.0.functionResponse.response", aginteractions.ConvertInteractionsRequestToAntigravity, true},
+		{"claude-gemini", claude, "contents.1.parts.0.functionResponse.response.result", geminiclaude.ConvertClaudeRequestToGemini, ""},
+		{"claude-antigravity", claude, "request.contents.1.parts.0.functionResponse.response.output", agclaude.ConvertClaudeRequestToAntigravity, ""},
+		{"responses-gemini", responses, "contents.1.parts.0.functionResponse.response.result", geminiresponses.ConvertOpenAIResponsesRequestToGemini, ""},
+		{"interactions-gemini", interactions, "contents.0.parts.0.functionResponse.response", geminiinteractions.ConvertInteractionsRequestToGemini, "result"},
+		{"interactions-antigravity", interactions, "request.contents.0.parts.0.functionResponse.response", aginteractions.ConvertInteractionsRequestToAntigravity, "output"},
 	} {
 		for _, payload := range []struct {
 			name, raw string
@@ -46,8 +46,8 @@ func TestGeminiRefUpgrade7316RoutesPreserveBusinessData(t *testing.T) {
 						t.Fatalf("request translation failed: %v", errConvert)
 					}
 					path := route.path
-					if route.directResponse && payload.stringify {
-						path += ".result"
+					if payload.stringify && route.opaqueResponseKey != "" {
+						path += "." + route.opaqueResponseKey
 					}
 					got := ojson.GetBytes(out, path)
 					if payload.stringify {

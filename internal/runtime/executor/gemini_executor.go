@@ -534,14 +534,14 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				continue
 			}
 			// Record usage before any buffered frame can terminate downstream delivery.
-			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
-				sawFinishReason = true
-			}
 			streamUsage.ObserveGeminiStream(rawPayload)
 			if filterMsg, blocked := clienterror.GeminiFilterBlockMessage(rawPayload); blocked {
 				pendingFilterPayload = bytes.Clone(rawPayload)
 				pendingFilterMsg = filterMsg
 				continue
+			}
+			if !sawFinishReason && geminiStreamHasFinishSignal(rawPayload) {
+				sawFinishReason = true
 			}
 			if blockMsg, blocked := helps.GeminiPromptBlockErrorMessage(rawPayload); blocked {
 				blockErr := statusErr{code: http.StatusBadGateway, msg: blockMsg}
@@ -986,6 +986,9 @@ func (e *GeminiExecutor) executeInteractionsStream(ctx context.Context, auth *cl
 			frame = append(frame, line...)
 		}
 		errScan := scanner.Err()
+		if errScan != nil && !(terminalDelivered && errors.Is(errScan, context.Canceled)) {
+			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+		}
 		if errScan == nil && ctx.Err() == nil {
 			if !emitFrame() {
 				return
@@ -998,7 +1001,6 @@ func (e *GeminiExecutor) executeInteractionsStream(ctx context.Context, auth *cl
 			if terminalDelivered && errors.Is(errScan, context.Canceled) {
 				return
 			}
-			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
 			streamUsage.PublishFailure(ctx, reporter, errScan)
 			select {
 			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
