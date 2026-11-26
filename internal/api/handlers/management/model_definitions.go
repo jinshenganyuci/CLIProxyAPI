@@ -70,18 +70,28 @@ func (h *Handler) GetStaticModelDefinitions(c *gin.Context) {
 		return
 	}
 
-	models := registry.GetStaticModelDefinitionsByChannel(channel)
-	if strings.EqualFold(channel, "devin") {
-		// The Devin catalog stores native IDs. Return published route IDs so
-		// clients can reuse them as exact OAuth alias or exclusion rules.
+	normalizedChannel := strings.ToLower(channel)
+	models := registry.GetStaticModelDefinitionsByChannel(normalizedChannel)
+	fromStatic := len(models) > 0
+	fromPluginStatic := false
+	if !fromStatic {
+		models, fromPluginStatic = h.pluginModelDefinitionsByChannel(channel)
+	}
+	namespaceV8 := c.GetBool(ConfigV8ContextKey) && (normalizedChannel == "copilot" || normalizedChannel == "devin")
+	// v0 clients of this fork also receive qualified IDs for the built-in Devin catalog.
+	legacyDevin := fromStatic && normalizedChannel == "devin"
+	if legacyDevin || (namespaceV8 && (fromStatic || fromPluginStatic)) {
+		// Expose the same IDs used for OAuth rules before aliases and credential prefixes.
+		prefix := normalizedChannel + "/"
 		for _, model := range models {
-			if model != nil {
-				model.ID = "devin/" + model.ID
+			if model == nil {
+				continue
+			}
+			id := strings.TrimSpace(model.ID)
+			if id != "" && !strings.HasPrefix(id, prefix) {
+				model.ID = prefix + id
 			}
 		}
-	}
-	if len(models) == 0 {
-		models = h.pluginModelDefinitionsByChannel(channel)
 	}
 	if len(models) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown channel", "channel": channel})
@@ -89,12 +99,12 @@ func (h *Handler) GetStaticModelDefinitions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"channel": strings.ToLower(channel),
+		"channel": normalizedChannel,
 		"models":  models,
 	})
 }
 
-func (h *Handler) pluginModelDefinitionsByChannel(channel string) []*registry.ModelInfo {
+func (h *Handler) pluginModelDefinitionsByChannel(channel string) ([]*registry.ModelInfo, bool) {
 	var host *pluginhost.Host
 	if h != nil {
 		h.mu.Lock()
@@ -103,7 +113,7 @@ func (h *Handler) pluginModelDefinitionsByChannel(channel string) []*registry.Mo
 	}
 	if host != nil {
 		if models := host.ModelsForProvider(channel); len(models) > 0 {
-			return models
+			return models, true
 		}
 	}
 	models := registry.GetGlobalRegistry().GetAvailableModelsByProvider(channel)
@@ -118,5 +128,5 @@ func (h *Handler) pluginModelDefinitionsByChannel(channel string) []*registry.Mo
 			return models[i].ID < models[j].ID
 		})
 	}
-	return models
+	return models, false
 }

@@ -32,18 +32,31 @@ func TestUpgrade823AntigravityThoughtUsageAgreesAcrossTerminalPaths(t *testing.T
 					}
 					raw := []byte(`{"response":{"candidates":[{"content":{"parts":[{"text":"hello"}]}` + finish + `}],"` + key + `":` + usage + `}}`)
 					chunks := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, raw, &state)
-					if len(chunks) != 1 {
-						t.Fatalf("content chunk count = %d", len(chunks))
-					}
-					out = chunks[0]
-					terminal := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte("[DONE]"), &state)
+					wantChunks := 2
 					if mode == "pending_usage_done" {
-						if ojson.GetBytes(out, "usage").Exists() || ojson.GetBytes(out, "choices.0.finish_reason").String() != "" || len(terminal) != 1 {
-							t.Fatalf("pending usage finalized early or lost terminal: initial=%s terminal=%q", out, terminal)
+						wantChunks = 1
+					}
+					if len(chunks) != wantChunks {
+						t.Fatalf("chunk count = %d, want %d: %q", len(chunks), wantChunks, chunks)
+					}
+					content := chunks[0]
+					if ojson.GetBytes(content, "choices.0.delta.content").String() != "hello" || ojson.GetBytes(content, "usage").Exists() || ojson.GetBytes(content, "choices.0.finish_reason").String() != "" {
+						t.Fatalf("content delta lost text or finalized early: %s", content)
+					}
+					done := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte("[DONE]"), &state)
+					if mode == "pending_usage_done" {
+						if len(done) != 1 {
+							t.Fatalf("expected one synthesized terminal: %q", done)
 						}
-						out = terminal[0]
-					} else if len(terminal) != 0 {
-						t.Fatalf("duplicate terminal after usage: %q", terminal)
+						out = done[0]
+					} else {
+						if len(done) != 0 {
+							t.Fatalf("duplicate terminal after usage: %q", done)
+						}
+						out = chunks[1]
+					}
+					if got := ojson.GetBytes(out, "choices.0.delta").Raw; got != "{}" {
+						t.Fatalf("terminal contains a delta: %s", out)
 					}
 					if again := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte("[DONE]"), &state); len(again) != 0 {
 						t.Fatalf("repeated DONE duplicated usage: %q", again)

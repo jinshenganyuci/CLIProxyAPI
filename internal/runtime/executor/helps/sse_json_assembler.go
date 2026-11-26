@@ -34,6 +34,12 @@ func NewSSEJSONAssemblerWithBareContinuations(maxBytes int) *SSEJSONAssembler {
 	return assembler
 }
 
+// HasPending reports whether the assembler still holds an incomplete or
+// discarded-in-progress SSE event that has not terminated.
+func (a *SSEJSONAssembler) HasPending() bool {
+	return a != nil && (len(a.pending) > 0 || a.discardUntilBlank)
+}
+
 // Reset clears any buffered partial JSON state.
 func (a *SSEJSONAssembler) Reset() {
 	if a == nil {

@@ -159,7 +159,7 @@ func TestRequestProxyRefreshAndHomePreparationAreIsolated(t *testing.T) {
 	if _, err := m.PrepareRequestAuth(ctx, executor, auths[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.prepareHomeAuthSnapshot(ctx, executor, auths[0]); err != nil {
+	if _, err := m.prepareHomeAuthSnapshot(ctx, executor, auths[0], false); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 3 || cliproxyexecutor.RequestProxyURL(ctx) == "" {

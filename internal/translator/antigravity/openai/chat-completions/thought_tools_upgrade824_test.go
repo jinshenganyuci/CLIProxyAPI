@@ -11,7 +11,7 @@ import (
 func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.T) {
 	chunks := []string{
 		`{"response":{"candidates":[{"content":{"parts":[{"text":"consider","thought":true}]}}]}}`,
-		`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"fixture"}}}]}}]}}`,
+		`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{"path":"fixture"},"willContinue":true}}]}}]}}`,
 		`{"response":{"candidates":[{"content":{"parts":[{"text":"continue thinking","thought":true}]}}],"cpaUsageMetadata":{"promptTokenCount":17,"candidatesTokenCount":3,"thoughtsTokenCount":11,"totalTokenCount":31}}}`,
 		`{"response":{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"limit":1}}}]}}]}}`,
 		`{"response":{"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":17,"candidatesTokenCount":3,"thoughtsTokenCount":11,"totalTokenCount":31}}}`,
@@ -20,8 +20,12 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 	var arguments strings.Builder
 	for i, chunk := range chunks {
 		outputs := ConvertAntigravityResponseToOpenAI(context.Background(), "model", nil, nil, []byte(chunk), &state)
-		if len(outputs) != 1 {
-			t.Fatalf("chunk %d returned %d outputs", i, len(outputs))
+		wantOutputs := 1
+		if i == 4 {
+			wantOutputs = 2
+		}
+		if len(outputs) != wantOutputs {
+			t.Fatalf("chunk %d returned %d outputs, want %d", i, len(outputs), wantOutputs)
 		}
 		out := outputs[0]
 		tools := ojson.GetBytes(out, "choices.0.delta.tool_calls")
@@ -43,11 +47,18 @@ func TestUpgrade824AntigravityThinkingAfterToolOmitsPhantomToolDelta(t *testing.
 				t.Fatalf("chunk %d contains phantom/null tool_calls: %s", i, out)
 			}
 		}
-		if i == 2 && (ojson.GetBytes(out, "choices.0.delta.reasoning_content").String() != "continue thinking" || ojson.GetBytes(out, "choices.0.finish_reason").String() != "") {
-			t.Fatalf("thinking chunk lost content or finalized early: %s", out)
+		if i == 2 && ojson.GetBytes(out, "choices.0.delta.reasoning_content").String() != "continue thinking" {
+			t.Fatalf("thinking chunk lost content: %s", out)
 		}
-		if i == 4 && (ojson.GetBytes(out, "choices.0.finish_reason").String() != "tool_calls" || ojson.GetBytes(out, "usage.completion_tokens").Int() != 14 || ojson.GetBytes(out, "usage.completion_tokens_details.reasoning_tokens").Int() != 11) {
-			t.Fatalf("terminal lost real tool state or thought usage: %s", out)
+		if finish := ojson.GetBytes(out, "choices.0.finish_reason").String(); finish != "" {
+			t.Fatalf("chunk %d finalized with a delta: %s", i, out)
+		}
+		if i == 4 {
+			terminal := outputs[1]
+			if ojson.GetBytes(terminal, "choices.0.delta").Raw != "{}" || ojson.GetBytes(terminal, "choices.0.finish_reason").String() != "tool_calls" ||
+				ojson.GetBytes(terminal, "usage.completion_tokens").Int() != 14 || ojson.GetBytes(terminal, "usage.completion_tokens_details.reasoning_tokens").Int() != 11 {
+				t.Fatalf("terminal lost real tool state or thought usage: %s", terminal)
+			}
 		}
 	}
 	if got := arguments.String(); got != `{"path":"fixture","limit":1}` {
